@@ -4,7 +4,7 @@ import { Search, Loader2, Film, Tv, Sword, BookOpen, Gamepad2, BookMarked, Layer
 import { cn } from '@/lib/utils';
 import { getMediaTypeHealthMessage, searchMediaByType } from './searchMedia';
 import { enrichMediaEntry } from './enrichMedia';
-import { hasEnoughMediaMetadata, normalizeMediaEntry } from './mediaUtils';
+import { getPreferredPlayedOn, hasEnoughMediaMetadata, normalizeMediaEntry } from './mediaUtils';
 import { ResponsiveModal, ResponsiveModalContent, ResponsiveModalHeader, ResponsiveModalTitle } from '@/components/ui/responsive-modal';
 import { MediaEntry } from '@/lib/media-api';
 import { toast } from 'sonner';
@@ -119,6 +119,16 @@ export default function MediaSearchModal({ open, onClose, onCreated, mediaHealth
           }
 
           setActionError(`Saved without extra provider details: ${getActionError(error, 'Media enrichment failed before save.')}`);
+        }
+      }
+
+      if (nextEntry.media_type === 'game' && !nextEntry.played_on) {
+        const preferredPlatform = getPreferredPlayedOn(nextEntry);
+        if (preferredPlatform) {
+          nextEntry = {
+            ...nextEntry,
+            played_on: preferredPlatform,
+          };
         }
       }
 

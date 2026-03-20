@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import { TYPE_CONFIG, getStatusOptions } from './mediaConfig';
 import { resolveBulkMediaMatch } from './searchMedia';
 import { enrichMediaEntry } from './enrichMedia';
-import { hasEnoughMediaMetadata, mergeDefinedMediaFields } from './mediaUtils';
+import { getPreferredPlayedOn, hasEnoughMediaMetadata, mergeDefinedMediaFields, normalizeMediaEntry } from './mediaUtils';
 import { ResponsiveModal, ResponsiveModalContent, ResponsiveModalHeader, ResponsiveModalTitle } from '@/components/ui/responsive-modal';
 
 const SEARCH_CONCURRENCY = 4;
@@ -34,7 +34,7 @@ export default function BulkAddMediaModal({ open, onClose, onCreated }) {
   const [processing, setProcessing] = useState(false);
   const [phase, setPhase] = useState('input');
   const [results, setResults] = useState([]);
-  const [enrichMode, setEnrichMode] = useState('missing_only');
+  const [enrichMode, setEnrichMode] = useState('always');
 
   const parseTitles = (text) => {
     return text
@@ -60,6 +60,20 @@ export default function BulkAddMediaModal({ open, onClose, onCreated }) {
     status,
     year_consumed: new Date().getFullYear(),
   });
+
+  const finalizeEntryForCreate = (entry) => {
+    const normalized = normalizeMediaEntry(entry) || entry;
+    if (normalized?.media_type === 'game') {
+      const preferredPlatform = getPreferredPlayedOn(normalized);
+      if (preferredPlatform && !normalized.played_on) {
+        return {
+          ...normalized,
+          played_on: preferredPlatform,
+        };
+      }
+    }
+    return normalized;
+  };
 
   const updateResultAt = (index, updater) => {
     setResults((prev) => prev.map((result, resultIndex) => (
@@ -96,7 +110,7 @@ export default function BulkAddMediaModal({ open, onClose, onCreated }) {
         const shouldEnrichBeforeCreate =
           enrichMode !== 'skip' &&
           Boolean(entryToCreate.external_id) &&
-          !(enrichMode === 'missing_only' && enoughMetadata);
+          (enrichMode === 'always' || !enoughMetadata);
 
         if (shouldEnrichBeforeCreate) {
           updateResultAt(index, (result) => ({ ...result, status: 'enriching' }));
@@ -116,6 +130,8 @@ export default function BulkAddMediaModal({ open, onClose, onCreated }) {
             return;
           }
         }
+
+        entryToCreate = finalizeEntryForCreate(entryToCreate);
 
         updateResultAt(index, (result) => ({ ...result, status: 'saving', finalEntry: entryToCreate }));
         const created = await MediaEntry.create(entryToCreate);
@@ -390,8 +406,8 @@ export default function BulkAddMediaModal({ open, onClose, onCreated }) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="missing_only">Enrich missing details only</SelectItem>
-                  <SelectItem value="always">Always enrich after create</SelectItem>
+                  <SelectItem value="always">Always enrich matched titles</SelectItem>
+                  <SelectItem value="missing_only">Only enrich obviously incomplete titles</SelectItem>
                   <SelectItem value="skip">Create now, skip enrich</SelectItem>
                 </SelectContent>
               </Select>

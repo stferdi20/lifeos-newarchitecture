@@ -90,6 +90,21 @@ function normalizePlatformLabel(value) {
     .join(' ');
 }
 
+export function getPreferredPlayedOn(entry) {
+  const normalizedPlatforms = normalizeStringList(entry?.platforms).map(normalizePlatformLabel).filter(Boolean);
+  const explicitPlayedOn = normalizePlatformLabel(entry?.played_on);
+
+  if (explicitPlayedOn) {
+    return explicitPlayedOn;
+  }
+
+  if (normalizedPlatforms.length > 0) {
+    return normalizedPlatforms[0];
+  }
+
+  return '';
+}
+
 function normalizeOptionalNumber(value) {
   if (value === null || value === undefined || value === '') return null;
   const numeric = typeof value === 'number' ? value : Number(value);
