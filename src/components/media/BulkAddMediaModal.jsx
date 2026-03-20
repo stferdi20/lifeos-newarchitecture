@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import { TYPE_CONFIG, getStatusOptions } from './mediaConfig';
 import { resolveBulkMediaMatch } from './searchMedia';
 import { enrichMediaEntry } from './enrichMedia';
-import { getPreferredPlayedOn, hasEnoughMediaMetadata, mergeDefinedMediaFields, normalizeMediaEntry } from './mediaUtils';
+import { getPreferredPlayedOn, mergeDefinedMediaFields, mergeProviderMediaFields, needsMediaReenrichment, normalizeMediaEntry } from './mediaUtils';
 import { ResponsiveModal, ResponsiveModalContent, ResponsiveModalHeader, ResponsiveModalTitle } from '@/components/ui/responsive-modal';
 
 const SEARCH_CONCURRENCY = 4;
@@ -106,21 +106,20 @@ export default function BulkAddMediaModal({ open, onClose, onCreated }) {
 
       try {
         let entryToCreate = finalEntry;
-        const enoughMetadata = hasEnoughMediaMetadata(entryToCreate);
         const shouldEnrichBeforeCreate =
           enrichMode !== 'skip' &&
           Boolean(entryToCreate.external_id) &&
-          (enrichMode === 'always' || !enoughMetadata);
+          (enrichMode === 'always' || needsMediaReenrichment(entryToCreate));
 
         if (shouldEnrichBeforeCreate) {
           updateResultAt(index, (result) => ({ ...result, status: 'enriching' }));
 
           try {
             const enriched = await enrichMediaEntry(entryToCreate);
-            if (Object.keys(enriched).length === 0 && !enoughMetadata) {
+            if (Object.keys(enriched).length === 0 && needsMediaReenrichment(entryToCreate)) {
               throw new Error('Provider returned no additional media details.');
             }
-            entryToCreate = mergeDefinedMediaFields(entryToCreate, enriched);
+            entryToCreate = mergeProviderMediaFields(entryToCreate, enriched);
           } catch (error) {
             updateResultAt(index, (result) => ({
               ...result,

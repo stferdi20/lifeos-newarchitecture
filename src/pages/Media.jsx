@@ -81,6 +81,19 @@ const MEDIA_ENTRY_FIELDS = [
   'awards',
   'themes',
   'volumes',
+  'issues_total',
+  'director_names',
+  'creator_names',
+  'author_names',
+  'developer_names',
+  'character_names',
+  'concept_names',
+  'publisher',
+  'network',
+  'primary_provider',
+  'secondary_providers',
+  'enrichment_version',
+  'enriched_at',
 ];
 
 const currentYear = new Date().getFullYear();

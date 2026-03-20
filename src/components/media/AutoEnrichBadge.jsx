@@ -2,13 +2,13 @@ import React, { useState } from 'react';
 import { Sparkles, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { enrichMediaEntry } from './enrichMedia';
-import { hasEnoughMediaMetadata } from './mediaUtils';
+import { needsMediaReenrichment } from './mediaUtils';
 
 export default function AutoEnrichBadge({ entry, onEnrich }) {
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  const canEnrich = entry?.external_id && entry?.media_type && !hasEnoughMediaMetadata(entry);
+  const canEnrich = entry?.external_id && entry?.media_type && needsMediaReenrichment(entry);
 
   const handleEnrich = async (e) => {
     e.stopPropagation();

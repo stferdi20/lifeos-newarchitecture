@@ -6,7 +6,13 @@ import { cn } from '@/lib/utils';
 import { ResponsiveModal, ResponsiveModalContent, ResponsiveModalHeader, ResponsiveModalTitle } from '@/components/ui/responsive-modal';
 import { resolveBulkMediaMatch } from './searchMedia';
 import { enrichMediaEntry } from './enrichMedia';
-import { hasEnoughMediaMetadata, isRepairableMediaEntry, mergeDefinedMediaFields, normalizeMediaEntries } from './mediaUtils';
+import {
+  isRepairableMediaEntry,
+  mergeDefinedMediaFields,
+  mergeProviderMediaFields,
+  needsMediaReenrichment,
+  normalizeMediaEntries,
+} from './mediaUtils';
 
 const REPAIR_CONCURRENCY = 4;
 const MEDIA_ENTRY_FIELDS = [
@@ -40,6 +46,19 @@ const MEDIA_ENTRY_FIELDS = [
   'awards',
   'themes',
   'volumes',
+  'issues_total',
+  'director_names',
+  'creator_names',
+  'author_names',
+  'developer_names',
+  'character_names',
+  'concept_names',
+  'publisher',
+  'network',
+  'primary_provider',
+  'secondary_providers',
+  'enrichment_version',
+  'enriched_at',
 ];
 
 async function runWithConcurrency(items, worker, concurrency = REPAIR_CONCURRENCY) {
@@ -124,15 +143,15 @@ export default function RepairMediaModal({ open, onClose, onRepaired }) {
     let nextEntry = entry;
 
     try {
-      const shouldEnrich = Boolean(nextEntry.external_id) && !hasEnoughMediaMetadata(nextEntry);
+      const shouldEnrich = Boolean(nextEntry.external_id) && needsMediaReenrichment(nextEntry);
 
       if (shouldEnrich) {
         updateResultAt(index, (result) => ({ ...result, status: 'enriching', errorMessage: '' }));
         const enriched = await enrichMediaEntry(nextEntry);
-        if (Object.keys(enriched).length === 0 && !hasEnoughMediaMetadata(nextEntry)) {
+        if (Object.keys(enriched).length === 0 && needsMediaReenrichment(nextEntry)) {
           throw new Error('Provider returned no additional media details.');
         }
-        nextEntry = mergeDefinedMediaFields(nextEntry, enriched);
+        nextEntry = mergeProviderMediaFields(nextEntry, enriched);
       }
 
       updateResultAt(index, (result) => ({ ...result, status: 'saving', finalEntry: nextEntry, errorMessage: '' }));

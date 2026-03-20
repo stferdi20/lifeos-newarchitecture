@@ -1,13 +1,28 @@
+import { EXPECTED_MEDIA_BACKEND_VERSION } from './mediaBackendVersion';
+
 export const MEDIA_PAGE_SIZE = 60;
 export const INITIAL_MEDIA_RENDER_COUNT = 24;
 export const MEDIA_RENDER_STEP = 24;
-const MEDIA_ARRAY_FIELDS = ['genres', 'cast', 'platforms', 'themes'];
+const MEDIA_ARRAY_FIELDS = [
+  'genres',
+  'cast',
+  'platforms',
+  'themes',
+  'director_names',
+  'creator_names',
+  'author_names',
+  'developer_names',
+  'character_names',
+  'concept_names',
+  'secondary_providers',
+];
 const MEDIA_NUMERIC_FIELDS = [
   'rating',
   'year_consumed',
   'year_released',
   'seasons_total',
   'episodes',
+  'issues_total',
   'chapters',
   'page_count',
   'episodes_watched',
@@ -16,6 +31,7 @@ const MEDIA_NUMERIC_FIELDS = [
 ];
 const PROVIDER_LABELS = {
   tmdb: 'TMDb',
+  omdb: 'OMDb',
   anilist: 'AniList',
   jikan: 'Jikan',
   openlibrary: 'Open Library',
@@ -23,6 +39,41 @@ const PROVIDER_LABELS = {
   rawg: 'RAWG',
   comicvine: 'ComicVine',
 };
+
+const PROVIDER_MANAGED_MEDIA_FIELDS = [
+  'poster_url',
+  'source_url',
+  'external_id',
+  'studio_author',
+  'cast',
+  'genres',
+  'themes',
+  'platforms',
+  'seasons_total',
+  'episodes',
+  'issues_total',
+  'chapters',
+  'volumes',
+  'page_count',
+  'plot',
+  'duration',
+  'language',
+  'country',
+  'imdb_rating',
+  'awards',
+  'director_names',
+  'creator_names',
+  'author_names',
+  'developer_names',
+  'character_names',
+  'concept_names',
+  'publisher',
+  'network',
+  'primary_provider',
+  'secondary_providers',
+  'enrichment_version',
+  'enriched_at',
+];
 
 const PLATFORM_LABELS = {
   windows: 'Windows',
@@ -139,6 +190,24 @@ export function normalizeMediaEntry(entry) {
   }
 
   return normalized;
+}
+
+export function mergeProviderMediaFields(target, source, { preservePlayedOn = true } = {}) {
+  const next = { ...target };
+
+  for (const field of PROVIDER_MANAGED_MEDIA_FIELDS) {
+    if (isPresentMediaValue(source?.[field])) {
+      next[field] = source[field];
+    }
+  }
+
+  if (!preservePlayedOn && isPresentMediaValue(source?.played_on)) {
+    next.played_on = source.played_on;
+  } else if (!isPresentMediaValue(next.played_on) && isPresentMediaValue(source?.played_on)) {
+    next.played_on = source.played_on;
+  }
+
+  return next;
 }
 
 export function mergeDefinedMediaFields(target, source) {
@@ -268,26 +337,66 @@ export function hasEnoughMediaMetadata(entry) {
   ];
 
   if (entry.media_type === 'movie' || entry.media_type === 'series') {
+    sharedCoverage.push(
+      (Array.isArray(entry.director_names) && entry.director_names.length > 0)
+      || Boolean(entry.network)
+      || (Array.isArray(entry.creator_names) && entry.creator_names.length > 0),
+    );
     sharedCoverage.push(Array.isArray(entry.cast) && entry.cast.length > 0);
   }
 
   if (entry.media_type === 'anime' || entry.media_type === 'manga') {
-    sharedCoverage.push(Boolean(entry.studio_author));
+    sharedCoverage.push(Boolean(entry.studio_author) || (Array.isArray(entry.creator_names) && entry.creator_names.length > 0));
+    sharedCoverage.push(Boolean(entry.episodes) || Boolean(entry.chapters) || Boolean(entry.volumes));
+  }
+
+  if (entry.media_type === 'comic') {
+    sharedCoverage.push(Boolean(entry.publisher) || Boolean(entry.studio_author));
+    sharedCoverage.push(Boolean(entry.issues_total || entry.episodes));
+    sharedCoverage.push(
+      (Array.isArray(entry.creator_names) && entry.creator_names.length > 0)
+      || (Array.isArray(entry.character_names) && entry.character_names.length > 0)
+      || (Array.isArray(entry.concept_names) && entry.concept_names.length > 0),
+    );
   }
 
   if (entry.media_type === 'book') {
     sharedCoverage.push(Boolean(entry.page_count));
+    sharedCoverage.push(Boolean(entry.studio_author) || (Array.isArray(entry.author_names) && entry.author_names.length > 0));
   }
 
   if (entry.media_type === 'game') {
     sharedCoverage.push(Array.isArray(entry.platforms) && entry.platforms.length > 0);
+    sharedCoverage.push(Boolean(entry.studio_author) || (Array.isArray(entry.developer_names) && entry.developer_names.length > 0));
   }
 
   return sharedCoverage.filter(Boolean).length >= 2;
 }
 
+export function needsMediaReenrichment(entry) {
+  const normalized = normalizeMediaEntry(entry);
+  if (!normalized?.external_id || !normalized?.media_type) return false;
+
+  if (normalized.enrichment_version !== EXPECTED_MEDIA_BACKEND_VERSION) {
+    return true;
+  }
+
+  return !hasEnoughMediaMetadata(normalized);
+}
+
 export function isProviderBackedMedia(entry) {
   return Boolean(entry?.external_id);
+}
+
+function pushTag(tags, value, tone = 'neutral') {
+  const label = String(value || '').trim();
+  if (!label) return;
+  if (tags.some((tag) => tag.label === label)) return;
+  tags.push({ label, tone });
+}
+
+function pushGenreTags(tags, values = [], limit = 2) {
+  values.slice(0, limit).forEach((value) => pushTag(tags, value, 'genre'));
 }
 
 export function getMediaCardHighlightTags(entry) {
@@ -295,58 +404,50 @@ export function getMediaCardHighlightTags(entry) {
   if (!normalized) return [];
 
   const tags = [];
-  const pushUnique = (value, tone = 'neutral') => {
-    const label = String(value || '').trim();
-    if (!label) return;
-    if (tags.some((tag) => tag.label === label)) return;
-    tags.push({ label, tone });
-  };
-
-  (normalized.genres || []).slice(0, normalized.media_type === 'comic' ? 2 : 3).forEach((genre) => {
-    pushUnique(genre, 'genre');
-  });
 
   if (normalized.media_type === 'movie') {
-    String(normalized.studio_author || '').split(',').map((value) => value.trim()).filter(Boolean).slice(0, 1).forEach((director) => {
-      pushUnique(director, 'creator');
-    });
-    (normalized.cast || []).slice(0, 2).forEach((castMember) => pushUnique(castMember, 'cast'));
-  }
-
-  if (normalized.media_type === 'series' && normalized.seasons_total) {
-    pushUnique(`${normalized.seasons_total} seasons`, 'count');
-  }
-
-  if (normalized.media_type === 'anime') {
+    pushGenreTags(tags, normalized.genres, 2);
+    pushTag(tags, normalized.director_names?.[0] || normalized.studio_author, 'creator');
+    pushTag(tags, normalized.cast?.[0], 'cast');
+  } else if (normalized.media_type === 'series') {
+    pushGenreTags(tags, normalized.genres, 2);
+    if (normalized.seasons_total) {
+      pushTag(tags, `${normalized.seasons_total} seasons`, 'count');
+    }
+    pushTag(tags, normalized.network || normalized.creator_names?.[0], 'creator');
+  } else if (normalized.media_type === 'anime') {
+    pushGenreTags(tags, normalized.genres, 1);
     if (normalized.episodes > 0) {
-      pushUnique(`${normalized.episodes} eps`, 'count');
+      pushTag(tags, `${normalized.episodes} eps`, 'count');
     } else if (normalized.seasons_total > 1) {
-      pushUnique(`${normalized.seasons_total} seasons`, 'count');
+      pushTag(tags, `${normalized.seasons_total} seasons`, 'count');
     }
-  }
-
-  if (normalized.media_type === 'game') {
-    pushUnique(normalized.played_on || normalized.platforms?.[0], 'platform');
-  }
-
-  if (normalized.media_type === 'comic') {
-    if (normalized.episodes > 0) {
-      pushUnique(`${normalized.episodes} issues`, 'count');
+    pushTag(tags, normalized.creator_names?.[0] || normalized.studio_author, 'creator');
+    pushTag(tags, normalized.themes?.[0], 'neutral');
+  } else if (normalized.media_type === 'manga') {
+    pushGenreTags(tags, normalized.genres, 1);
+    if (normalized.chapters > 0) pushTag(tags, `${normalized.chapters} ch`, 'count');
+    pushTag(tags, normalized.author_names?.[0] || normalized.creator_names?.[0] || normalized.studio_author, 'creator');
+  } else if (normalized.media_type === 'comic') {
+    pushTag(tags, normalized.publisher || normalized.creator_names?.[0], 'creator');
+    if ((normalized.issues_total || normalized.episodes) > 0) {
+      pushTag(tags, `${normalized.issues_total || normalized.episodes} issues`, 'count');
     }
-    pushUnique(normalized.studio_author, 'creator');
+    pushTag(tags, normalized.concept_names?.[0] || normalized.genres?.[0], 'genre');
+    pushTag(tags, normalized.character_names?.[0], 'cast');
+  } else if (normalized.media_type === 'book') {
+    pushTag(tags, normalized.genres?.[0], 'genre');
+    pushTag(tags, normalized.author_names?.[0] || normalized.studio_author, 'creator');
+    if (normalized.page_count > 0) pushTag(tags, `${normalized.page_count}p`, 'count');
+  } else if (normalized.media_type === 'game') {
+    pushGenreTags(tags, normalized.genres, 2);
+    pushTag(tags, normalized.played_on || normalized.platforms?.[0], 'platform');
+    pushTag(tags, normalized.developer_names?.[0] || normalized.studio_author, 'creator');
+  } else {
+    pushGenreTags(tags, normalized.genres, 3);
   }
 
-  if (normalized.media_type === 'manga') {
-    if (normalized.chapters > 0) pushUnique(`${normalized.chapters} ch`, 'count');
-    pushUnique(normalized.studio_author, 'creator');
-  }
-
-  if (normalized.media_type === 'book') {
-    if (normalized.page_count > 0) pushUnique(`${normalized.page_count}p`, 'count');
-    pushUnique(normalized.studio_author, 'creator');
-  }
-
-  return tags.slice(0, 6);
+  return tags.slice(0, 4);
 }
 
 export function getMediaProviderLabel(entryOrExternalId) {
@@ -363,5 +464,5 @@ export function getMediaProviderLabel(entryOrExternalId) {
 export function isRepairableMediaEntry(entry) {
   const normalizedEntry = normalizeMediaEntry(entry);
   if (!normalizedEntry) return false;
-  return !normalizedEntry.external_id || !hasEnoughMediaMetadata(normalizedEntry);
+  return !normalizedEntry.external_id || needsMediaReenrichment(normalizedEntry);
 }

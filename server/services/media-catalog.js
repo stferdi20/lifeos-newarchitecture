@@ -11,7 +11,8 @@ const SEARCH_TTL_MS = 1000 * 60 * 10;
 const ENRICH_TTL_MS = 1000 * 60 * 30;
 const FALLBACK_RESULT_LIMIT = 8;
 
-export const MEDIA_BACKEND_VERSION = 'media-backend-2026-03-20-v2';
+export const MEDIA_BACKEND_VERSION = 'media-backend-2026-03-20-v3';
+export const MEDIA_ENRICHMENT_VERSION = MEDIA_BACKEND_VERSION;
 
 const mediaCatalogCache = (() => {
   const globalCache = globalThis;
@@ -83,6 +84,122 @@ function mergeMissingFields(primary, fallback) {
   return next;
 }
 
+const MERGED_ARRAY_FIELDS = [
+  'genres',
+  'cast',
+  'themes',
+  'platforms',
+  'director_names',
+  'creator_names',
+  'author_names',
+  'developer_names',
+  'character_names',
+  'concept_names',
+  'secondary_providers',
+];
+
+function mergeStringLists(...lists) {
+  return normalizeStringList(lists.flat());
+}
+
+function chooseLongerString(primary, fallback) {
+  const left = String(primary || '').trim();
+  const right = String(fallback || '').trim();
+  if (!left) return right;
+  if (!right) return left;
+  if (left.toLowerCase().includes('no description') && !right.toLowerCase().includes('no description')) return right;
+  if (left.length < 120 && right.length > left.length) return right;
+  return right.length > left.length ? right : left;
+}
+
+function mergeNumeric(primary, fallback) {
+  const left = Number(primary);
+  const right = Number(fallback);
+
+  const hasLeft = Number.isFinite(left) && left > 0;
+  const hasRight = Number.isFinite(right) && right > 0;
+  if (hasLeft && hasRight) return Math.max(left, right);
+  if (hasLeft) return left;
+  if (hasRight) return right;
+  return primary ?? fallback ?? null;
+}
+
+function buildEnrichmentMeta(primaryProvider, secondaryProviders = []) {
+  return {
+    primary_provider: primaryProvider,
+    secondary_providers: mergeStringLists(secondaryProviders),
+    enrichment_version: MEDIA_ENRICHMENT_VERSION,
+    enriched_at: new Date().toISOString(),
+  };
+}
+
+function finalizeLegacyMediaFields(entry = {}, mediaType = '') {
+  const next = { ...entry };
+
+  if (!next.studio_author) {
+    if (mediaType === 'movie') next.studio_author = mergeStringLists(next.director_names).slice(0, 3).join(', ');
+    if (mediaType === 'series') next.studio_author = next.network || mergeStringLists(next.creator_names).slice(0, 3).join(', ');
+    if (mediaType === 'anime') next.studio_author = mergeStringLists(next.creator_names).slice(0, 3).join(', ');
+    if (mediaType === 'manga' || mediaType === 'book') next.studio_author = mergeStringLists(next.author_names).slice(0, 4).join(', ');
+    if (mediaType === 'comic') next.studio_author = next.publisher || mergeStringLists(next.creator_names).slice(0, 4).join(', ');
+    if (mediaType === 'game') next.studio_author = mergeStringLists(next.developer_names).slice(0, 3).join(', ');
+  }
+
+  if (mediaType === 'comic') {
+    if (!Array.isArray(next.cast) || next.cast.length === 0) {
+      next.cast = mergeStringLists(next.creator_names);
+    }
+    if (!Array.isArray(next.themes) || next.themes.length === 0) {
+      next.themes = mergeStringLists(next.character_names);
+    }
+    if (!Array.isArray(next.genres) || next.genres.length === 0) {
+      next.genres = mergeStringLists(next.concept_names);
+    }
+    if (!next.issues_total && next.episodes) {
+      next.issues_total = next.episodes;
+    }
+  }
+
+  if ((mediaType === 'manga' || mediaType === 'book') && (!Array.isArray(next.creator_names) || next.creator_names.length === 0)) {
+    next.creator_names = mergeStringLists(next.author_names);
+  }
+
+  if (mediaType === 'anime' && (!Array.isArray(next.creator_names) || next.creator_names.length === 0)) {
+    next.creator_names = mergeStringLists(next.studio_author);
+  }
+
+  return filterNonEmpty(next);
+}
+
+function mergeEnrichment(primary = {}, fallback = {}, mediaType = '') {
+  const merged = { ...primary };
+
+  for (const key of MERGED_ARRAY_FIELDS) {
+    merged[key] = mergeStringLists(primary[key], fallback[key]);
+  }
+
+  merged.plot = chooseLongerString(primary.plot, fallback.plot);
+  merged.awards = chooseLongerString(primary.awards, fallback.awards);
+  merged.language = chooseLongerString(primary.language, fallback.language);
+  merged.country = chooseLongerString(primary.country, fallback.country);
+  merged.duration = chooseLongerString(primary.duration, fallback.duration);
+  merged.network = chooseLongerString(primary.network, fallback.network);
+  merged.publisher = chooseLongerString(primary.publisher, fallback.publisher);
+  merged.studio_author = chooseLongerString(primary.studio_author, fallback.studio_author);
+  merged.source_url = chooseLongerString(primary.source_url, fallback.source_url);
+  merged.poster_url = primary.poster_url || fallback.poster_url || '';
+  merged.imdb_rating = primary.imdb_rating || fallback.imdb_rating || '';
+  merged.year_released = mergeNumeric(primary.year_released, fallback.year_released);
+  merged.seasons_total = mergeNumeric(primary.seasons_total, fallback.seasons_total);
+  merged.episodes = mergeNumeric(primary.episodes, fallback.episodes);
+  merged.chapters = mergeNumeric(primary.chapters, fallback.chapters);
+  merged.volumes = mergeNumeric(primary.volumes, fallback.volumes);
+  merged.page_count = mergeNumeric(primary.page_count, fallback.page_count);
+  merged.issues_total = mergeNumeric(primary.issues_total, fallback.issues_total);
+
+  return finalizeLegacyMediaFields(merged, mediaType);
+}
+
 function extractYear(value) {
   const match = String(value || '').match(/(19|20)\d{2}/);
   return match ? Number.parseInt(match[0], 10) : null;
@@ -90,6 +207,14 @@ function extractYear(value) {
 
 function stripHtml(value) {
   return String(value || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function isWeakSynopsis(value) {
+  const text = stripHtml(value);
+  if (!text) return true;
+  if (text.length < 80) return true;
+  if (/no synopsis|no description|coming soon|tba/i.test(text)) return true;
+  return false;
 }
 
 async function fetchJson(url, init, provider) {
@@ -262,9 +387,22 @@ async function enrichTMDb(externalId, mediaType) {
       ? item.episode_run_time[0]
       : null;
 
-  const base = filterNonEmpty({
+  const directorNames = normalizeStringList(
+    (item.credits?.crew || [])
+      .filter((person) => person.job === 'Director')
+      .map((person) => person.name),
+  );
+  const creatorNames = parsed.resourceType === 'tv'
+    ? normalizeStringList((item.created_by || []).map((creator) => creator.name))
+    : directorNames;
+  const networkNames = normalizeStringList((item.networks || []).map((network) => network.name));
+
+  const base = finalizeLegacyMediaFields({
     genres: normalizeStringList((item.genres || []).map((genre) => genre.name)),
     studio_author: normalizeTmdbStudio(item, parsed.resourceType),
+    director_names: directorNames,
+    creator_names: creatorNames,
+    network: parsed.resourceType === 'tv' ? networkNames[0] || '' : '',
     year_released: normalizeTmdbYear(item, parsed.resourceType),
     poster_url: buildTmdbPosterUrl(item.poster_path),
     source_url: `https://www.themoviedb.org/${parsed.resourceType === 'movie' ? 'movie' : 'tv'}/${parsed.id}`,
@@ -281,7 +419,8 @@ async function enrichTMDb(externalId, mediaType) {
       : '',
     seasons_total: parsed.resourceType === 'tv' ? item.number_of_seasons || null : null,
     episodes: parsed.resourceType === 'tv' ? item.number_of_episodes || null : null,
-  });
+    ...buildEnrichmentMeta('tmdb'),
+  }, mediaType);
 
   const imdbId = String(item.external_ids?.imdb_id || item.imdb_id || '').trim();
   if (!imdbId) {
@@ -290,7 +429,11 @@ async function enrichTMDb(externalId, mediaType) {
 
   try {
     const omdb = await enrichOMDB(imdbId);
-    return mergeMissingFields(base, omdb);
+    const merged = mergeEnrichment(base, omdb, mediaType);
+    return {
+      ...merged,
+      ...buildEnrichmentMeta('tmdb', ['omdb']),
+    };
   } catch {
     return base;
   }
@@ -386,12 +529,6 @@ async function searchAniList(query, type) {
   }));
 }
 
-function hasAniListCoreMetadata(result) {
-  return Boolean(result.poster_url) && Boolean(result.plot) && (
-    (Array.isArray(result.genres) && result.genres.length > 0) || Boolean(result.studio_author)
-  );
-}
-
 async function enrichAniList(externalId, mediaType) {
   const parsed = parseProviderIdentity(externalId, mediaType);
   if (!parsed || parsed.provider !== 'anilist') return {};
@@ -404,10 +541,21 @@ async function enrichAniList(externalId, mediaType) {
   const item = data.data?.Media;
   if (!item) return {};
 
-  const base = filterNonEmpty({
+  const creatorNames = mediaType === 'anime'
+    ? normalizeStringList((item.studios?.nodes || []).map((studio) => studio.name))
+    : normalizeStringList((item.staff?.edges || [])
+      .filter((edge) => {
+        const role = String(edge?.role || '').toLowerCase();
+        return role.includes('story') || role.includes('author') || role.includes('art');
+      })
+      .map((edge) => edge?.node?.name?.full));
+
+  const base = finalizeLegacyMediaFields({
     genres: item.genres || [],
     themes: normalizeStringList((item.tags || []).filter((tag) => Number(tag.rank || 0) >= 60).slice(0, 6).map((tag) => tag.name)),
     studio_author: normalizeAniListCreator(item, mediaType),
+    creator_names: creatorNames,
+    author_names: mediaType === 'manga' ? creatorNames : [],
     year_released: item.startDate?.year || null,
     poster_url: item.coverImage?.extraLarge || item.coverImage?.large || item.coverImage?.medium || null,
     plot: stripHtml(item.description),
@@ -420,14 +568,37 @@ async function enrichAniList(externalId, mediaType) {
     chapters: mediaType === 'manga' ? item.chapters || null : null,
     volumes: mediaType === 'manga' ? item.volumes || null : null,
     duration: mediaType === 'anime' && item.duration ? `${item.duration} min/ep` : '',
-  });
+    ...buildEnrichmentMeta('anilist'),
+  }, mediaType);
 
-  if (!item.idMal || hasAniListCoreMetadata(base)) {
-    return base;
+  if (item.idMal) {
+    try {
+      const fallback = await enrichJikan(String(item.idMal), mediaType);
+      const merged = mergeEnrichment(base, fallback, mediaType);
+      return {
+        ...merged,
+        ...buildEnrichmentMeta('anilist', ['jikan']),
+      };
+    } catch {
+      return base;
+    }
   }
 
-  const fallback = await enrichJikan(String(item.idMal), mediaType);
-  return mergeMissingFields(base, fallback);
+  try {
+    const jikanResults = await searchJikan(normalizeAniListTitle(item.title), mediaType, true);
+    const fallbackIdentity = parseProviderIdentity(String(jikanResults[0]?.external_id || ''), mediaType);
+    if (!fallbackIdentity || fallbackIdentity.provider !== 'jikan') {
+      return base;
+    }
+    const fallback = await enrichJikan(fallbackIdentity.id, mediaType);
+    const merged = mergeEnrichment(base, fallback, mediaType);
+    return {
+      ...merged,
+      ...buildEnrichmentMeta('anilist', ['jikan']),
+    };
+  } catch {
+    return base;
+  }
 }
 
 async function searchJikan(query, type, prefixed = false) {
@@ -540,9 +711,10 @@ async function enrichOMDB(externalId) {
 
   if (data.Response === 'False') return {};
 
-  return filterNonEmpty({
+  return finalizeLegacyMediaFields({
     genres: data.Genre ? data.Genre.split(', ') : [],
     studio_author: data.Director !== 'N/A' ? data.Director : (data.Production || ''),
+    director_names: data.Director !== 'N/A' ? data.Director.split(', ').filter(Boolean) : [],
     year_released: extractYear(data.Year),
     poster_url: data.Poster !== 'N/A' ? data.Poster : null,
     seasons_total: data.totalSeasons ? Number.parseInt(data.totalSeasons, 10) : null,
@@ -554,6 +726,7 @@ async function enrichOMDB(externalId) {
     imdb_rating: data.imdbRating !== 'N/A' ? `${data.imdbRating}/10` : '',
     awards: data.Awards !== 'N/A' ? data.Awards : '',
     source_url: `https://www.imdb.com/title/${externalId}`,
+    ...buildEnrichmentMeta('omdb'),
   });
 }
 
@@ -582,10 +755,20 @@ async function enrichJikan(externalId, mediaType) {
 
   if (!item) return {};
 
+  const creatorNames = mediaType === 'anime'
+    ? normalizeStringList((item.studios || []).map((source) => source.name))
+    : normalizeStringList((item.authors || []).map((source) => source.name));
+
   const base = {
     genres: (item.genres || []).map((genre) => genre.name),
-    themes: (item.themes || []).map((theme) => theme.name),
-    studio_author: normalizeStringList((item.studios || item.authors || []).map((source) => source.name)).join(', '),
+    themes: normalizeStringList([
+      ...(item.themes || []).map((theme) => theme.name),
+      ...(item.demographics || []).map((theme) => theme.name),
+      ...(item.explicit_genres || []).map((theme) => theme.name),
+    ]),
+    studio_author: creatorNames.join(', '),
+    creator_names: creatorNames,
+    author_names: mediaType === 'manga' ? creatorNames : [],
     year_released: item.year || (item.aired?.from ? new Date(item.aired.from).getFullYear() : null),
     poster_url: item.images?.jpg?.large_image_url || item.images?.jpg?.image_url || null,
     plot: item.synopsis || '',
@@ -605,7 +788,14 @@ async function enrichJikan(externalId, mediaType) {
     }
   }
 
-  return filterNonEmpty(base);
+  if (mediaType === 'anime' && isWeakSynopsis(base.plot)) {
+    base.plot = String(item.background || item.synopsis || '').trim();
+  }
+
+  return finalizeLegacyMediaFields({
+    ...base,
+    ...buildEnrichmentMeta('jikan'),
+  }, mediaType);
 }
 
 async function enrichGoogleBooksById(volumeId) {
@@ -613,9 +803,10 @@ async function enrichGoogleBooksById(volumeId) {
   const info = data.volumeInfo;
   if (!info) return {};
 
-  return filterNonEmpty({
+  return finalizeLegacyMediaFields({
     genres: info.categories || [],
     studio_author: normalizeStringList(info.authors || []).join(', '),
+    author_names: normalizeStringList(info.authors || []),
     year_released: info.publishedDate ? extractYear(info.publishedDate) : null,
     poster_url: info.imageLinks?.thumbnail?.replace('http://', 'https://') || null,
     plot: info.description ? info.description.substring(0, 400) : '',
@@ -623,7 +814,8 @@ async function enrichGoogleBooksById(volumeId) {
     language: info.language || '',
     imdb_rating: info.averageRating ? `${info.averageRating}/5` : '',
     source_url: info.infoLink || null,
-  });
+    ...buildEnrichmentMeta('googlebooks'),
+  }, 'book');
 }
 
 function pickDescription(value) {
@@ -674,32 +866,49 @@ async function enrichOpenLibrary(externalId) {
   const firstEdition = editionEntries[0] || null;
   const title = String(work.title || '').trim();
 
-  const base = filterNonEmpty({
+  const authorNames = normalizeStringList(authors);
+  const base = finalizeLegacyMediaFields({
     genres: normalizeStringList(work.subjects || []).slice(0, 8),
-    studio_author: normalizeStringList(authors).join(', '),
+    studio_author: authorNames.join(', '),
+    author_names: authorNames,
     year_released: extractYear(work.first_publish_date) || extractYear(firstEdition?.publish_date),
     poster_url: pickCoverFromIds(work.covers) || pickCoverFromIds(firstEdition?.covers),
     plot: pickDescription(work.description).slice(0, 400),
     page_count: parseEditionPageCount(firstEditionWithPages) || parseEditionPageCount(firstEdition),
     source_url: `${OPEN_LIBRARY_BASE_URL}/works/${workId}`,
     language: normalizeStringList((firstEdition?.languages || []).map((language) => language?.key?.split('/')?.pop())).join(', '),
-  });
+    ...buildEnrichmentMeta('openlibrary'),
+  }, 'book');
 
-  if ((base.plot && base.page_count && base.poster_url) || !title) {
+  if (!title) {
     return base;
   }
 
   const fallbackQuery = normalizeStringList([title, base.studio_author]).join(' ');
   if (!fallbackQuery) return base;
 
-  const fallbackResults = await searchGoogleBooks(fallbackQuery, true);
-  const fallbackIdentity = parseProviderIdentity(String(fallbackResults[0]?.external_id || ''), 'book');
+  let fallbackIdentity = null;
+  try {
+    const fallbackResults = await searchGoogleBooks(fallbackQuery, true);
+    fallbackIdentity = parseProviderIdentity(String(fallbackResults[0]?.external_id || ''), 'book');
+  } catch {
+    fallbackIdentity = null;
+  }
+
   if (!fallbackIdentity || fallbackIdentity.provider !== 'googlebooks') {
     return base;
   }
 
-  const fallback = await enrichGoogleBooksById(fallbackIdentity.id);
-  return mergeMissingFields(base, fallback);
+  try {
+    const fallback = await enrichGoogleBooksById(fallbackIdentity.id);
+    const merged = mergeEnrichment(base, fallback, 'book');
+    return {
+      ...merged,
+      ...buildEnrichmentMeta('openlibrary', ['googlebooks']),
+    };
+  } catch {
+    return base;
+  }
 }
 
 async function enrichRAWG(externalId) {
@@ -711,9 +920,13 @@ async function enrichRAWG(externalId) {
   const data = await fetchJson(`https://api.rawg.io/api/games/${externalId}?key=${rawgKey}`, undefined, 'RAWG');
   if (!data || data.detail) return {};
 
-  return filterNonEmpty({
+  const developerNames = normalizeStringList((data.developers || []).map((developer) => developer.name));
+  const publisherNames = normalizeStringList((data.publishers || []).map((publisher) => publisher.name));
+  return finalizeLegacyMediaFields({
     genres: (data.genres || []).map((genre) => genre.name),
-    studio_author: normalizeStringList((data.developers || []).map((developer) => developer.name)).join(', '),
+    studio_author: developerNames.join(', '),
+    developer_names: developerNames,
+    publisher: publisherNames[0] || '',
     year_released: data.released ? extractYear(data.released) : null,
     poster_url: data.background_image || null,
     plot: data.description_raw ? data.description_raw.substring(0, 400) : '',
@@ -722,7 +935,8 @@ async function enrichRAWG(externalId) {
     duration: data.playtime ? `${data.playtime} hours` : '',
     imdb_rating: data.metacritic ? `${data.metacritic}/100` : '',
     themes: (data.tags || []).slice(0, 6).map((tag) => tag.name),
-  });
+    ...buildEnrichmentMeta('rawg'),
+  }, 'game');
 }
 
 async function enrichComicVine(externalId) {
@@ -739,17 +953,27 @@ async function enrichComicVine(externalId) {
   const item = data.results;
   if (!item) return {};
 
-  return filterNonEmpty({
+  const creatorNames = (item.people || []).slice(0, 8).map((person) => person.name);
+  const characterNames = (item.characters || []).slice(0, 6).map((character) => character.name);
+  const conceptNames = (item.concepts || []).slice(0, 6).map((concept) => concept.name);
+
+  return finalizeLegacyMediaFields({
     year_released: item.start_year ? Number.parseInt(item.start_year, 10) : null,
     poster_url: item.image?.medium_url || null,
     source_url: item.site_detail_url || null,
     studio_author: item.publisher?.name || null,
+    publisher: item.publisher?.name || '',
     episodes: item.count_of_issues || null,
+    issues_total: item.count_of_issues || null,
     plot: item.description ? stripHtml(item.description).substring(0, 400) : '',
-    cast: (item.people || []).slice(0, 8).map((person) => person.name),
-    themes: (item.characters || []).slice(0, 6).map((character) => character.name),
-    genres: (item.concepts || []).slice(0, 5).map((concept) => concept.name),
-  });
+    cast: creatorNames,
+    creator_names: creatorNames,
+    character_names: characterNames,
+    concept_names: conceptNames,
+    themes: characterNames,
+    genres: conceptNames,
+    ...buildEnrichmentMeta('comicvine'),
+  }, 'comic');
 }
 
 function parseProviderIdentity(externalId, mediaType) {

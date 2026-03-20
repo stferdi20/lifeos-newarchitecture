@@ -4,7 +4,7 @@ import { Search, Loader2, Film, Tv, Sword, BookOpen, Gamepad2, BookMarked, Layer
 import { cn } from '@/lib/utils';
 import { getMediaTypeHealthMessage, searchMediaByType } from './searchMedia';
 import { enrichMediaEntry } from './enrichMedia';
-import { getPreferredPlayedOn, hasEnoughMediaMetadata, normalizeMediaEntry } from './mediaUtils';
+import { getPreferredPlayedOn, mergeProviderMediaFields, needsMediaReenrichment, normalizeMediaEntry } from './mediaUtils';
 import { ResponsiveModal, ResponsiveModalContent, ResponsiveModalHeader, ResponsiveModalTitle } from '@/components/ui/responsive-modal';
 import { MediaEntry } from '@/lib/media-api';
 import { toast } from 'sonner';
@@ -103,12 +103,12 @@ export default function MediaSearchModal({ open, onClose, onCreated, mediaHealth
 
     try {
       let nextEntry = entry;
-      const shouldAttemptEnrich = entry.external_id && !hasEnoughMediaMetadata(entry);
+      const shouldAttemptEnrich = entry.external_id && needsMediaReenrichment(entry);
 
       if (shouldAttemptEnrich) {
         try {
           const enriched = await enrichMediaEntry(entry);
-          nextEntry = normalizeMediaEntry({ ...entry, ...enriched }) || entry;
+          nextEntry = normalizeMediaEntry(mergeProviderMediaFields(entry, enriched)) || entry;
         } catch (error) {
           if (!allowCreateWithoutEnrich) {
             setPendingFallbackEntry({

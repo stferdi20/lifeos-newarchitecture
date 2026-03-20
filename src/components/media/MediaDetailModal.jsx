@@ -1,27 +1,134 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
-import { Star, ExternalLink, Trash2, Clock, Users, Globe, Award, Monitor, BookOpen as BookIcon } from 'lucide-react';
+import { Star, ExternalLink, Trash2, Clock, Users, Globe, Award, Monitor, BookOpen as BookIcon, Loader2, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import AutoEnrichBadge from './AutoEnrichBadge';
+import { enrichMediaEntry } from './enrichMedia';
 import { TYPE_CONFIG, getStatusOptions } from './mediaConfig';
-import { getMediaProviderLabel, isProviderBackedMedia, normalizeMediaEntry } from './mediaUtils';
+import {
+  getMediaProviderLabel,
+  isProviderBackedMedia,
+  mergeProviderMediaFields,
+  needsMediaReenrichment,
+  normalizeMediaEntry,
+} from './mediaUtils';
 import { MobileStickyActions, ResponsiveModal, ResponsiveModalContent } from '@/components/ui/responsive-modal';
+
+function uniqueStrings(values = []) {
+  if (Array.isArray(values)) {
+    return Array.from(new Set(values.map((value) => String(value || '').trim()).filter(Boolean)));
+  }
+
+  const text = String(values || '').trim();
+  return text ? [text] : [];
+}
+
+function getPrimaryCredit(form = {}) {
+  if (form.media_type === 'movie') {
+    return {
+      label: 'Director',
+      value: uniqueStrings(form.director_names || form.studio_author).join(', '),
+    };
+  }
+
+  if (form.media_type === 'series') {
+    return {
+      label: form.network ? 'Network' : 'Creators',
+      value: form.network || uniqueStrings(form.creator_names || form.studio_author).join(', '),
+    };
+  }
+
+  if (form.media_type === 'anime') {
+    return {
+      label: 'Studio',
+      value: uniqueStrings(form.creator_names || form.studio_author).join(', '),
+    };
+  }
+
+  if (form.media_type === 'manga' || form.media_type === 'book') {
+    return {
+      label: 'Authors',
+      value: uniqueStrings(form.author_names || form.creator_names || form.studio_author).join(', '),
+    };
+  }
+
+  if (form.media_type === 'comic') {
+    return {
+      label: 'Publisher',
+      value: String(form.publisher || form.studio_author || '').trim(),
+    };
+  }
+
+  if (form.media_type === 'game') {
+    return {
+      label: 'Developers',
+      value: uniqueStrings(form.developer_names || form.studio_author).join(', '),
+    };
+  }
+
+  return { label: '', value: String(form.studio_author || '').trim() };
+}
+
+function getPeopleSection(form = {}) {
+  if (form.media_type === 'movie' || form.media_type === 'series') {
+    return { label: 'Cast', values: uniqueStrings(form.cast) };
+  }
+  if (form.media_type === 'anime') {
+    return { label: 'Studios', values: uniqueStrings(form.creator_names || form.studio_author) };
+  }
+  if (form.media_type === 'manga' || form.media_type === 'book') {
+    return { label: 'Authors', values: uniqueStrings(form.author_names || form.creator_names || form.studio_author) };
+  }
+  if (form.media_type === 'comic') {
+    return { label: 'Creators', values: uniqueStrings(form.creator_names || form.cast) };
+  }
+  if (form.media_type === 'game') {
+    return { label: 'Developers', values: uniqueStrings(form.developer_names || form.studio_author) };
+  }
+  return { label: 'People', values: uniqueStrings(form.cast) };
+}
+
+function getSecondarySections(form = {}) {
+  if (form.media_type === 'comic') {
+    return [
+      { label: 'Characters', values: uniqueStrings(form.character_names || form.themes), tone: 'violet' },
+      { label: 'Concepts', values: uniqueStrings(form.concept_names || form.genres), tone: 'secondary' },
+    ];
+  }
+
+  if (form.media_type === 'game') {
+    return [{ label: 'Tags', values: uniqueStrings(form.themes), tone: 'violet' }];
+  }
+
+  if (form.media_type === 'anime' || form.media_type === 'manga') {
+    return [{ label: 'Themes', values: uniqueStrings(form.themes), tone: 'violet' }];
+  }
+
+  return [
+    { label: 'Themes', values: uniqueStrings(form.themes), tone: 'violet' },
+    { label: 'Genres', values: uniqueStrings(form.genres), tone: 'secondary' },
+  ];
+}
 
 export default function MediaDetailModal({ open, onClose, entry, onSave, onDelete }) {
   const [form, setForm] = useState({});
   const [hoverRating, setHoverRating] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState('');
 
   useEffect(() => {
     if (entry) {
       const normalizedEntry = normalizeMediaEntry(entry);
       setForm({ ...normalizedEntry, year_consumed: normalizedEntry?.year_consumed || new Date().getFullYear() });
+      setRefreshError('');
+      setRefreshing(false);
     }
   }, [entry, open]);
 
-  const update = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
   const cfg = TYPE_CONFIG[form.media_type] || TYPE_CONFIG.movie;
   const Icon = cfg.icon;
   const statusOptions = getStatusOptions(form.media_type);
@@ -30,28 +137,37 @@ export default function MediaDetailModal({ open, onClose, entry, onSave, onDelet
   const isManga = form.media_type === 'manga';
   const isBook = form.media_type === 'book';
   const isGame = form.media_type === 'game';
-  const isReadType = ['manga', 'comic', 'book'].includes(form.media_type);
   const isProviderBacked = isProviderBackedMedia(form);
   const sourceLabel = getMediaProviderLabel(form);
-  const peopleLabel = form.media_type === 'comic'
-    ? 'Creators'
-    : form.media_type === 'book'
-      ? 'Authors'
-      : 'Cast';
-  const themeLabel = form.media_type === 'comic'
-    ? 'Characters'
-    : form.media_type === 'game'
-      ? 'Tags'
-      : 'Themes';
-  const genreLabel = form.media_type === 'comic'
-    ? 'Concepts'
-    : 'Genres';
+  const primaryCredit = getPrimaryCredit(form);
+  const peopleSection = getPeopleSection(form);
+  const secondarySections = getSecondarySections(form);
+  const shouldShowRefresh = Boolean(entry?.id) && isProviderBacked && needsMediaReenrichment(form);
+
+  const handleRefreshProviderDetails = async () => {
+    if (!isProviderBacked || refreshing) return;
+    setRefreshing(true);
+    setRefreshError('');
+
+    try {
+      const enriched = await enrichMediaEntry(form);
+      setForm((current) => normalizeMediaEntry(mergeProviderMediaFields(current, enriched)) || current);
+    } catch (error) {
+      setRefreshError(error instanceof Error ? error.message : 'Provider refresh failed.');
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const updateComicIssues = (value) => {
+    update('issues_total', value);
+    update('episodes', value);
+  };
 
   return (
     <ResponsiveModal open={open} onOpenChange={onClose}>
       <ResponsiveModalContent className="bg-[#161820] border-border max-w-2xl max-h-[90vh] overflow-y-auto p-0" mobileClassName="bg-[#161820] border-border">
         <div className="flex flex-col gap-0 sm:flex-row">
-          {/* Poster side */}
           <div className="w-full shrink-0 bg-secondary/20 relative sm:w-48">
             {form.poster_url ? (
               <img src={form.poster_url} alt={form.title} className="w-full h-52 object-cover sm:h-full" />
@@ -62,110 +178,136 @@ export default function MediaDetailModal({ open, onClose, entry, onSave, onDelet
             )}
           </div>
 
-          {/* Detail side */}
           <div className="flex-1 space-y-4 p-4 sm:p-6">
-            {/* Title & type */}
             <div>
               <div className="flex items-center gap-2 mb-1">
                 <Icon className={cn('w-4 h-4', cfg.color)} />
                 <span className={cn('text-xs font-medium', cfg.color)}>{cfg.label}</span>
-                <span className={cn(
-                  'rounded-full px-2 py-0.5 text-[10px] font-medium',
-                  isProviderBacked
-                    ? 'bg-emerald-500/10 text-emerald-300'
-                    : 'bg-amber-500/10 text-amber-200',
-                )}>
+                <span
+                  className={cn(
+                    'rounded-full px-2 py-0.5 text-[10px] font-medium',
+                    isProviderBacked ? 'bg-emerald-500/10 text-emerald-300' : 'bg-amber-500/10 text-amber-200',
+                  )}
+                >
                   {isProviderBacked ? `${sourceLabel} match` : 'Manual entry'}
                 </span>
                 {form.source_url && (
-                  <a href={form.source_url} target="_blank" rel="noopener noreferrer"
-                    className="ml-auto text-muted-foreground hover:text-foreground transition-colors">
+                  <a
+                    href={form.source_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="ml-auto text-muted-foreground hover:text-foreground transition-colors"
+                  >
                     <ExternalLink className="w-4 h-4" />
                   </a>
                 )}
               </div>
-              <Input value={form.title || ''} onChange={e => update('title', e.target.value)}
-                className="bg-transparent border-none text-lg font-bold px-0 focus-visible:ring-0 text-foreground" />
-              {form.studio_author && <p className="text-xs text-muted-foreground mt-0.5">{form.studio_author}</p>}
+
+              <Input
+                value={form.title || ''}
+                onChange={(event) => update('title', event.target.value)}
+                className="bg-transparent border-none text-lg font-bold px-0 focus-visible:ring-0 text-foreground"
+              />
+              {primaryCredit.value && <p className="text-xs text-muted-foreground mt-0.5">{primaryCredit.value}</p>}
               {!isProviderBacked && (
                 <p className="mt-2 text-xs leading-relaxed text-amber-200/80">
                   This entry is currently manual, so provider enrichment is limited until it is rematched.
                 </p>
               )}
+              {shouldShowRefresh && (
+                <div className="mt-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleRefreshProviderDetails}
+                    disabled={refreshing}
+                    className="border-border/60 bg-secondary/20 text-xs"
+                  >
+                    {refreshing ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-2 h-3.5 w-3.5" />}
+                    Refresh Provider Details
+                  </Button>
+                </div>
+              )}
+              {refreshError && <p className="mt-2 text-xs leading-relaxed text-red-300/80">{refreshError}</p>}
               {!entry?.id && (
                 <div className="mt-2">
                   <AutoEnrichBadge
                     entry={form}
-                    onEnrich={(enriched) => setForm(f => {
-                      const merged = { ...f };
-                      for (const [k, v] of Object.entries(enriched)) {
-                        if (!merged[k] || (Array.isArray(merged[k]) && merged[k].length === 0)) {
-                          merged[k] = v;
-                        }
-                      }
-                      return merged;
-                    })}
+                    onEnrich={(enriched) => setForm((current) => normalizeMediaEntry(mergeProviderMediaFields(current, enriched)) || current)}
                   />
                 </div>
               )}
             </div>
 
-            {/* Star rating */}
             <div>
               <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Your Rating</p>
               <div className="flex gap-1">
-                {Array.from({ length: 10 }, (_, i) => i + 1).map(n => (
-                  <button key={n}
-                    onMouseEnter={() => setHoverRating(n)}
+                {Array.from({ length: 10 }, (_, index) => index + 1).map((value) => (
+                  <button
+                    key={value}
+                    onMouseEnter={() => setHoverRating(value)}
                     onMouseLeave={() => setHoverRating(0)}
-                    onClick={() => update('rating', n)}
-                    className="transition-transform hover:scale-110">
-                    <Star className={cn('w-5 h-5', n <= (hoverRating || form.rating || 0)
-                      ? 'text-amber-400 fill-amber-400' : 'text-muted-foreground/30')} />
+                    onClick={() => update('rating', value)}
+                    className="transition-transform hover:scale-110"
+                  >
+                    <Star
+                      className={cn(
+                        'w-5 h-5',
+                        value <= (hoverRating || form.rating || 0) ? 'text-amber-400 fill-amber-400' : 'text-muted-foreground/30',
+                      )}
+                    />
                   </button>
                 ))}
                 {form.rating > 0 && <span className="text-sm font-bold text-amber-400 ml-1">{form.rating}/10</span>}
               </div>
             </div>
 
-            {/* Status & Year */}
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
                 <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">Status</p>
-                <Select value={form.status || 'plan_to_watch'} onValueChange={v => update('status', v)}>
+                <Select value={form.status || 'plan_to_watch'} onValueChange={(value) => update('status', value)}>
                   <SelectTrigger className="bg-secondary/40 border-border/50 h-8 text-xs">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {statusOptions.map(o => (
-                      <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                    {statusOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
               <div>
                 <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">Year Consumed</p>
-                <Input type="number" value={form.year_consumed || ''} onChange={e => update('year_consumed', parseInt(e.target.value))}
-                  className="bg-secondary/40 border-border/50 h-8 text-xs" />
+                <Input
+                  type="number"
+                  value={form.year_consumed || ''}
+                  onChange={(event) => update('year_consumed', parseInt(event.target.value, 10))}
+                  className="bg-secondary/40 border-border/50 h-8 text-xs"
+                />
               </div>
             </div>
 
-            {/* Seasons (series) */}
             {isSeries && (
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">Total Seasons</p>
-                  <Input type="number" value={form.seasons_total || ''} onChange={e => update('seasons_total', parseInt(e.target.value))}
-                    className="bg-secondary/40 border-border/50 h-8 text-xs" placeholder="e.g. 5" />
+                  <Input
+                    type="number"
+                    value={form.seasons_total || ''}
+                    onChange={(event) => update('seasons_total', parseInt(event.target.value, 10))}
+                    className="bg-secondary/40 border-border/50 h-8 text-xs"
+                    placeholder="e.g. 5"
+                  />
                 </div>
                 <div>
                   <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">Seasons Watched</p>
                   <div className="flex gap-1.5">
                     <Input
                       value={form.seasons_watched === 'all' ? '' : (form.seasons_watched || '')}
-                      onChange={e => update('seasons_watched', e.target.value)}
+                      onChange={(event) => update('seasons_watched', event.target.value)}
                       disabled={form.seasons_watched === 'all'}
-                      className={cn("bg-secondary/40 border-border/50 h-8 text-xs flex-1", form.seasons_watched === 'all' && "opacity-40")}
+                      className={cn('bg-secondary/40 border-border/50 h-8 text-xs flex-1', form.seasons_watched === 'all' && 'opacity-40')}
                       placeholder="e.g. 3"
                       type="number"
                     />
@@ -176,7 +318,7 @@ export default function MediaDetailModal({ open, onClose, entry, onSave, onDelet
                         'px-2 py-1 rounded-md text-[10px] font-medium border whitespace-nowrap transition-colors',
                         form.seasons_watched === 'all'
                           ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400'
-                          : 'bg-secondary/40 border-border/50 text-muted-foreground hover:text-foreground'
+                          : 'bg-secondary/40 border-border/50 text-muted-foreground hover:text-foreground',
                       )}
                     >
                       All
@@ -186,78 +328,108 @@ export default function MediaDetailModal({ open, onClose, entry, onSave, onDelet
               </div>
             )}
 
-            {/* Episodes (series/anime) */}
             {showEpisodes && (
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">Episodes Total</p>
-                  <Input type="number" value={form.episodes || ''} onChange={e => update('episodes', parseInt(e.target.value))}
-                    className="bg-secondary/40 border-border/50 h-8 text-xs" />
+                  <Input
+                    type="number"
+                    value={form.episodes || ''}
+                    onChange={(event) => update('episodes', parseInt(event.target.value, 10))}
+                    className="bg-secondary/40 border-border/50 h-8 text-xs"
+                  />
                 </div>
                 <div>
                   <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">Watched</p>
-                  <Input type="number" value={form.episodes_watched || ''} onChange={e => update('episodes_watched', parseInt(e.target.value))}
-                    className="bg-secondary/40 border-border/50 h-8 text-xs" />
+                  <Input
+                    type="number"
+                    value={form.episodes_watched || ''}
+                    onChange={(event) => update('episodes_watched', parseInt(event.target.value, 10))}
+                    className="bg-secondary/40 border-border/50 h-8 text-xs"
+                  />
                 </div>
               </div>
             )}
 
-            {/* Chapters (manga) */}
             {isManga && (
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <div>
                   <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">Chapters</p>
-                  <Input type="number" value={form.chapters || ''} onChange={e => update('chapters', parseInt(e.target.value))}
-                    className="bg-secondary/40 border-border/50 h-8 text-xs" />
+                  <Input
+                    type="number"
+                    value={form.chapters || ''}
+                    onChange={(event) => update('chapters', parseInt(event.target.value, 10))}
+                    className="bg-secondary/40 border-border/50 h-8 text-xs"
+                  />
                 </div>
                 <div>
                   <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">Read</p>
-                  <Input type="number" value={form.chapters_read || ''} onChange={e => update('chapters_read', parseInt(e.target.value))}
-                    className="bg-secondary/40 border-border/50 h-8 text-xs" />
+                  <Input
+                    type="number"
+                    value={form.chapters_read || ''}
+                    onChange={(event) => update('chapters_read', parseInt(event.target.value, 10))}
+                    className="bg-secondary/40 border-border/50 h-8 text-xs"
+                  />
                 </div>
                 <div>
                   <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">Volumes</p>
-                  <Input type="number" value={form.volumes || ''} onChange={e => update('volumes', parseInt(e.target.value))}
-                    className="bg-secondary/40 border-border/50 h-8 text-xs" />
+                  <Input
+                    type="number"
+                    value={form.volumes || ''}
+                    onChange={(event) => update('volumes', parseInt(event.target.value, 10))}
+                    className="bg-secondary/40 border-border/50 h-8 text-xs"
+                  />
                 </div>
               </div>
             )}
 
-            {/* Pages (book) */}
             {isBook && (
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">Pages</p>
-                  <Input type="number" value={form.page_count || ''} onChange={e => update('page_count', parseInt(e.target.value))}
-                    className="bg-secondary/40 border-border/50 h-8 text-xs" />
+                  <Input
+                    type="number"
+                    value={form.page_count || ''}
+                    onChange={(event) => update('page_count', parseInt(event.target.value, 10))}
+                    className="bg-secondary/40 border-border/50 h-8 text-xs"
+                  />
                 </div>
                 <div>
                   <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">Volumes</p>
-                  <Input type="number" value={form.volumes || ''} onChange={e => update('volumes', parseInt(e.target.value))}
-                    className="bg-secondary/40 border-border/50 h-8 text-xs" />
+                  <Input
+                    type="number"
+                    value={form.volumes || ''}
+                    onChange={(event) => update('volumes', parseInt(event.target.value, 10))}
+                    className="bg-secondary/40 border-border/50 h-8 text-xs"
+                  />
                 </div>
               </div>
             )}
 
-            {/* Comic issues */}
             {form.media_type === 'comic' && (
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">Issues</p>
-                  <Input type="number" value={form.episodes || ''} onChange={e => update('episodes', parseInt(e.target.value))}
-                    className="bg-secondary/40 border-border/50 h-8 text-xs" />
+                  <Input
+                    type="number"
+                    value={form.issues_total || form.episodes || ''}
+                    onChange={(event) => updateComicIssues(parseInt(event.target.value, 10))}
+                    className="bg-secondary/40 border-border/50 h-8 text-xs"
+                  />
                 </div>
                 <div>
                   <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">Volumes</p>
-                  <Input type="number" value={form.volumes || ''} onChange={e => update('volumes', parseInt(e.target.value))}
-                    className="bg-secondary/40 border-border/50 h-8 text-xs" />
+                  <Input
+                    type="number"
+                    value={form.volumes || ''}
+                    onChange={(event) => update('volumes', parseInt(event.target.value, 10))}
+                    className="bg-secondary/40 border-border/50 h-8 text-xs"
+                  />
                 </div>
               </div>
             )}
 
-            {/* Rich metadata section */}
             <div className="space-y-3 pt-1">
-              {/* Plot */}
               {form.plot && (
                 <div className="bg-secondary/20 rounded-xl p-3">
                   <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">Plot</p>
@@ -265,7 +437,6 @@ export default function MediaDetailModal({ open, onClose, entry, onSave, onDelet
                 </div>
               )}
 
-              {/* Info grid */}
               <div className="flex flex-wrap gap-x-4 gap-y-2">
                 {form.duration && (
                   <span className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -282,9 +453,9 @@ export default function MediaDetailModal({ open, onClose, entry, onSave, onDelet
                     <Globe className="w-3 h-3" /> {form.language}
                   </span>
                 )}
-                {form.country && (
-                  <span className="text-xs text-muted-foreground">{form.country}</span>
-                )}
+                {form.country && <span className="text-xs text-muted-foreground">{form.country}</span>}
+                {form.network && <span className="text-xs text-muted-foreground">{form.network}</span>}
+                {form.publisher && form.media_type === 'comic' && <span className="text-xs text-muted-foreground">{form.publisher}</span>}
                 {form.page_count && !isBook && (
                   <span className="flex items-center gap-1 text-xs text-muted-foreground">
                     <BookIcon className="w-3 h-3" /> {form.page_count} pages
@@ -292,38 +463,39 @@ export default function MediaDetailModal({ open, onClose, entry, onSave, onDelet
                 )}
               </div>
 
-              {/* Cast */}
-              {(form.cast || []).length > 0 && (
+              {peopleSection.values.length > 0 && (
                 <div>
                   <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5 flex items-center gap-1">
-                    <Users className="w-3 h-3" /> {peopleLabel}
+                    <Users className="w-3 h-3" /> {peopleSection.label}
                   </p>
                   <div className="flex flex-wrap gap-1.5">
-                    {form.cast.map(c => (
-                      <span key={c} className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400">{c}</span>
+                    {peopleSection.values.map((value) => (
+                      <span key={value} className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400">{value}</span>
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* Platforms & Played On */}
               {(form.platforms || []).length > 0 && (
                 <div>
                   <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5 flex items-center gap-1">
                     <Monitor className="w-3 h-3" /> {isGame ? 'Available On' : 'Platforms'}
                   </p>
                   <div className="flex flex-wrap gap-1.5">
-                    {form.platforms.map(p => (
-                      <button key={p} type="button"
-                        onClick={() => isGame && update('played_on', form.played_on === p ? '' : p)}
+                    {form.platforms.map((platform) => (
+                      <button
+                        key={platform}
+                        type="button"
+                        onClick={() => isGame && update('played_on', form.played_on === platform ? '' : platform)}
                         className={cn(
-                          "text-[10px] px-2 py-0.5 rounded-full transition-colors",
-                          isGame && form.played_on === p
-                            ? "bg-cyan-500/30 text-cyan-300 ring-1 ring-cyan-400/50"
-                            : "bg-cyan-500/10 text-cyan-400",
-                          isGame && "cursor-pointer hover:bg-cyan-500/20"
-                        )}>
-                        {p}
+                          'text-[10px] px-2 py-0.5 rounded-full transition-colors',
+                          isGame && form.played_on === platform
+                            ? 'bg-cyan-500/30 text-cyan-300 ring-1 ring-cyan-400/50'
+                            : 'bg-cyan-500/10 text-cyan-400',
+                          isGame && 'cursor-pointer hover:bg-cyan-500/20',
+                        )}
+                      >
+                        {platform}
                       </button>
                     ))}
                   </div>
@@ -335,13 +507,15 @@ export default function MediaDetailModal({ open, onClose, entry, onSave, onDelet
                   <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5 flex items-center gap-1">
                     <Monitor className="w-3 h-3" /> Played On
                   </p>
-                  <Input value={form.played_on || ''} onChange={e => update('played_on', e.target.value)}
+                  <Input
+                    value={form.played_on || ''}
+                    onChange={(event) => update('played_on', event.target.value)}
                     placeholder="e.g. PS5, PC, Switch..."
-                    className="bg-secondary/40 border-border/50 h-8 text-xs" />
+                    className="bg-secondary/40 border-border/50 h-8 text-xs"
+                  />
                 </div>
               )}
 
-              {/* Awards */}
               {form.awards && (
                 <div className="flex items-start gap-1.5">
                   <Award className="w-3 h-3 text-amber-400 shrink-0 mt-0.5" />
@@ -349,44 +523,48 @@ export default function MediaDetailModal({ open, onClose, entry, onSave, onDelet
                 </div>
               )}
 
-              {/* Themes */}
-              {(form.themes || []).length > 0 && (
-                <div>
-                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">{themeLabel}</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {form.themes.map(t => (
-                      <span key={t} className="text-[10px] px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-400">{t}</span>
-                    ))}
+              {secondarySections
+                .filter((section) => section.values.length > 0)
+                .map((section) => (
+                  <div key={section.label}>
+                    <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">{section.label}</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {section.values.map((value) => (
+                        <span
+                          key={`${section.label}-${value}`}
+                          className={cn(
+                            'text-[10px] px-2 py-0.5 rounded-full',
+                            section.tone === 'violet'
+                              ? 'bg-violet-500/10 text-violet-400'
+                              : 'bg-secondary text-muted-foreground',
+                          )}
+                        >
+                          {value}
+                        </span>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )}
+                ))}
             </div>
 
-            {/* Genres */}
-            {form.genres?.length > 0 && (
-              <div>
-                <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">{genreLabel}</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {form.genres.map(g => (
-                    <span key={g} className="text-[10px] px-2 py-0.5 rounded-full bg-secondary text-muted-foreground">{g}</span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Notes */}
             <div>
               <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">Notes</p>
-              <Textarea value={form.notes || ''} onChange={e => update('notes', e.target.value)}
+              <Textarea
+                value={form.notes || ''}
+                onChange={(event) => update('notes', event.target.value)}
                 placeholder="Personal thoughts..."
-                className="bg-secondary/30 border-border/50 min-h-[80px] text-sm resize-none" />
+                className="bg-secondary/30 border-border/50 min-h-[80px] text-sm resize-none"
+              />
             </div>
 
-            {/* Actions */}
             <MobileStickyActions className="flex gap-2 bg-[#161820]/95">
               {entry?.id && (
-                <Button variant="ghost" size="sm" onClick={() => onDelete(entry.id)}
-                  className="text-red-400 hover:text-red-300 hover:bg-red-500/10">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onDelete(entry.id)}
+                  className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                >
                   <Trash2 className="w-4 h-4" />
                 </Button>
               )}
