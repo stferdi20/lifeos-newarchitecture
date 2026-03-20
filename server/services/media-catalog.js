@@ -209,6 +209,15 @@ function normalizeTmdbYear(item, resourceType) {
 
 function normalizeTmdbStudio(item, resourceType) {
   if (resourceType === 'movie') {
+    const directors = normalizeStringList(
+      (item.credits?.crew || [])
+        .filter((person) => person.job === 'Director')
+        .map((person) => person.name),
+    );
+    if (directors.length > 0) {
+      return directors.slice(0, 3).join(', ');
+    }
+
     return normalizeStringList((item.production_companies || []).map((company) => company.name)).slice(0, 3).join(', ');
   }
 
@@ -243,7 +252,7 @@ async function enrichTMDb(externalId, mediaType) {
   if (!parsed || parsed.provider !== 'tmdb') return {};
 
   const request = buildTmdbRequest(`/${parsed.resourceType}/${parsed.id}`, {
-    append_to_response: 'credits',
+    append_to_response: 'credits,external_ids',
     language: 'en-US',
   });
   const item = await fetchJson(request.url, request.init, 'TMDb');
@@ -253,7 +262,7 @@ async function enrichTMDb(externalId, mediaType) {
       ? item.episode_run_time[0]
       : null;
 
-  return filterNonEmpty({
+  const base = filterNonEmpty({
     genres: normalizeStringList((item.genres || []).map((genre) => genre.name)),
     studio_author: normalizeTmdbStudio(item, parsed.resourceType),
     year_released: normalizeTmdbYear(item, parsed.resourceType),
@@ -273,6 +282,18 @@ async function enrichTMDb(externalId, mediaType) {
     seasons_total: parsed.resourceType === 'tv' ? item.number_of_seasons || null : null,
     episodes: parsed.resourceType === 'tv' ? item.number_of_episodes || null : null,
   });
+
+  const imdbId = String(item.external_ids?.imdb_id || item.imdb_id || '').trim();
+  if (!imdbId) {
+    return base;
+  }
+
+  try {
+    const omdb = await enrichOMDB(imdbId);
+    return mergeMissingFields(base, omdb);
+  } catch {
+    return base;
+  }
 }
 
 async function postAniList(query, variables) {

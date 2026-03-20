@@ -33,6 +33,19 @@ export default function MediaDetailModal({ open, onClose, entry, onSave, onDelet
   const isReadType = ['manga', 'comic', 'book'].includes(form.media_type);
   const isProviderBacked = isProviderBackedMedia(form);
   const sourceLabel = getMediaProviderLabel(form);
+  const peopleLabel = form.media_type === 'comic'
+    ? 'Creators'
+    : form.media_type === 'book'
+      ? 'Authors'
+      : 'Cast';
+  const themeLabel = form.media_type === 'comic'
+    ? 'Characters'
+    : form.media_type === 'game'
+      ? 'Tags'
+      : 'Themes';
+  const genreLabel = form.media_type === 'comic'
+    ? 'Concepts'
+    : 'Genres';
 
   return (
     <ResponsiveModal open={open} onOpenChange={onClose}>
@@ -283,7 +296,7 @@ export default function MediaDetailModal({ open, onClose, entry, onSave, onDelet
               {(form.cast || []).length > 0 && (
                 <div>
                   <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5 flex items-center gap-1">
-                    <Users className="w-3 h-3" /> Cast
+                    <Users className="w-3 h-3" /> {peopleLabel}
                   </p>
                   <div className="flex flex-wrap gap-1.5">
                     {form.cast.map(c => (
@@ -338,20 +351,26 @@ export default function MediaDetailModal({ open, onClose, entry, onSave, onDelet
 
               {/* Themes */}
               {(form.themes || []).length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {form.themes.map(t => (
-                    <span key={t} className="text-[10px] px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-400">{t}</span>
-                  ))}
+                <div>
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">{themeLabel}</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {form.themes.map(t => (
+                      <span key={t} className="text-[10px] px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-400">{t}</span>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
 
             {/* Genres */}
             {form.genres?.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {form.genres.map(g => (
-                  <span key={g} className="text-[10px] px-2 py-0.5 rounded-full bg-secondary text-muted-foreground">{g}</span>
-                ))}
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">{genreLabel}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {form.genres.map(g => (
+                    <span key={g} className="text-[10px] px-2 py-0.5 rounded-full bg-secondary text-muted-foreground">{g}</span>
+                  ))}
+                </div>
               </div>
             )}
 

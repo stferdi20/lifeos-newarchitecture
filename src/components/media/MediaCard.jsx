@@ -2,7 +2,16 @@ import React, { memo } from 'react';
 import { cn } from '@/lib/utils';
 import { Star } from 'lucide-react';
 import { TYPE_CONFIG, STATUS_COLORS, getStatusLabel } from './mediaConfig';
-import { isProviderBackedMedia, normalizeMediaEntry } from './mediaUtils';
+import { getMediaCardHighlightTags, isProviderBackedMedia, normalizeMediaEntry } from './mediaUtils';
+
+const TAG_TONE_CLASSES = {
+  genre: 'bg-white/15 text-white/90',
+  creator: 'bg-blue-500/30 text-blue-200',
+  cast: 'bg-indigo-500/25 text-indigo-200',
+  platform: 'bg-cyan-500/30 text-cyan-200',
+  count: 'bg-violet-500/30 text-violet-200',
+  neutral: 'bg-white/15 text-white/90',
+};
 
 function MediaCard({ entry, onClick, className }) {
   const normalizedEntry = normalizeMediaEntry(entry);
@@ -12,6 +21,7 @@ function MediaCard({ entry, onClick, className }) {
   const Icon = cfg.icon;
   const showChapters = normalizedEntry?.media_type === 'manga' && normalizedEntry?.chapters;
   const isProviderBacked = isProviderBackedMedia(normalizedEntry);
+  const highlightTags = getMediaCardHighlightTags(normalizedEntry);
 
   if (!normalizedEntry) return null;
 
@@ -53,38 +63,17 @@ function MediaCard({ entry, onClick, className }) {
         )}
         {/* Bottom overlay: genres + type-specific info */}
         <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent pt-6 pb-2 px-2 flex flex-wrap gap-1 items-end">
-          {normalizedEntry.genres.slice(0, normalizedEntry.media_type === 'comic' ? 2 : 3).map(g => (
-            <span key={g} className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/15 text-white/90 backdrop-blur-sm font-medium leading-none">{g}</span>
+          {highlightTags.map((tag) => (
+            <span
+              key={`${normalizedEntry.id || normalizedEntry.title}-${tag.label}`}
+              className={cn(
+                'text-[9px] px-1.5 py-0.5 rounded-full backdrop-blur-sm font-medium leading-none truncate max-w-[88px]',
+                TAG_TONE_CLASSES[tag.tone] || TAG_TONE_CLASSES.neutral,
+              )}
+            >
+              {tag.label}
+            </span>
           ))}
-          {normalizedEntry.media_type === 'movie' && normalizedEntry.studio_author && (
-            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-500/30 text-blue-200 font-medium leading-none truncate max-w-[80px]">{normalizedEntry.studio_author}</span>
-          )}
-          {normalizedEntry.media_type === 'movie' && normalizedEntry.cast.slice(0, 2).map(c => (
-            <span key={c} className="text-[9px] px-1.5 py-0.5 rounded-full bg-indigo-500/25 text-indigo-200 font-medium leading-none truncate max-w-[70px]">{c}</span>
-          ))}
-          {normalizedEntry.media_type === 'game' && normalizedEntry.played_on && (
-            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-cyan-500/30 text-cyan-200 font-medium leading-none">{normalizedEntry.played_on}</span>
-          )}
-          {normalizedEntry.media_type === 'game' && !normalizedEntry.played_on && normalizedEntry.platforms.length > 0 && (
-            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-cyan-500/30 text-cyan-200 font-medium leading-none">{normalizedEntry.platforms[0]}</span>
-          )}
-          {normalizedEntry.media_type === 'series' && normalizedEntry.seasons_total && (
-            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-purple-500/30 text-purple-200 font-medium leading-none">{normalizedEntry.seasons_total} season{normalizedEntry.seasons_total !== 1 ? 's' : ''}</span>
-          )}
-          {normalizedEntry.media_type === 'anime' && normalizedEntry.seasons_total > 1 ? (
-            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-pink-500/30 text-pink-200 font-medium leading-none">{normalizedEntry.seasons_total} seasons</span>
-          ) : normalizedEntry.media_type === 'anime' && normalizedEntry.episodes > 0 ? (
-            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-pink-500/30 text-pink-200 font-medium leading-none">{normalizedEntry.episodes} eps</span>
-          ) : null}
-          {['manga', 'comic', 'book'].includes(normalizedEntry.media_type) && normalizedEntry.studio_author && (
-            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-orange-500/25 text-orange-200 font-medium leading-none truncate max-w-[90px]">{normalizedEntry.studio_author}</span>
-          )}
-          {normalizedEntry.media_type === 'manga' && normalizedEntry.chapters > 0 && (
-            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-red-500/30 text-red-200 font-medium leading-none">{normalizedEntry.chapters} ch</span>
-          )}
-          {normalizedEntry.media_type === 'book' && normalizedEntry.page_count > 0 && (
-            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/30 text-emerald-200 font-medium leading-none">{normalizedEntry.page_count}p</span>
-          )}
         </div>
       </div>
       {/* Info */}

@@ -290,6 +290,65 @@ export function isProviderBackedMedia(entry) {
   return Boolean(entry?.external_id);
 }
 
+export function getMediaCardHighlightTags(entry) {
+  const normalized = normalizeMediaEntry(entry);
+  if (!normalized) return [];
+
+  const tags = [];
+  const pushUnique = (value, tone = 'neutral') => {
+    const label = String(value || '').trim();
+    if (!label) return;
+    if (tags.some((tag) => tag.label === label)) return;
+    tags.push({ label, tone });
+  };
+
+  (normalized.genres || []).slice(0, normalized.media_type === 'comic' ? 2 : 3).forEach((genre) => {
+    pushUnique(genre, 'genre');
+  });
+
+  if (normalized.media_type === 'movie') {
+    String(normalized.studio_author || '').split(',').map((value) => value.trim()).filter(Boolean).slice(0, 1).forEach((director) => {
+      pushUnique(director, 'creator');
+    });
+    (normalized.cast || []).slice(0, 2).forEach((castMember) => pushUnique(castMember, 'cast'));
+  }
+
+  if (normalized.media_type === 'series' && normalized.seasons_total) {
+    pushUnique(`${normalized.seasons_total} seasons`, 'count');
+  }
+
+  if (normalized.media_type === 'anime') {
+    if (normalized.episodes > 0) {
+      pushUnique(`${normalized.episodes} eps`, 'count');
+    } else if (normalized.seasons_total > 1) {
+      pushUnique(`${normalized.seasons_total} seasons`, 'count');
+    }
+  }
+
+  if (normalized.media_type === 'game') {
+    pushUnique(normalized.played_on || normalized.platforms?.[0], 'platform');
+  }
+
+  if (normalized.media_type === 'comic') {
+    if (normalized.episodes > 0) {
+      pushUnique(`${normalized.episodes} issues`, 'count');
+    }
+    pushUnique(normalized.studio_author, 'creator');
+  }
+
+  if (normalized.media_type === 'manga') {
+    if (normalized.chapters > 0) pushUnique(`${normalized.chapters} ch`, 'count');
+    pushUnique(normalized.studio_author, 'creator');
+  }
+
+  if (normalized.media_type === 'book') {
+    if (normalized.page_count > 0) pushUnique(`${normalized.page_count}p`, 'count');
+    pushUnique(normalized.studio_author, 'creator');
+  }
+
+  return tags.slice(0, 6);
+}
+
 export function getMediaProviderLabel(entryOrExternalId) {
   const externalId = typeof entryOrExternalId === 'string'
     ? entryOrExternalId
