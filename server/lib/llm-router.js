@@ -269,9 +269,20 @@ async function routeRaw({
     }
   }
 
-  throw new HttpError(502, lastError?.message || 'All AI providers failed.', {
-    attemptedProviders,
-  });
+  const detailMessage = lastError instanceof HttpError
+    ? lastError.extras?.details
+    : null;
+
+  throw new HttpError(
+    502,
+    detailMessage
+      ? `${lastError?.message || 'AI provider failed.'} ${typeof detailMessage === 'string' ? detailMessage : JSON.stringify(detailMessage)}`
+      : (lastError?.message || 'All AI providers failed.'),
+    {
+      attemptedProviders,
+      ...(lastError instanceof HttpError && lastError.extras ? lastError.extras : {}),
+    },
+  );
 }
 
 export async function routeText(options) {

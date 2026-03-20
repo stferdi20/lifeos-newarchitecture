@@ -4,11 +4,12 @@ import { safeJson } from '../lib/http.js';
 import { createCompatCrudRoute } from './compat-crud.js';
 import { invokeCompatFunction } from '../services/compat-functions.js';
 
-const mediaRoutes = createCompatCrudRoute({
+const mediaCrudRoutes = createCompatCrudRoute({
   entityType: 'MediaEntry',
   collectionKey: 'mediaEntries',
   itemKey: 'mediaEntry',
 });
+const mediaRoutes = new Hono();
 
 mediaRoutes.post('/search', async (c) => {
   const auth = await requireUser(c);
@@ -36,5 +37,7 @@ mediaRoutes.post('/bulk-update', async (c) => {
   const data = await invokeCompatFunction(auth.user.id, 'bulkUpdateMediaEntries', body);
   return c.json(data);
 });
+
+mediaRoutes.route('/', mediaCrudRoutes);
 
 export default mediaRoutes;
