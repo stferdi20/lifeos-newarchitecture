@@ -17,6 +17,7 @@ const STATUS_COLORS = {
 
 const CONTENT_SOURCE_LABELS = {
   youtube_transcript: 'Transcript',
+  youtube_description: 'Video description',
   html_text: 'Page text',
   reddit_thread: 'Thread text',
   pdf_text: 'PDF text',

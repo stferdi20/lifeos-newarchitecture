@@ -158,12 +158,22 @@ export async function resolveBulkMediaMatch(title, type) {
       originalTitle: title,
     });
 
+    const match = resolution.match || null;
+    const bestCandidate = resolution.bestCandidate || match || null;
+    let decision = resolution.decision || 'no_match';
+
+    if ((decision === 'matched' || decision === 'matched_direct') && match) {
+      decision = 'auto_accept';
+    } else if (decision === 'no_match' && bestCandidate) {
+      decision = 'needs_review';
+    }
+
     return {
       results: resolution.results || [],
-      match: resolution.match || null,
-      bestCandidate: resolution.bestCandidate || null,
-      matched: Boolean(resolution.match),
-      decision: resolution.decision || 'no_match',
+      match,
+      bestCandidate,
+      matched: Boolean(match),
+      decision,
       fallbackUsed: Boolean(resolution.queryUsed) && resolution.queryUsed !== query,
       confidence: resolution.confidence || 0,
       lookupFailed: false,

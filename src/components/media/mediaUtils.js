@@ -24,6 +24,39 @@ const PROVIDER_LABELS = {
   comicvine: 'ComicVine',
 };
 
+const PLATFORM_LABELS = {
+  windows: 'Windows',
+  win: 'Windows',
+  pc: 'PC',
+  mac: 'MacOS',
+  macos: 'MacOS',
+  'mac os': 'MacOS',
+  osx: 'MacOS',
+  linux: 'Linux',
+  'playstation 5': 'PS5',
+  ps5: 'PS5',
+  'playstation 4': 'PS4',
+  ps4: 'PS4',
+  'playstation 3': 'PS3',
+  ps3: 'PS3',
+  'playstation 2': 'PS2',
+  ps2: 'PS2',
+  playstation: 'PlayStation',
+  'xbox series x/s': 'Xbox Series X|S',
+  'xbox one': 'Xbox One',
+  'xbox 360': 'Xbox 360',
+  xbox: 'Xbox',
+  'nintendo switch': 'Switch',
+  switch: 'Switch',
+  'game boy advance': 'Game Boy Advance',
+  gba: 'Game Boy Advance',
+  'nintendo ds': 'Nintendo DS',
+  ds: 'Nintendo DS',
+  gamecube: 'GameCube',
+  ios: 'iOS',
+  android: 'Android',
+};
+
 export function isPresentMediaValue(value) {
   return value !== null && value !== undefined && value !== '' && !(Array.isArray(value) && value.length === 0);
 }
@@ -45,6 +78,18 @@ function normalizeStringList(value) {
   return [];
 }
 
+function normalizePlatformLabel(value) {
+  const cleaned = String(value || '').trim();
+  if (!cleaned) return '';
+  const mapped = PLATFORM_LABELS[cleaned.toLowerCase()];
+  if (mapped) return mapped;
+
+  return cleaned
+    .split(/\s+/)
+    .map((part) => (part ? part.charAt(0).toUpperCase() + part.slice(1) : part))
+    .join(' ');
+}
+
 function normalizeOptionalNumber(value) {
   if (value === null || value === undefined || value === '') return null;
   const numeric = typeof value === 'number' ? value : Number(value);
@@ -60,6 +105,8 @@ export function normalizeMediaEntry(entry) {
     normalized[field] = normalizeStringList(entry[field]);
   });
 
+  normalized.platforms = (normalized.platforms || []).map(normalizePlatformLabel).filter(Boolean);
+
   MEDIA_NUMERIC_FIELDS.forEach((field) => {
     if (field in entry) {
       normalized[field] = normalizeOptionalNumber(entry[field]);
@@ -70,6 +117,10 @@ export function normalizeMediaEntry(entry) {
     normalized.seasons_watched = entry.seasons_watched === 'all'
       ? 'all'
       : normalizeOptionalNumber(entry.seasons_watched);
+  }
+
+  if ('played_on' in entry) {
+    normalized.played_on = normalizePlatformLabel(entry.played_on);
   }
 
   return normalized;

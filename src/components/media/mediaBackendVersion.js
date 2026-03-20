@@ -1,1 +1,1 @@
-export const EXPECTED_MEDIA_BACKEND_VERSION = 'media-backend-2026-03-19-v1';
+export const EXPECTED_MEDIA_BACKEND_VERSION = 'media-backend-2026-03-20-v2';

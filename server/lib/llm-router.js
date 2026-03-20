@@ -47,11 +47,55 @@ function extractJson(text) {
   try {
     return JSON.parse(trimmed);
   } catch {
-    const match = trimmed.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
-    if (!match) {
+    const startIndex = trimmed.search(/[\[{]/);
+    if (startIndex === -1) {
       throw new HttpError(502, 'LLM returned invalid JSON.');
     }
-    return JSON.parse(match[0]);
+
+    const stack = [];
+    let inString = false;
+    let escaped = false;
+
+    for (let index = startIndex; index < trimmed.length; index += 1) {
+      const char = trimmed[index];
+
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+          continue;
+        }
+        if (char === '\\') {
+          escaped = true;
+          continue;
+        }
+        if (char === '"') {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (char === '"') {
+        inString = true;
+        continue;
+      }
+
+      if (char === '{' || char === '[') {
+        stack.push(char);
+        continue;
+      }
+
+      if (char === '}' || char === ']') {
+        const open = stack.pop();
+        const validPair = (open === '{' && char === '}') || (open === '[' && char === ']');
+        if (!validPair) break;
+        if (stack.length === 0) {
+          const candidate = trimmed.slice(startIndex, index + 1);
+          return JSON.parse(candidate);
+        }
+      }
+    }
+
+    throw new HttpError(502, 'LLM returned invalid JSON.');
   }
 }
 
@@ -147,7 +191,7 @@ async function callGemini({
       generationConfig: {
         temperature,
         maxOutputTokens: maxTokens,
-        ...(jsonMode ? { responseMimeType: 'application/json' } : {}),
+        ...((jsonMode && !groundWithGoogleSearch) ? { responseMimeType: 'application/json' } : {}),
       },
       ...(groundWithGoogleSearch ? { tools: [{ google_search: {} }] } : {}),
     }),
