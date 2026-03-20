@@ -1,0 +1,71 @@
+let cachedEnv = null;
+
+function normalizeString(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function normalizeBoolean(value, fallback = false) {
+  if (typeof value === 'boolean') return value;
+  const normalized = normalizeString(value).toLowerCase();
+  if (!normalized) return fallback;
+  return ['1', 'true', 'yes', 'on'].includes(normalized);
+}
+
+export function getServerEnv() {
+  if (cachedEnv) return cachedEnv;
+
+  cachedEnv = {
+    NODE_ENV: normalizeString(process.env.NODE_ENV) || 'development',
+    SUPABASE_URL: normalizeString(process.env.SUPABASE_URL),
+    SUPABASE_SERVICE_ROLE_KEY: normalizeString(process.env.SUPABASE_SERVICE_ROLE_KEY),
+    SUPABASE_ANON_KEY: normalizeString(process.env.SUPABASE_ANON_KEY),
+    GOOGLE_GEMINI_API_KEY: normalizeString(process.env.GOOGLE_GEMINI_API_KEY),
+    GOOGLE_GEMINI_MODEL_CHEAP: normalizeString(process.env.GOOGLE_GEMINI_MODEL_CHEAP) || 'gemini-2.5-flash-lite',
+    GOOGLE_GEMINI_MODEL_STANDARD: normalizeString(process.env.GOOGLE_GEMINI_MODEL_STANDARD) || 'gemini-2.5-flash',
+    GOOGLE_GEMINI_MODEL_PREMIUM: normalizeString(process.env.GOOGLE_GEMINI_MODEL_PREMIUM) || 'gemini-2.5-pro',
+    OPENROUTER_API_KEY: normalizeString(process.env.OPENROUTER_API_KEY),
+    OPENROUTER_BASE_URL: normalizeString(process.env.OPENROUTER_BASE_URL) || 'https://openrouter.ai/api/v1',
+    OPENROUTER_MODEL_CHEAP: normalizeString(process.env.OPENROUTER_MODEL_CHEAP) || 'openai/gpt-4.1-mini',
+    OPENROUTER_MODEL_STANDARD: normalizeString(process.env.OPENROUTER_MODEL_STANDARD) || 'openai/gpt-4.1',
+    OPENROUTER_MODEL_PREMIUM: normalizeString(process.env.OPENROUTER_MODEL_PREMIUM) || 'anthropic/claude-3.7-sonnet',
+    HUGGINGFACE_API_KEY: normalizeString(process.env.HUGGINGFACE_API_KEY),
+    HUGGINGFACE_BASE_URL: normalizeString(process.env.HUGGINGFACE_BASE_URL) || 'https://router.huggingface.co/v1',
+    HUGGINGFACE_MODEL_CHEAP: normalizeString(process.env.HUGGINGFACE_MODEL_CHEAP),
+    HUGGINGFACE_MODEL_STANDARD: normalizeString(process.env.HUGGINGFACE_MODEL_STANDARD),
+    HUGGINGFACE_MODEL_PREMIUM: normalizeString(process.env.HUGGINGFACE_MODEL_PREMIUM),
+    GOOGLE_CLIENT_ID: normalizeString(process.env.GOOGLE_CLIENT_ID),
+    GOOGLE_CLIENT_SECRET: normalizeString(process.env.GOOGLE_CLIENT_SECRET),
+    GOOGLE_OAUTH_REDIRECT_URI: normalizeString(process.env.GOOGLE_OAUTH_REDIRECT_URI),
+    GOOGLE_OAUTH_STATE_SECRET: normalizeString(process.env.GOOGLE_OAUTH_STATE_SECRET),
+    GOOGLE_TOKEN_ENCRYPTION_KEY: normalizeString(process.env.GOOGLE_TOKEN_ENCRYPTION_KEY),
+    LIFEOS_DEV_USER_ID: normalizeString(process.env.LIFEOS_DEV_USER_ID),
+    LIFEOS_DEV_USER_EMAIL: normalizeString(process.env.LIFEOS_DEV_USER_EMAIL),
+    LIFEOS_DEV_USER_NAME: normalizeString(process.env.LIFEOS_DEV_USER_NAME),
+    LIFEOS_LOG_VERBOSE: normalizeBoolean(process.env.LIFEOS_LOG_VERBOSE, false),
+    APP_ORIGIN: normalizeString(process.env.APP_ORIGIN),
+    SUPABASE_STORAGE_BUCKET_UPLOADS: normalizeString(process.env.SUPABASE_STORAGE_BUCKET_UPLOADS) || 'uploads',
+  };
+
+  return cachedEnv;
+}
+
+export function hasSupabaseServerConfig() {
+  const env = getServerEnv();
+  return Boolean(env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY);
+}
+
+export function hasAiProviderConfig() {
+  const env = getServerEnv();
+  return Boolean(env.GOOGLE_GEMINI_API_KEY || env.OPENROUTER_API_KEY || env.HUGGINGFACE_API_KEY);
+}
+
+export function hasGoogleOAuthConfig() {
+  const env = getServerEnv();
+  return Boolean(
+    env.GOOGLE_CLIENT_ID
+    && env.GOOGLE_CLIENT_SECRET
+    && env.GOOGLE_OAUTH_REDIRECT_URI
+    && env.GOOGLE_OAUTH_STATE_SECRET
+    && env.GOOGLE_TOKEN_ENCRYPTION_KEY
+  );
+}
