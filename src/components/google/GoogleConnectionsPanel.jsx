@@ -67,13 +67,17 @@ export default function GoogleConnectionsPanel() {
 
   const handleConnect = async (service) => {
     setBusyService(service);
+    const popup = window.open('', `lifeos-google-${service}`, 'popup,width=540,height=760');
     try {
       const result = await connectGoogleService(service);
-      const popup = window.open(result.authUrl, `lifeos-google-${service}`, 'popup,width=540,height=760');
-      if (!popup) {
+      if (popup) {
+        popup.location.href = result.authUrl;
+        popup.focus?.();
+      } else {
         window.location.assign(result.authUrl);
       }
     } catch (error) {
+      popup?.close?.();
       toast.error(error?.message || `Failed to start Google ${service} connection.`);
     } finally {
       setBusyService('');
