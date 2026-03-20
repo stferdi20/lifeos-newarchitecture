@@ -45,12 +45,24 @@ export default function GoogleConnectionsPanel() {
     return () => window.removeEventListener('message', handleMessage);
   }, [queryClient]);
 
+  const fallbackConnections = useMemo(
+    () => Object.keys(SERVICE_META).map((service) => ({
+      service,
+      status: 'disconnected',
+      scope: '',
+      last_connected_at: null,
+      disconnected_at: null,
+      meta: SERVICE_META[service],
+    })),
+    [],
+  );
+
   const connections = useMemo(
-    () => (connectionsQuery.data || []).map((entry) => ({
+    () => (connectionsQuery.data || fallbackConnections).map((entry) => ({
       ...entry,
       meta: SERVICE_META[entry.service],
     })),
-    [connectionsQuery.data],
+    [connectionsQuery.data, fallbackConnections],
   );
 
   const handleConnect = async (service) => {
@@ -94,6 +106,11 @@ export default function GoogleConnectionsPanel() {
       </div>
 
       <div className="mt-4 space-y-3">
+        {connectionsQuery.isError ? (
+          <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-3 text-xs text-amber-100">
+            Couldn&apos;t load current Google connection status. You can still start a connection below.
+          </div>
+        ) : null}
         {connections.map((connection) => {
           const isConnected = connection.status === 'connected';
           const isBusy = busyService === connection.service;
