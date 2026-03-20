@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { Loader2, Mail } from 'lucide-react';
 import { toast } from 'sonner';
@@ -12,6 +12,29 @@ export default function Login() {
   const { isAuthenticated, isLoadingAuth } = useAuth();
   const [email, setEmail] = useState('');
   const [sending, setSending] = useState(false);
+  const [linkError, setLinkError] = useState('');
+  const redirectTarget = useMemo(() => `${window.location.origin}/Login`, []);
+
+  useEffect(() => {
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const searchParams = new URLSearchParams(window.location.search);
+    const errorCode = hashParams.get('error_code') || searchParams.get('error_code');
+    const errorDescription = hashParams.get('error_description') || searchParams.get('error_description');
+
+    if (!errorCode && !errorDescription) return;
+
+    const decoded = decodeURIComponent(errorDescription || '').replace(/\+/g, ' ') || 'The sign-in link is invalid or has expired.';
+    const message = errorCode === 'otp_expired'
+      ? 'That magic link has expired. Request a fresh one below and use the newest email.'
+      : decoded;
+
+    setLinkError(message);
+    toast.error(message);
+
+    if (window.location.hash || window.location.search) {
+      window.history.replaceState({}, document.title, '/Login');
+    }
+  }, []);
 
   if (!shouldUseSupabaseAuth()) {
     return <Navigate to="/" replace />;
@@ -35,12 +58,13 @@ export default function Login() {
       const { error } = await client.auth.signInWithOtp({
         email: email.trim(),
         options: {
-          emailRedirectTo: window.location.origin,
+          emailRedirectTo: redirectTarget,
         },
       });
 
       if (error) throw error;
-      toast.success('Magic link sent. Check your email to continue.');
+      setLinkError('');
+      toast.success(`Magic link sent. Check your email and open the newest link for ${new URL(redirectTarget).host}.`);
     } catch (error) {
       toast.error(error?.message || 'Failed to send magic link.');
     } finally {
@@ -72,6 +96,11 @@ export default function Login() {
                 <p className="mt-1 text-sm text-slate-400">
                   Use the same email you want attached to your LifeOS account.
                 </p>
+                {linkError ? (
+                  <div className="mt-3 rounded-2xl border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+                    {linkError}
+                  </div>
+                ) : null}
               </div>
 
               <div className="space-y-2">
