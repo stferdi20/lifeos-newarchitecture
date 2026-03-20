@@ -63,6 +63,18 @@ export default function MediaSearchModal({ open, onClose, onCreated, mediaHealth
     onClose();
   };
 
+  const resetAfterCreate = () => {
+    setQuery('');
+    setResults([]);
+    setErrorMessage('');
+    setActionError('');
+    setPendingFallbackEntry(null);
+    setManualMode(false);
+    setManualTitle('');
+    setSavingKey('');
+    requestIdRef.current += 1;
+  };
+
   const handleManualAdd = async () => {
     if (!manualTitle.trim()) return;
 
@@ -79,7 +91,7 @@ export default function MediaSearchModal({ open, onClose, onCreated, mediaHealth
 
       onCreated?.(created);
       toast.success(`Added "${created.title}" as a manual ${activeType} entry.`);
-      handleClose();
+      resetAfterCreate();
     } catch (error) {
       setActionError(getActionError(error, 'Manual media creation failed.'));
     } finally {
@@ -135,7 +147,7 @@ export default function MediaSearchModal({ open, onClose, onCreated, mediaHealth
       const created = await MediaEntry.create(nextEntry);
       onCreated?.(created);
       toast.success(`Added "${created.title}".`);
-      handleClose();
+      resetAfterCreate();
     } catch (error) {
       setActionError(getActionError(error, 'Media creation failed.'));
     } finally {
