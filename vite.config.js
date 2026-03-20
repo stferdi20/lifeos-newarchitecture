@@ -23,33 +23,5 @@ export default defineConfig({
   },
   plugins: [
     react(),
-  ]
-  ,
-  build: {
-    rollupOptions: {
-      output: {
-        manualChunks(id) {
-          if (!id.includes('node_modules')) return undefined;
-
-          if (id.includes('react') || id.includes('scheduler') || id.includes('react-router')) {
-            return 'react-vendor';
-          }
-
-          if (id.includes('@tanstack/react-query')) {
-            return 'data-vendor';
-          }
-
-          if (id.includes('@radix-ui') || id.includes('lucide-react') || id.includes('embla-carousel')) {
-            return 'ui-vendor';
-          }
-
-          if (id.includes('three') || id.includes('react-leaflet') || id.includes('recharts') || id.includes('framer-motion') || id.includes('react-quill')) {
-            return 'heavy-vendor';
-          }
-
-          return 'vendor';
-        },
-      },
-    },
-  },
+  ],
 });
