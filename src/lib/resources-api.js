@@ -28,5 +28,5 @@ export const CardResource = createCrudApi({
 
 export async function analyzeResourceUrl(payload) {
   const res = await apiPost('/resources/analyze', payload);
-  return res?.analysis || null;
+  return res?.resource || null;
 }

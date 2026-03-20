@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { requireUser } from '../lib/supabase.js';
 import { safeJson } from '../lib/http.js';
-import { analyzeResource } from '../services/resources.js';
+import { invokeCompatFunction } from '../services/compat-functions.js';
 import {
   bulkCreateCompatEntities,
   createCompatEntity,
@@ -17,19 +17,18 @@ const resourceAnalyzeSchema = z.object({
   url: z.string().url(),
   title: z.string().optional(),
   content: z.string().optional(),
+  project_id: z.string().optional(),
 });
 
 const resourceRoutes = new Hono();
 
 resourceRoutes.post('/analyze', zValidator('json', resourceAnalyzeSchema), async (c) => {
   const auth = await requireUser(c);
-  const result = await analyzeResource({
-    ...c.req.valid('json'),
-    userId: auth.user.id,
-  });
+  const result = await invokeCompatFunction(auth.user.id, 'analyzeResource', c.req.valid('json'));
 
   return c.json({
-    analysis: result.data,
+    resource: result.resource,
+    analysis: result.analysis,
     provider: result.provider,
     model: result.model,
   });

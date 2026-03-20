@@ -34,9 +34,14 @@ function extractTextContent(data) {
 }
 
 function extractJson(text) {
-  const trimmed = String(text || '').trim();
+  let trimmed = String(text || '').trim();
   if (!trimmed) {
     throw new HttpError(502, 'LLM returned an empty response.');
+  }
+
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  if (fenced) {
+    trimmed = fenced[1].trim();
   }
 
   try {
@@ -116,6 +121,7 @@ async function callGemini({
   maxTokens,
   providerName,
   groundWithGoogleSearch = false,
+  jsonMode = false,
 }) {
   const startedAt = Date.now();
   const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
@@ -141,6 +147,7 @@ async function callGemini({
       generationConfig: {
         temperature,
         maxOutputTokens: maxTokens,
+        ...(jsonMode ? { responseMimeType: 'application/json' } : {}),
       },
       ...(groundWithGoogleSearch ? { tools: [{ google_search: {} }] } : {}),
     }),
@@ -187,6 +194,7 @@ async function routeRaw({
   policy = {},
   metadata = {},
   groundWithGoogleSearch = false,
+  jsonMode = false,
 }) {
   const env = getServerEnv();
   const resolved = resolveTier(taskType, policy);
@@ -217,6 +225,7 @@ async function routeRaw({
           maxTokens: resolved.maxTokens,
           providerName: provider,
           groundWithGoogleSearch,
+          jsonMode,
         })
         : await callOpenAiCompatible({
           baseUrl: provider === 'huggingface' ? env.HUGGINGFACE_BASE_URL : env.OPENROUTER_BASE_URL,
@@ -296,6 +305,7 @@ export async function routeJson({
   policy = {},
   metadata = {},
   groundWithGoogleSearch = false,
+  jsonMode = false,
 }) {
   const result = await routeRaw({
     taskType,
@@ -304,6 +314,7 @@ export async function routeJson({
     policy,
     metadata,
     groundWithGoogleSearch,
+    jsonMode: true,
   });
 
   return {
@@ -320,6 +331,7 @@ export async function routeStructuredJson({
   policy = {},
   metadata = {},
   groundWithGoogleSearch = false,
+  jsonMode = false,
 }) {
   const result = await routeJson({
     taskType,
@@ -328,6 +340,7 @@ export async function routeStructuredJson({
     policy,
     metadata,
     groundWithGoogleSearch,
+    jsonMode: true,
   });
 
   return {
