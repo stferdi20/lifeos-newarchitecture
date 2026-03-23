@@ -714,10 +714,7 @@ export default function Media() {
 
               <div ref={loadMoreRef} className="h-12 flex items-center justify-center">
                 {(browseQuery.isFetchingNextPage || canRevealMoreRendered) && (
-                  <span className="text-xs text-muted-foreground flex items-center gap-2">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    Loading more...
-                  </span>
+                  <div className="w-5 h-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
                 )}
               </div>
             </>
