@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DragDropContext } from '@hello-pangea/dnd';
 import {
@@ -88,6 +88,9 @@ export default function Projects() {
   const [deleteConfirmName, setDeleteConfirmName] = useState('');
   const [showCreateListDialog, setShowCreateListDialog] = useState(false);
   const [newListName, setNewListName] = useState('');
+  
+  // Mobile list view rendering state
+  const [mobileListLimits, setMobileListLimits] = useState({});
 
   const { data: workspaces = [], isLoading: workspacesLoading } = useQuery({
     queryKey: ['workspaces'],
@@ -519,7 +522,11 @@ export default function Projects() {
         ) : effectiveViewMode === 'mobile-board' ? (
           <div className="space-y-4 pb-4">
             {orderedLists.map((list) => {
-              const listCards = cardsByListId[list.id] || [];
+              const allListCards = cardsByListId[list.id] || [];
+              const visibleLimit = mobileListLimits[list.id] || 15;
+              const listCards = allListCards.slice(0, visibleLimit);
+              const hasMore = visibleLimit < allListCards.length;
+
               return (
                 <section key={list.id} className="rounded-2xl border border-border/50 bg-card/60 p-3">
                   <div className="mb-3 flex items-center justify-between gap-2">
@@ -590,6 +597,16 @@ export default function Projects() {
                           </div>
                         </button>
                       ))}
+                      
+                      {hasMore && (
+                        <Button
+                          variant="ghost"
+                          className="w-full text-xs text-muted-foreground mt-2"
+                          onClick={() => setMobileListLimits(prev => ({ ...prev, [list.id]: visibleLimit + 15 }))}
+                        >
+                          Load more cards ({allListCards.length - visibleLimit} remaining)
+                        </Button>
+                      )}
                     </div>
                   )}
                 </section>
