@@ -203,6 +203,27 @@ export default function Resources() {
     },
   });
 
+  const deleteDirectMutation = useMutation({
+    mutationFn: async (resourceId) => {
+      const [projectLinks, cardLinks] = await Promise.all([
+        fetchResourceLinks(ProjectResource, resourceId),
+        fetchResourceLinks(CardResource, resourceId),
+      ]);
+      await Promise.all([
+        ...projectLinks.map((link) => ProjectResource.delete(link.id)),
+        ...cardLinks.map((link) => CardResource.delete(link.id)),
+      ]);
+      await Resource.delete(resourceId);
+    },
+    onSuccess: () => {
+      invalidateResourceQueries();
+      toast.success('Resource deleted.');
+    },
+    onError: (error) => {
+      toast.error(error?.message || 'Failed to delete resource.');
+    },
+  });
+
   const handleManualSave = async (form) => {
     await Resource.create(form);
     queryClient.invalidateQueries({ queryKey: ['resources'] });
@@ -351,6 +372,7 @@ export default function Resources() {
             resource={r}
             onClick={handleCardClick}
             onArchiveToggle={handleArchiveToggle}
+            onDelete={(id) => deleteDirectMutation.mutate(id)}
             onTagClick={handleTagClick}
             areas={areas}
             selectMode={selectMode}

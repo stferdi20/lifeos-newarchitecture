@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import {
   Youtube, MessageSquare, Newspaper, GraduationCap, FileText, Globe, FileDown,
-  ExternalLink, Star, Github, CheckSquare, Archive, ArchiveRestore, Clapperboard
+  ExternalLink, Star, Github, CheckSquare, Archive, ArchiveRestore, Clapperboard, Trash2
 } from 'lucide-react';
 
 const typeConfig = {
@@ -117,6 +117,7 @@ export default function ResourceCard({
   resource,
   onClick,
   onArchiveToggle,
+  onDelete,
   onTagClick,
   areas,
   selectMode = false,
@@ -178,6 +179,25 @@ export default function ResourceCard({
           )}
         >
           <ArchiveIcon className="h-3.5 w-3.5" />
+        </button>
+      )}
+      {!selectMode && onDelete && (
+        <button
+          type="button"
+          aria-label="Delete resource"
+          title="Delete resource"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (window.confirm("Are you sure you want to completely delete this resource?")) {
+              onDelete(resource.id);
+            }
+          }}
+          className={cn(
+            'absolute top-2 z-20 inline-flex h-7 w-7 items-center justify-center rounded-full border border-red-500/15 bg-black/55 text-red-400/80 backdrop-blur-sm transition-colors hover:bg-red-500/20 hover:text-red-300',
+            onArchiveToggle ? 'right-11' : 'right-2'
+          )}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
         </button>
       )}
       <div className="relative h-36 overflow-hidden bg-secondary/30">

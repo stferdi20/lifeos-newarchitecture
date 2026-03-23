@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
 import { cn } from '@/lib/utils';
-import { Star } from 'lucide-react';
+import { Star, Trash2 } from 'lucide-react';
 import { TYPE_CONFIG, STATUS_COLORS, getStatusLabel } from './mediaConfig';
 import { getMediaCardHighlightTags, isProviderBackedMedia, normalizeMediaEntry } from './mediaUtils';
 
@@ -13,7 +13,7 @@ const TAG_TONE_CLASSES = {
   neutral: 'bg-white/15 text-white/90',
 };
 
-function MediaCard({ entry, onClick, className }) {
+function MediaCard({ entry, onClick, className, onDelete }) {
   const normalizedEntry = normalizeMediaEntry(entry);
   const cfg = TYPE_CONFIG[normalizedEntry?.media_type] || TYPE_CONFIG.movie;
   const statusColor = STATUS_COLORS[normalizedEntry?.status] || STATUS_COLORS.plan_to_watch;
@@ -41,6 +41,21 @@ function MediaCard({ entry, onClick, className }) {
           <div className="w-full h-full flex items-center justify-center">
             <Icon className={cn('w-8 h-8', cfg.color)} />
           </div>
+        )}
+        {onDelete && (
+          <button
+            type="button"
+            aria-label="Delete media"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (window.confirm("Are you sure you want to completely delete this media?")) {
+                onDelete(normalizedEntry.id);
+              }
+            }}
+            className="absolute right-2 top-10 z-20 inline-flex h-7 w-7 items-center justify-center rounded-full border border-red-500/15 bg-black/55 text-red-400/80 backdrop-blur-sm transition-colors hover:bg-red-500/20 hover:text-red-300"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
         )}
         {/* Top gradient for badge visibility */}
         <div className="absolute top-0 left-0 right-0 h-16 bg-gradient-to-b from-black/80 to-transparent pointer-events-none" />

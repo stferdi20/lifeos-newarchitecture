@@ -705,6 +705,7 @@ export default function Media() {
                     <MediaCard
                       entry={entry}
                       onClick={handleCardClick}
+                      onDelete={(id) => deleteMutation.mutate(id)}
                       className={selectMode && selectedIds.has(entry.id) ? 'ring-2 ring-primary' : ''}
                     />
                   </div>
