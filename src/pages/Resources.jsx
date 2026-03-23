@@ -11,6 +11,7 @@ import ResourceFilters from '../components/resources/ResourceFilters';
 import ResourceCard from '../components/resources/ResourceCard';
 import ResourceDetailModal from '../components/resources/ResourceDetailModal';
 import AddResourceModal from '../components/resources/AddResourceModal';
+import QuickPasteButton from '../components/resources/QuickPasteButton';
 import ManualNoteModal from '../components/resources/ManualNoteModal';
 import BulkAddModal from '../components/resources/BulkAddModal';
 import BulkResourceActionBar from '../components/resources/BulkResourceActionBar';
@@ -420,6 +421,11 @@ export default function Resources() {
           onClear={clearSelection}
         />
       )}
+
+      <QuickPasteButton
+        onCreated={handleResourceCreated}
+        projectId={projectFilter}
+      />
     </div>
   );
 }

@@ -37,7 +37,7 @@ function ResponsiveModal({ open, onOpenChange, children, ...props }) {
   // - keep sticky actions inside the modal instead of relying on viewport height
   return (
     <ResponsiveModalContext.Provider value={isMobile}>
-      <Root open={open} onOpenChange={onOpenChange} {...props}>
+      <Root open={open} onOpenChange={onOpenChange} handleOnly={isMobile ? true : undefined} {...props}>
         {children}
       </Root>
     </ResponsiveModalContext.Provider>
@@ -54,7 +54,7 @@ const ResponsiveModalContent = React.forwardRef(
         ref={ref}
         className={cn(
           isMobile
-            ? "max-h-[90vh] rounded-t-2xl border-border bg-background px-0 pb-[max(env(safe-area-inset-bottom),1rem)]"
+            ? "max-h-[90vh] overflow-y-auto rounded-t-2xl border-border bg-background px-0 pb-[max(env(safe-area-inset-bottom),1rem)]"
             : "",
           className,
           isMobile && mobileClassName

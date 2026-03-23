@@ -39,6 +39,7 @@ export default function AppLayout() {
         ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
         ::-webkit-scrollbar-corner { background: transparent; }
         * { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.1) transparent; }
+        body { -webkit-overflow-scrolling: touch; }
       `}</style>
       <Sidebar
         expanded={sidebarExpanded}
