@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 import { PageHeader, PageActionRow } from '@/components/layout/page-header';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import GoogleConnectionsPanel from '@/components/google/GoogleConnectionsPanel';
+
 import { deleteCalendarEvent, fetchCalendarEvents } from '@/lib/calendar-api';
 
 const WEEK_OPTIONS = [
@@ -176,7 +176,7 @@ export default function Calendar() {
 
       {/* Natural Language Bar */}
       <NaturalLanguageBar onParsed={handleParsed} />
-      <GoogleConnectionsPanel />
+
 
       {/* Week selector */}
       <div className="flex gap-2 overflow-x-auto pb-1">

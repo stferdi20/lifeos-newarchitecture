@@ -30,6 +30,7 @@ const PromptWizard = lazy(() => import('./pages/PromptWizard'));
 const Resources = lazy(() => import('./pages/Resources'));
 const Tasks = lazy(() => import('./pages/Tasks'));
 const Login = lazy(() => import('./pages/Login'));
+const Settings = lazy(() => import('./pages/Settings'));
 
 function RouteFallback() {
   return (
@@ -119,6 +120,7 @@ const AuthenticatedApp = () => {
         <Route path="/CreatorVault" element={<RouteElement><CreatorVault /></RouteElement>} />
         <Route path="/PromptWizard" element={<RouteElement><PromptWizard /></RouteElement>} />
         <Route path="/Resources" element={<RouteElement><Resources /></RouteElement>} />
+        <Route path="/Settings" element={<RouteElement><Settings /></RouteElement>} />
       </Route>
       <Route path="*" element={<RouteElement><PageNotFound /></RouteElement>} />
     </Routes>

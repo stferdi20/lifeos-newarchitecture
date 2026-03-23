@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, FolderKanban, CheckSquare, Newspaper, Film, TrendingUp, Network, CalendarDays, ChevronLeft, ChevronRight, Users, Wand2, Library, X } from 'lucide-react';
+import { LayoutDashboard, FolderKanban, CheckSquare, Newspaper, Film, TrendingUp, Network, CalendarDays, ChevronLeft, ChevronRight, Users, Wand2, Library, X, Settings } from 'lucide-react';
 import { createPageUrl } from '@/utils';
 import { cn } from '@/lib/utils';
 
@@ -18,6 +18,7 @@ const navItems = [
 
   { page: 'PromptWizard', label: 'Prompt Wizard', icon: Wand2 },
   { page: 'News', label: 'AI News', icon: Newspaper },
+  { page: 'Settings', label: 'Settings', icon: Settings },
 ];
 
 export default function Sidebar({ expanded, onToggle, isMobile = false, mobileOpen = false, onCloseMobile }) {
