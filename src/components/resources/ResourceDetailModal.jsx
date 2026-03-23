@@ -291,14 +291,14 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
               {resource.instagram_caption && (
                 <div>
                   <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Caption</p>
-                  <p className="text-sm leading-relaxed text-foreground/80 whitespace-pre-wrap">{resource.instagram_caption}</p>
+                  <p className="text-sm leading-relaxed text-foreground/80 whitespace-pre-wrap break-words">{resource.instagram_caption}</p>
                 </div>
               )}
 
               {resource.instagram_transcript && (
                 <div>
                   <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Transcript</p>
-                  <p className="text-sm leading-relaxed text-foreground/80 whitespace-pre-wrap">{resource.instagram_transcript}</p>
+                  <p className="text-sm leading-relaxed text-foreground/80 whitespace-pre-wrap break-words">{resource.instagram_transcript}</p>
                 </div>
               )}
 
@@ -351,7 +351,7 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
                   <span className="text-[10px] uppercase tracking-widest text-amber-300">trimmed</span>
                 ) : null}
               </div>
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/75">
+              <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/75">
                 {String(resource.content).slice(0, 4000)}
               </p>
             </div>

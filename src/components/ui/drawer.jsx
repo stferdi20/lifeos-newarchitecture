@@ -40,7 +40,7 @@ const DrawerContent = React.forwardRef(({ className, children, ...props }, ref) 
       <div className="shrink-0 p-4 pb-2">
         <DrawerPrimitive.Handle className="mx-auto h-2 w-[100px] rounded-full bg-muted" />
       </div>
-      <div className="flex-1 overflow-y-auto px-0 pb-[max(env(safe-area-inset-bottom),1rem)]">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden px-0 pb-[max(env(safe-area-inset-bottom),1rem)] w-full">
         {children}
       </div>
     </DrawerPrimitive.Content>
