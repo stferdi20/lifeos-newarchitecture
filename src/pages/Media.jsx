@@ -25,7 +25,8 @@ import { fetchMediaHealth, getMediaBackendState } from '../components/media/sear
 
 const MediaSearchModal = lazy(() => import('../components/media/MediaSearchModal'));
 const MediaDetailModal = lazy(() => import('../components/media/MediaDetailModal'));
-const BulkAddMediaModal = lazy(() => import('../components/media/BulkAddMediaModal'));
+import { PageLoader } from '@/components/ui/page-loader';
+import BulkAddMediaModal from '@/components/media/BulkAddMediaModal';
 const RepairMediaModal = lazy(() => import('../components/media/RepairMediaModal'));
 const BulkStatusBar = lazy(() => import('../components/media/BulkStatusBar'));
 const YearlyReview = lazy(() => import('../components/media/YearlyReview'));
@@ -135,7 +136,7 @@ export default function Media() {
     [typeFilter, statusFilter],
   );
 
-  const { data: summaryEntries = [] } = useQuery({
+  const { data: summaryEntries = [], isLoading: summaryLoading } = useQuery({
     queryKey: ['mediaSummary'],
     queryFn: async () => normalizeMediaEntries(
       await MediaEntry.list('-created_date', 5000, 0, MEDIA_SUMMARY_FIELDS),
@@ -172,7 +173,19 @@ export default function Media() {
         skip: 0,
       });
 
-      return rows.filter((entry) => String(entry.title || '').toLowerCase().includes(normalizedSearchQuery));
+      return rows.filter((entry) => {
+        const searchable = [
+          entry.title,
+          entry.plot,
+          entry.studio_author,
+          ...(Array.isArray(entry.genres) ? entry.genres : []),
+          ...(Array.isArray(entry.cast) ? entry.cast : []),
+          ...(Array.isArray(entry.themes) ? entry.themes : []),
+          ...(Array.isArray(entry.character_names) ? entry.character_names : []),
+          ...(Array.isArray(entry.creator_names) ? entry.creator_names : []),
+        ].filter(Boolean).join(' ').toLowerCase();
+        return searchable.includes(normalizedSearchQuery);
+      });
     },
     enabled: view === 'library' && !!normalizedSearchQuery,
     initialData: [],
@@ -515,6 +528,14 @@ export default function Media() {
       setSelectMode(false);
     },
   });
+
+  const isInitialLoading = summaryLoading || 
+    (view === 'library' && !normalizedSearchQuery && browseQuery.isLoading) || 
+    (view === 'yearly' && yearlyLoading);
+
+  if (isInitialLoading) {
+    return <PageLoader label="Loading media..." />;
+  }
 
   return (
     <div>

@@ -16,6 +16,7 @@ import ManualNoteModal from '../components/resources/ManualNoteModal';
 import BulkAddModal from '../components/resources/BulkAddModal';
 import BulkResourceActionBar from '../components/resources/BulkResourceActionBar';
 import { PageHeader, PageActionRow } from '@/components/layout/page-header';
+import { PageLoader } from '@/components/ui/page-loader';
 
 async function fetchResourceLinks(entityApi, resourceId) {
   if (!entityApi) return [];
@@ -60,22 +61,22 @@ export default function Resources() {
   const [visibleCount, setVisibleCount] = useState(24);
   const loadMoreRef = useRef(null);
 
-  const { data: resources = [] } = useQuery({
+  const { data: resources = [], isLoading: resourcesLoading } = useQuery({
     queryKey: ['resources'],
     queryFn: () => Resource.list('-created_date', 200),
   });
 
-  const { data: projects = [] } = useQuery({
+  const { data: projects = [], isLoading: projectsLoading } = useQuery({
     queryKey: ['projects'],
     queryFn: () => listBoardWorkspaces(),
   });
 
-  const { data: areas = [] } = useQuery({
+  const { data: areas = [], isLoading: areasLoading } = useQuery({
     queryKey: ['lifeAreas'],
     queryFn: () => LifeArea.list(),
   });
 
-  const { data: projectResources = [] } = useQuery({
+  const { data: projectResources = [], isLoading: projectResourcesLoading } = useQuery({
     queryKey: ['projectResources'],
     queryFn: () => ProjectResource.list(),
   });
@@ -89,7 +90,7 @@ export default function Resources() {
 
   const allTags = useMemo(() => {
     const tagSet = new Set();
-    resources.forEach(r => (r.tags || []).forEach(t => tagSet.add(t)));
+    resources.forEach(r => (Array.isArray(r.tags) ? r.tags : []).forEach(t => tagSet.add(t)));
     return [...tagSet].sort();
   }, [resources]);
 
@@ -101,7 +102,7 @@ export default function Resources() {
       if (archivedFilter === 'active' && r.is_archived) return false;
       if (archivedFilter === 'archived' && !r.is_archived) return false;
       if (projectResourceIds && !projectResourceIds.has(r.id)) return false;
-      if (tagFilter && !(r.tags || []).includes(tagFilter)) return false;
+      if (tagFilter && !(Array.isArray(r.tags) ? r.tags : []).includes(tagFilter)) return false;
       if (term) {
         const searchable = [
           r.title,
@@ -111,12 +112,12 @@ export default function Resources() {
           r.content,
           r.main_topic,
           r.author,
-          ...(r.tags || []),
-          ...(r.key_points || []),
-          ...(r.actionable_points || []),
-          ...(r.use_cases || []),
-          ...(r.learning_outcomes || []),
-          ...(r.notable_quotes_or_moments || []),
+          ...(Array.isArray(r.tags) ? r.tags : []),
+          ...(Array.isArray(r.key_points) ? r.key_points : []),
+          ...(Array.isArray(r.actionable_points) ? r.actionable_points : []),
+          ...(Array.isArray(r.use_cases) ? r.use_cases : []),
+          ...(Array.isArray(r.learning_outcomes) ? r.learning_outcomes : []),
+          ...(Array.isArray(r.notable_quotes_or_moments) ? r.notable_quotes_or_moments : []),
         ].filter(Boolean).join(' ').toLowerCase();
         if (!searchable.includes(term)) return false;
       }
@@ -344,6 +345,10 @@ export default function Resources() {
       }).toString()}`,
     });
   };
+
+  if (resourcesLoading || projectsLoading || areasLoading || projectResourcesLoading) {
+    return <PageLoader label="Loading resources..." />;
+  }
 
   return (
     <div className="space-y-6 overflow-x-hidden">

@@ -46,6 +46,7 @@ import {
 import KanbanColumn from '@/components/projects/KanbanColumn';
 import TaskDetailModal from '@/components/projects/TaskDetailModal';
 import GanttChart from '@/components/projects/GanttChart';
+import { PageLoader } from '@/components/ui/page-loader';
 
 function normalizeListName(value) {
   return String(value || '').trim().toLowerCase();
@@ -388,6 +389,10 @@ export default function Projects() {
     createListMutation.mutate(trimmed);
   };
 
+  if (workspacesLoading || listsLoading || cardsLoading) {
+    return <PageLoader label="Loading workspace..." />;
+  }
+
   return (
     <div className="flex h-full flex-col">
       <PageHeader
@@ -504,9 +509,7 @@ export default function Projects() {
       )}
 
       <div className="flex-1 overflow-y-auto">
-        {isBoardLoading ? (
-          <div className="p-4 text-sm text-muted-foreground">Loading workspace board...</div>
-        ) : effectiveViewMode === 'gantt' ? (
+        {effectiveViewMode === 'gantt' ? (
           <GanttChart
             cards={cards}
             projects={visibleWorkspaces}
