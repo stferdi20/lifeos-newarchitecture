@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BookOpen, Search, FileText, Sparkles, CheckSquare } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -57,6 +57,8 @@ export default function Resources() {
   const [showBulkAdd, setShowBulkAdd] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
+  const [visibleCount, setVisibleCount] = useState(24);
+  const loadMoreRef = useRef(null);
 
   const { data: resources = [] } = useQuery({
     queryKey: ['resources'],
@@ -121,6 +123,34 @@ export default function Resources() {
       return true;
     });
   }, [resources, search, typeFilter, areaFilter, archivedFilter, projectResourceIds, tagFilter]);
+
+  useEffect(() => {
+    setVisibleCount(24);
+  }, [search, typeFilter, areaFilter, archivedFilter, projectFilter, tagFilter]);
+
+  const renderedResources = useMemo(
+    () => filteredResources.slice(0, visibleCount),
+    [filteredResources, visibleCount]
+  );
+  
+  const canRevealMore = renderedResources.length < filteredResources.length;
+
+  useEffect(() => {
+    const node = loadMoreRef.current;
+    if (!node || typeof IntersectionObserver !== 'function') return;
+
+    const observer = new IntersectionObserver((entries) => {
+      const firstEntry = entries[0];
+      if (!firstEntry?.isIntersecting) return;
+
+      if (canRevealMore) {
+        setVisibleCount((count) => Math.min(count + 24, filteredResources.length));
+      }
+    }, { rootMargin: '400px' });
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [canRevealMore, filteredResources.length]);
 
   const selectedResources = useMemo(
     () => resources.filter((resource) => selectedIds.has(resource.id)),
@@ -366,7 +396,7 @@ export default function Resources() {
       <p className="text-xs text-muted-foreground">{filteredResources.length} resource{filteredResources.length !== 1 ? 's' : ''}</p>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {filteredResources.map(r => (
+        {renderedResources.map(r => (
           <ResourceCard
             key={r.id}
             resource={r}
@@ -381,6 +411,12 @@ export default function Resources() {
           />
         ))}
       </div>
+
+      {canRevealMore && (
+        <div ref={loadMoreRef} className="h-12 flex items-center justify-center">
+          <div className="w-5 h-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+        </div>
+      )}
 
       {filteredResources.length === 0 && (
         <div className="rounded-2xl border border-dashed border-border bg-card/60 p-12 text-center">
