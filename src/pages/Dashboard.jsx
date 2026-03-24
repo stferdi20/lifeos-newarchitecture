@@ -1,6 +1,7 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Habit, HabitLog } from '@/lib/habits-api';
+import { StaggerContainer, StaggerItem } from '@/components/ui/StaggerContainer';
 import GreetingWidget from '../components/dashboard/GreetingWidget';
 import HabitMiniWidget from '../components/dashboard/HabitMiniWidget';
 import QuickCapture from '../components/dashboard/QuickCapture';
@@ -28,39 +29,53 @@ export default function Dashboard() {
   });
 
   return (
-    <div className="space-y-6">
+    <StaggerContainer className="space-y-6">
       {/* Greeting + Next Event */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
-        <div className="lg:col-span-3">
+      <StaggerItem className="grid grid-cols-1 gap-4 lg:grid-cols-5">
+        <div className="lg:col-span-3 hover:-translate-y-1 hover:shadow-lg transition-all duration-300 rounded-xl">
           <GreetingWidget tasks={tasks} />
         </div>
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-2 hover:-translate-y-1 hover:shadow-lg transition-all duration-300 rounded-xl">
           <TodaySchedule />
         </div>
-      </div>
+      </StaggerItem>
 
       {/* Quick Capture row */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <QuickCapture />
-        <QuickCaptureCreator />
-      </div>
+      <StaggerItem className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="hover:-translate-y-1 hover:shadow-lg transition-all duration-300 rounded-xl">
+          <QuickCapture />
+        </div>
+        <div className="hover:-translate-y-1 hover:shadow-lg transition-all duration-300 rounded-xl">
+          <QuickCaptureCreator />
+        </div>
+      </StaggerItem>
 
       {/* Habits + Tasks */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <HabitMiniWidget habits={habits} habitLogs={habitLogs} />
-        <TaskOverview tasks={tasks} isLoading={tasksLoading} isError={tasksError} />
-      </div>
+      <StaggerItem className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="hover:-translate-y-1 hover:shadow-lg transition-all duration-300 rounded-xl h-full">
+          <HabitMiniWidget habits={habits} habitLogs={habitLogs} />
+        </div>
+        <div className="hover:-translate-y-1 hover:shadow-lg transition-all duration-300 rounded-xl h-full">
+          <TaskOverview tasks={tasks} isLoading={tasksLoading} isError={tasksError} />
+        </div>
+      </StaggerItem>
 
       {/* Ideas + News */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <IdeaSpark />
-        <NewsWidget />
-      </div>
+      <StaggerItem className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="hover:-translate-y-1 hover:shadow-lg transition-all duration-300 rounded-xl h-full">
+          <IdeaSpark />
+        </div>
+        <div className="hover:-translate-y-1 hover:shadow-lg transition-all duration-300 rounded-xl h-full">
+          <NewsWidget />
+        </div>
+      </StaggerItem>
 
       {/* Portfolio */}
-      <div>
-        <InvestmentWidget />
-      </div>
-    </div>
+      <StaggerItem>
+        <div className="hover:-translate-y-1 hover:shadow-lg transition-all duration-300 rounded-xl">
+          <InvestmentWidget />
+        </div>
+      </StaggerItem>
+    </StaggerContainer>
   );
 }

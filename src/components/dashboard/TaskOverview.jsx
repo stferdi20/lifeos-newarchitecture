@@ -10,6 +10,7 @@ import TaskDetailModal from '@/components/tasks/TaskDetailModal';
 import TaskRow from '@/components/tasks/TaskRow';
 import { updateTaskWithReminderSync } from '@/lib/googleReminderSync';
 import { createStandaloneTaskRecord, getTaskCounts, sanitizeTaskPayload } from '@/lib/tasks';
+import AnimatedNumber from '@/components/ui/AnimatedNumber';
 
 export default function TaskOverview({ tasks, isLoading, isError }) {
   const queryClient = useQueryClient();
@@ -65,7 +66,7 @@ export default function TaskOverview({ tasks, isLoading, isError }) {
       <div className="flex flex-wrap gap-2 mb-4">
         {[['Todo', counts.todo, 'bg-zinc-500/20 text-zinc-400'], ['Doing', counts.doing, 'bg-blue-500/20 text-blue-400'], ['Done', counts.done, 'bg-emerald-500/20 text-emerald-400'], ['Overdue', counts.overdue, 'bg-red-500/20 text-red-300']].map(([label, count, cls]) => (
           <div key={label} className={`px-3 py-1.5 rounded-lg text-xs font-medium ${cls}`}>
-            {count} {label}
+            <AnimatedNumber value={count} /> {label}
           </div>
         ))}
       </div>

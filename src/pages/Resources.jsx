@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BookOpen, Search, FileText, Sparkles, CheckSquare } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -95,7 +96,7 @@ export default function Resources() {
   }, [resources]);
 
   const filteredResources = useMemo(() => {
-    const term = search.toLowerCase().trim();
+    const searchTerms = search.toLowerCase().trim().split(/\s+/).filter(Boolean);
     return resources.filter(r => {
       if (typeFilter !== 'all' && r.resource_type !== typeFilter) return false;
       if (areaFilter !== 'all' && r.area_id !== areaFilter) return false;
@@ -103,7 +104,7 @@ export default function Resources() {
       if (archivedFilter === 'archived' && !r.is_archived) return false;
       if (projectResourceIds && !projectResourceIds.has(r.id)) return false;
       if (tagFilter && !(Array.isArray(r.tags) ? r.tags : []).includes(tagFilter)) return false;
-      if (term) {
+      if (searchTerms.length > 0) {
         const searchable = [
           r.title,
           r.summary,
@@ -119,7 +120,9 @@ export default function Resources() {
           ...(Array.isArray(r.learning_outcomes) ? r.learning_outcomes : []),
           ...(Array.isArray(r.notable_quotes_or_moments) ? r.notable_quotes_or_moments : []),
         ].filter(Boolean).join(' ').toLowerCase();
-        if (!searchable.includes(term)) return false;
+        
+        const matchesAll = searchTerms.every(t => searchable.includes(t));
+        if (!matchesAll) return false;
       }
       return true;
     });
@@ -400,22 +403,32 @@ export default function Resources() {
 
       <p className="text-xs text-muted-foreground">{filteredResources.length} resource{filteredResources.length !== 1 ? 's' : ''}</p>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {renderedResources.map(r => (
-          <ResourceCard
-            key={r.id}
-            resource={r}
-            onClick={handleCardClick}
-            onArchiveToggle={handleArchiveToggle}
-            onDelete={(id) => deleteDirectMutation.mutate(id)}
-            onTagClick={handleTagClick}
-            areas={areas}
-            selectMode={selectMode}
-            selected={selectedIds.has(r.id)}
-            archiveLoading={archiveToggleMutation.isPending && archiveToggleMutation.variables?.resourceId === r.id}
-          />
-        ))}
-      </div>
+      <motion.div layout className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <AnimatePresence mode="popLayout">
+          {renderedResources.map(r => (
+            <motion.div
+              layout
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ duration: 0.2 }}
+              key={r.id}
+            >
+              <ResourceCard
+                resource={r}
+                onClick={handleCardClick}
+                onArchiveToggle={handleArchiveToggle}
+                onDelete={(id) => deleteDirectMutation.mutate(id)}
+                onTagClick={handleTagClick}
+                areas={areas}
+                selectMode={selectMode}
+                selected={selectedIds.has(r.id)}
+                archiveLoading={archiveToggleMutation.isPending && archiveToggleMutation.variables?.resourceId === r.id}
+              />
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </motion.div>
 
       {canRevealMore && (
         <div ref={loadMoreRef} className="h-12 flex items-center justify-center">

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Outlet } from 'react-router-dom';
+import { useLocation, useOutlet } from 'react-router-dom';
+import { AnimatePresence } from 'framer-motion';
 import Sidebar from './Sidebar.jsx';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Menu } from 'lucide-react';
@@ -8,6 +9,9 @@ export default function AppLayout() {
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const isMobile = useIsMobile();
+
+  const location = useLocation();
+  const element = useOutlet();
 
   return (
     <div className="min-h-screen bg-[#0d0e12] text-[#e8eaf0]">
@@ -64,8 +68,10 @@ export default function AppLayout() {
             <span className="ml-3 text-sm font-semibold tracking-tight text-foreground">LifeOS</span>
           </div>
         )}
-        <div className="p-4 sm:p-5 lg:p-8 max-w-7xl mx-auto">
-          <Outlet />
+        <div className="p-4 sm:p-5 lg:p-8 max-w-7xl mx-auto overflow-hidden">
+          <AnimatePresence mode="wait">
+            {element && React.cloneElement(element, { key: location.pathname })}
+          </AnimatePresence>
         </div>
       </main>
     </div>

@@ -143,7 +143,7 @@ export default function ResourceCard({
     <div
       onClick={() => onClick?.(resource)}
         className={cn(
-          'relative rounded-2xl bg-card border border-border/50 overflow-hidden transition-all group cursor-pointer hover:border-primary/30 hover:shadow-md',
+          'relative rounded-2xl bg-card border border-border/50 overflow-hidden transition-all duration-300 group cursor-pointer hover:border-primary/30 hover:shadow-xl hover:-translate-y-1',
           selectMode && 'select-none',
           selected && 'ring-2 ring-primary border-primary/40',
         className,
@@ -172,10 +172,10 @@ export default function ResourceCard({
             onArchiveToggle(resource);
           }}
           className={cn(
-            'absolute right-2 top-2 z-20 inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/15 bg-black/55 text-white/80 backdrop-blur-sm transition-colors',
+            'absolute right-2 top-2 z-20 inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/15 bg-black/55 text-white/80 backdrop-blur-sm transition-all duration-200 opacity-0 group-hover:opacity-100',
             archiveLoading
               ? 'cursor-not-allowed opacity-60'
-              : 'hover:bg-black/75 hover:text-white'
+              : 'hover:bg-black/75 hover:text-white hover:scale-110'
           )}
         >
           <ArchiveIcon className="h-3.5 w-3.5" />
@@ -193,7 +193,7 @@ export default function ResourceCard({
             }
           }}
           className={cn(
-            'absolute top-2 z-20 inline-flex h-7 w-7 items-center justify-center rounded-full border border-red-500/15 bg-black/55 text-red-400/80 backdrop-blur-sm transition-colors hover:bg-red-500/20 hover:text-red-300',
+            'absolute top-2 z-20 inline-flex h-7 w-7 items-center justify-center rounded-full border border-red-500/15 bg-black/55 text-red-400/80 backdrop-blur-sm transition-all duration-200 opacity-0 group-hover:opacity-100 hover:bg-red-500/20 hover:text-red-300 hover:scale-110',
             onArchiveToggle ? 'right-11' : 'right-2'
           )}
         >

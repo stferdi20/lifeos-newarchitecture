@@ -1,4 +1,5 @@
 import React, { Suspense, lazy, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, LayoutGrid, Calendar, Film, Tv, Sword, BookOpen, Gamepad2, BookMarked, Layers, Search, CheckSquare, Loader2, Wrench, ServerCrash } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -184,7 +185,9 @@ export default function Media() {
           ...(Array.isArray(entry.character_names) ? entry.character_names : []),
           ...(Array.isArray(entry.creator_names) ? entry.creator_names : []),
         ].filter(Boolean).join(' ').toLowerCase();
-        return searchable.includes(normalizedSearchQuery);
+
+        const searchTerms = normalizedSearchQuery.split(/\s+/).filter(Boolean);
+        return searchTerms.length === 0 || searchTerms.every(t => searchable.includes(t));
       });
     },
     enabled: view === 'library' && !!normalizedSearchQuery,
@@ -708,30 +711,40 @@ export default function Media() {
                 Showing {renderedEntries.length} of {libraryEntries.length}
                 {canFetchMore ? ' loaded so far' : ''}
               </p>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-                {renderedEntries.map((entry) => (
-                  <div key={entry.id} className="relative">
-                    {selectMode && (
-                      <div
-                        className={cn(
-                          'absolute top-2 right-2 z-10 w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors',
-                          selectedIds.has(entry.id)
-                            ? 'bg-primary border-primary text-white'
-                            : 'bg-black/40 border-white/40',
-                        )}
-                      >
-                        {selectedIds.has(entry.id) && <CheckSquare className="w-3 h-3" />}
-                      </div>
-                    )}
-                    <MediaCard
-                      entry={entry}
-                      onClick={handleCardClick}
-                      onDelete={(id) => deleteMutation.mutate(id)}
-                      className={selectMode && selectedIds.has(entry.id) ? 'ring-2 ring-primary' : ''}
-                    />
-                  </div>
-                ))}
-              </div>
+              <motion.div layout className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+                <AnimatePresence mode="popLayout">
+                  {renderedEntries.map((entry) => (
+                    <motion.div
+                      layout
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      transition={{ duration: 0.2 }}
+                      key={entry.id}
+                      className="relative"
+                    >
+                      {selectMode && (
+                        <div
+                          className={cn(
+                            'absolute top-2 right-2 z-10 w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors',
+                            selectedIds.has(entry.id)
+                              ? 'bg-primary border-primary text-white'
+                              : 'bg-black/40 border-white/40',
+                          )}
+                        >
+                          {selectedIds.has(entry.id) && <CheckSquare className="w-3 h-3" />}
+                        </div>
+                      )}
+                      <MediaCard
+                        entry={entry}
+                        onClick={handleCardClick}
+                        onDelete={(id) => deleteMutation.mutate(id)}
+                        className={selectMode && selectedIds.has(entry.id) ? 'ring-2 ring-primary' : ''}
+                      />
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              </motion.div>
 
               <div ref={loadMoreRef} className="h-12 flex items-center justify-center">
                 {(browseQuery.isFetchingNextPage || canRevealMoreRendered) && (

@@ -8,6 +8,7 @@ import { featureFlags, isFeatureEnabled } from '@/lib/featureFlags';
 import { getKanbanV2MigrationState } from '@/lib/kanbanMigration';
 import { shouldUseSupabaseAuth } from '@/lib/runtime-config';
 import RouteErrorBoundary from '@/components/layout/RouteErrorBoundary';
+import PageTransition from '@/components/ui/PageTransition';
 import Media from './pages/Media';
 
 const PageNotFound = lazy(() => import('./lib/PageNotFound'));
@@ -41,10 +42,13 @@ function RouteFallback() {
 }
 
 function RouteElement({ children }) {
+  // Disable transition for settings if it handles dialogs, otherwise generic wrapper
   return (
     <RouteErrorBoundary>
       <Suspense fallback={<RouteFallback />}>
-        {children}
+        <PageTransition>
+          {children}
+        </PageTransition>
       </Suspense>
     </RouteErrorBoundary>
   );

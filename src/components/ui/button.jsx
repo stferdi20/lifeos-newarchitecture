@@ -34,13 +34,25 @@ const buttonVariants = cva(
   }
 )
 
+import { motion } from "framer-motion";
+
 const Button = React.forwardRef(({ className, variant, size, asChild = false, ...props }, ref) => {
-  const Comp = asChild ? Slot : "button"
+  if (asChild) {
+    return (
+      <Slot
+        className={cn(buttonVariants({ variant, size, className }))}
+        ref={ref}
+        {...props}
+      />
+    );
+  }
   return (
-    (<Comp
+    <motion.button
       className={cn(buttonVariants({ variant, size, className }))}
       ref={ref}
-      {...props} />)
+      whileTap={{ scale: 0.95 }}
+      {...props}
+    />
   );
 })
 Button.displayName = "Button"
