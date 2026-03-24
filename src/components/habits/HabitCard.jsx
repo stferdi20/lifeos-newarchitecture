@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Check, Flame, Trash2, Edit2, Trophy, Target } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -7,45 +7,52 @@ import HabitHeatmap from './HabitHeatmap';
 
 export default function HabitCard({ habit, habitLogs, onEdit }) {
   const queryClient = useQueryClient();
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
 
-  const myLogs = (habitLogs || []).filter(l => l.habit_id === habit.id);
-  const todayLog = myLogs.find(l => l.date === todayStr && l.completed);
+  const myLogs = useMemo(() => (habitLogs || []).filter(l => l.habit_id === habit.id), [habitLogs, habit.id]);
+  const todayLog = useMemo(() => myLogs.find(l => l.date === todayStr && l.completed), [myLogs, todayStr]);
   const isDone = !!todayLog;
 
-  // Streak
-  const completedDates = new Set(myLogs.filter(l => l.completed).map(l => l.date));
-  let streak = 0;
-  const d = new Date();
-  while (true) {
-    const ds = d.toISOString().split('T')[0];
-    if (completedDates.has(ds)) {
-      streak++;
-      d.setDate(d.getDate() - 1);
-    } else break;
-  }
+  const completedDates = useMemo(() => new Set(myLogs.filter(l => l.completed).map(l => l.date)), [myLogs]);
 
-  // Best streak
-  let bestStreak = 0, tempStreak = 0;
-  const sortedDates = Array.from(completedDates).sort();
-  for (let i = 0; i < sortedDates.length; i++) {
-    if (i === 0) { tempStreak = 1; }
-    else {
-      const prev = new Date(sortedDates[i - 1]);
-      const curr = new Date(sortedDates[i]);
-      const diff = (curr - prev) / (1000 * 60 * 60 * 24);
-      tempStreak = diff === 1 ? tempStreak + 1 : 1;
+  const streak = useMemo(() => {
+    let s = 0;
+    const d = new Date();
+    while (true) {
+      const ds = d.toISOString().split('T')[0];
+      if (completedDates.has(ds)) {
+        s++;
+        d.setDate(d.getDate() - 1);
+      } else break;
     }
-    bestStreak = Math.max(bestStreak, tempStreak);
-  }
+    return s;
+  }, [completedDates]);
 
-  // Last 7 days
-  const last7 = [];
-  for (let i = 6; i >= 0; i--) {
-    const day = new Date();
-    day.setDate(day.getDate() - i);
-    last7.push(day.toISOString().split('T')[0]);
-  }
+  const bestStreak = useMemo(() => {
+    let best = 0, temp = 0;
+    const sortedDates = Array.from(completedDates).sort();
+    for (let i = 0; i < sortedDates.length; i++) {
+      if (i === 0) { temp = 1; }
+      else {
+        const prev = new Date(sortedDates[i - 1]);
+        const curr = new Date(sortedDates[i]);
+        const diff = Math.round((curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24));
+        temp = diff === 1 ? temp + 1 : 1;
+      }
+      best = Math.max(best, temp);
+    }
+    return best;
+  }, [completedDates]);
+
+  const last7 = useMemo(() => {
+    const arr = [];
+    for (let i = 6; i >= 0; i--) {
+      const day = new Date();
+      day.setDate(day.getDate() - i);
+      arr.push(day.toISOString().split('T')[0]);
+    }
+    return arr;
+  }, []);
 
   const toggleMutation = useMutation({
     mutationFn: async () => {
@@ -55,7 +62,26 @@ export default function HabitCard({ habit, habitLogs, onEdit }) {
         await HabitLog.create({ habit_id: habit.id, date: todayStr, completed: true });
       }
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['habitLogs'] }),
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: ['habitLogs'] });
+      const previousLogs = queryClient.getQueryData(['habitLogs']);
+      
+      queryClient.setQueryData(['habitLogs'], old => {
+        const oldLogs = Array.isArray(old) ? old : [];
+        return isDone
+          ? oldLogs.filter(l => !(l.habit_id === habit.id && l.date === todayStr && l.completed))
+          : [{ id: `temp-card-${Date.now()}`, habit_id: habit.id, date: todayStr, completed: true }, ...oldLogs];
+      });
+      return { previousLogs };
+    },
+    onError: (err, newLog, context) => {
+      if (context?.previousLogs) {
+        queryClient.setQueryData(['habitLogs'], context.previousLogs);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['habitLogs'] });
+    },
   });
 
   const deleteMutation = useMutation({

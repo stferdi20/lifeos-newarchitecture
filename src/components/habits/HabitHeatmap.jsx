@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { subDays } from 'date-fns';
 
@@ -6,41 +6,41 @@ const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov
 const DAY_LABELS = ['', 'Mon', '', 'Wed', '', 'Fri', ''];
 
 export default function HabitHeatmap({ habitId, habitLogs }) {
-  const today = new Date();
-  const WEEKS = 18;
-  const TOTAL_DAYS = WEEKS * 7;
+  const { weeks, monthLabels, completedDates } = useMemo(() => {
+    const today = new Date();
+    const WEEKS = 18;
+    const TOTAL_DAYS = WEEKS * 7;
+    const startDate = subDays(today, TOTAL_DAYS - 1);
 
-  // Build a grid starting from the beginning of the week WEEKS ago
-  const startDate = subDays(today, TOTAL_DAYS - 1);
+    const completed = new Set(
+      (habitLogs || [])
+        .filter(l => l.habit_id === habitId && l.completed)
+        .map(l => l.date)
+    );
 
-  const completedDates = new Set(
-    (habitLogs || [])
-      .filter(l => l.habit_id === habitId && l.completed)
-      .map(l => l.date)
-  );
-
-  // Build weeks array
-  const weeks = [];
-  let current = new Date(startDate);
-  for (let w = 0; w < WEEKS; w++) {
-    const week = [];
-    for (let d = 0; d < 7; d++) {
-      const dateStr = current.toISOString().split('T')[0];
-      const isFuture = current > today;
-      week.push({ date: dateStr, done: completedDates.has(dateStr), future: isFuture, month: current.getMonth() });
-      current.setDate(current.getDate() + 1);
+    const wks = [];
+    let current = new Date(startDate);
+    for (let w = 0; w < WEEKS; w++) {
+      const week = [];
+      for (let d = 0; d < 7; d++) {
+        const dateStr = current.toISOString().split('T')[0];
+        const isFuture = current > today;
+        week.push({ date: dateStr, done: completed.has(dateStr), future: isFuture, month: current.getMonth() });
+        current.setDate(current.getDate() + 1);
+      }
+      wks.push(week);
     }
-    weeks.push(week);
-  }
 
-  // Month label positions
-  const monthLabels = [];
-  weeks.forEach((week, wi) => {
-    const firstDay = week[0];
-    if (wi === 0 || (wi > 0 && weeks[wi - 1][0].month !== firstDay.month)) {
-      monthLabels.push({ wi, label: MONTHS[firstDay.month] });
-    }
-  });
+    const mLabels = [];
+    wks.forEach((week, wi) => {
+      const firstDay = week[0];
+      if (wi === 0 || (wi > 0 && wks[wi - 1][0].month !== firstDay.month)) {
+        mLabels.push({ wi, label: MONTHS[firstDay.month] });
+      }
+    });
+
+    return { weeks: wks, monthLabels: mLabels, completedDates: completed };
+  }, [habitId, habitLogs]);
 
   return (
     <div className="overflow-x-auto">

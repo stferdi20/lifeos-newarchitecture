@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -6,10 +6,15 @@ import { HabitLog } from '@/lib/habits-api';
 
 export default function HabitMiniWidget({ habits, habitLogs }) {
   const queryClient = useQueryClient();
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
 
-  const todayLogs = (habitLogs || []).filter(l => l.date === todayStr && l.completed);
-  const completedIds = new Set(todayLogs.map(l => l.habit_id));
+  const { todayLogs, completedIds } = useMemo(() => {
+    const logs = (habitLogs || []).filter(l => l.date === todayStr && l.completed);
+    return {
+      todayLogs: logs,
+      completedIds: new Set(logs.map(l => l.habit_id))
+    };
+  }, [habitLogs, todayStr]);
 
   const toggleMutation = useMutation({
     mutationFn: async (habit) => {
@@ -20,11 +25,31 @@ export default function HabitMiniWidget({ habits, habitLogs }) {
         await HabitLog.create({ habit_id: habit.id, date: todayStr, completed: true });
       }
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['habitLogs'] }),
+    onMutate: async (habit) => {
+      await queryClient.cancelQueries({ queryKey: ['habitLogs'] });
+      const previousLogs = queryClient.getQueryData(['habitLogs']);
+      
+      const isDone = completedIds.has(habit.id);
+      queryClient.setQueryData(['habitLogs'], old => {
+        const oldLogs = Array.isArray(old) ? old : [];
+        return isDone
+          ? oldLogs.filter(l => !(l.habit_id === habit.id && l.date === todayStr && l.completed))
+          : [{ id: `temp-${Date.now()}`, habit_id: habit.id, date: todayStr, completed: true }, ...oldLogs];
+      });
+      return { previousLogs };
+    },
+    onError: (err, habit, context) => {
+      if (context?.previousLogs) {
+        queryClient.setQueryData(['habitLogs'], context.previousLogs);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['habitLogs'] });
+    },
   });
 
-  const activeHabits = (habits || []).filter(h => h.active !== false);
-  const completedCount = activeHabits.filter(h => completedIds.has(h.id)).length;
+  const activeHabits = useMemo(() => (habits || []).filter(h => h.active !== false), [habits]);
+  const completedCount = useMemo(() => activeHabits.filter(h => completedIds.has(h.id)).length, [activeHabits, completedIds]);
 
   return (
     <div className="rounded-2xl bg-gradient-to-br from-[#0f1a1a] via-card to-card border border-emerald-500/10 p-5 hover:border-emerald-500/25 hover:shadow-lg hover:shadow-emerald-500/5 transition-all duration-300">
