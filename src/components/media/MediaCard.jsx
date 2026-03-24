@@ -104,7 +104,7 @@ function MediaCard({ entry, onClick, className, onDelete }) {
 
         {/* Hover Preview Overlay */}
         <div
-          className="absolute inset-0 bg-black/90 flex flex-col p-4 text-white z-50 pointer-events-none transition-opacity duration-300"
+          className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/50 to-black/30 backdrop-blur-[2px] flex flex-col p-4 text-white z-50 pointer-events-none transition-opacity duration-300"
           style={{ opacity: hovered ? 1 : 0 }}
         >
           <div className="mt-10 flex-1 flex flex-col justify-center text-center">
