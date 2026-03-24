@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/responsive-modal';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { PageActionRow, PageHeader } from '@/components/layout/page-header';
+import { MobileActionOverflow } from '@/components/layout/MobileActionOverflow';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -441,65 +442,75 @@ export default function Projects() {
       </div>
 
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-        <div className="w-full sm:max-w-xs">
-          <Select value={selectedWorkspaceId || 'none'} onValueChange={(value) => setActiveWorkspaceId(value === 'none' ? '' : value)}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select workspace" />
-            </SelectTrigger>
-            <SelectContent>
-              {visibleWorkspaces.length === 0 && <SelectItem value="none">No workspaces found</SelectItem>}
-              {visibleWorkspaces.map((workspace) => (
-                <SelectItem key={workspace.id} value={workspace.id}>{workspace.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <div className="flex w-full gap-2 sm:w-auto sm:max-w-xs">
+          <div className="flex-1 min-w-0">
+            <Select value={selectedWorkspaceId || 'none'} onValueChange={(value) => setActiveWorkspaceId(value === 'none' ? '' : value)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select workspace" />
+              </SelectTrigger>
+              <SelectContent>
+                {visibleWorkspaces.length === 0 && <SelectItem value="none">No workspaces found</SelectItem>}
+                {visibleWorkspaces.map((workspace) => (
+                  <SelectItem key={workspace.id} value={workspace.id}>{workspace.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <MobileActionOverflow 
+            className="flex-none"
+            actions={[
+              { label: 'Create List', icon: Plus, disabled: !selectedWorkspaceId, onClick: () => setShowCreateListDialog(true) },
+              { label: 'Create Workspace', icon: Plus, onClick: () => setShowCreateWorkspaceDialog(true) },
+              { label: 'Rename Workspace', icon: Pencil, disabled: !selectedWorkspaceId, onClick: () => {
+                  setRenameWorkspaceName(selectedWorkspace?.name || '');
+                  setShowRenameWorkspaceDialog(true);
+                }
+              },
+              { label: 'Archive / Delete', icon: Trash2, disabled: !selectedWorkspaceId, onClick: () => setShowDestructiveWorkspaceDialog(true) }
+            ]}
+          />
         </div>
 
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setShowCreateWorkspaceDialog(true)}
-          className="w-full border-border text-sm hover:bg-secondary sm:w-auto"
-        >
-          <Plus className="mr-2 h-4 w-4" /> Create Workspace
-        </Button>
-
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setShowCreateListDialog(true)}
-          disabled={!selectedWorkspaceId}
-          className="w-full border-border text-sm hover:bg-secondary sm:w-auto"
-        >
-          <Plus className="mr-2 h-4 w-4" /> Create List
-        </Button>
-
-        {!isMobile && (
-          <>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setRenameWorkspaceName(selectedWorkspace?.name || '');
-                setShowRenameWorkspaceDialog(true);
-              }}
-              disabled={!selectedWorkspaceId}
-              className="border-border text-sm hover:bg-secondary"
-            >
-              <Pencil className="mr-2 h-4 w-4" /> Rename Workspace
-            </Button>
-
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowDestructiveWorkspaceDialog(true)}
-              disabled={!selectedWorkspaceId}
-              className="border-border text-sm hover:bg-secondary"
-            >
-              <Archive className="mr-2 h-4 w-4" /> Archive/Delete
-            </Button>
-          </>
-        )}
+        <div className="hidden sm:flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowCreateWorkspaceDialog(true)}
+            className="border-border text-sm hover:bg-secondary"
+          >
+            <Plus className="mr-2 h-4 w-4" /> Create Workspace
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowCreateListDialog(true)}
+            disabled={!selectedWorkspaceId}
+            className="border-border text-sm hover:bg-secondary"
+          >
+            <Plus className="mr-2 h-4 w-4" /> Create List
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setRenameWorkspaceName(selectedWorkspace?.name || '');
+              setShowRenameWorkspaceDialog(true);
+            }}
+            disabled={!selectedWorkspaceId}
+            className="border-border text-sm hover:bg-secondary"
+          >
+            <Pencil className="mr-2 h-4 w-4" /> Rename Workspace
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowDestructiveWorkspaceDialog(true)}
+            disabled={!selectedWorkspaceId}
+            className="border-border text-sm hover:bg-secondary"
+          >
+            <Archive className="mr-2 h-4 w-4" /> Archive/Delete
+          </Button>
+        </div>
       </div>
 
       {!selectedWorkspaceId && !workspacesLoading && (

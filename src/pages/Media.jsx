@@ -8,6 +8,8 @@ import { cn } from '@/lib/utils';
 import { MediaEntry, bulkUpdateMediaEntries } from '@/lib/media-api';
 import MediaCard from '../components/media/MediaCard';
 import { PageHeader, PageActionRow } from '@/components/layout/page-header';
+import { MobileActionOverflow } from '@/components/layout/MobileActionOverflow';
+import { MobileFilterDrawer } from '@/components/layout/MobileFilterDrawer';
 import {
   buildMediaExactQuery,
   flattenMediaPages,
@@ -549,45 +551,64 @@ export default function Media() {
         className="mb-6"
         actions={(
           <PageActionRow>
-            <div className="flex gap-1 bg-secondary/40 rounded-lg p-1">
-              <button
-                onClick={() => setView('library')}
-                className={cn(
-                  'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
-                  view === 'library' ? 'bg-card text-foreground' : 'text-muted-foreground hover:text-foreground',
-                )}
+            {/* Desktop Actions */}
+            <div className="hidden sm:flex gap-2 w-full sm:w-auto items-center">
+              <div className="flex gap-1 bg-secondary/40 rounded-lg p-1">
+                <button
+                  onClick={() => setView('library')}
+                  className={cn(
+                    'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
+                    view === 'library' ? 'bg-card text-foreground' : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" /> Library
+                </button>
+                <button
+                  onClick={() => setView('yearly')}
+                  className={cn(
+                    'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
+                    view === 'yearly' ? 'bg-card text-foreground' : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  <Calendar className="w-3.5 h-3.5" /> Yearly
+                </button>
+              </div>
+              <Button
+                variant={selectMode ? 'default' : 'outline'}
+                onClick={() => {
+                  setSelectMode((mode) => !mode);
+                  setSelectedIds(new Set());
+                }}
+                className={cn('border-border text-sm', selectMode && 'bg-primary/20 text-primary border-primary/30')}
               >
-                <LayoutGrid className="w-3.5 h-3.5" /> Library
-              </button>
-              <button
-                onClick={() => setView('yearly')}
-                className={cn(
-                  'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
-                  view === 'yearly' ? 'bg-card text-foreground' : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                <Calendar className="w-3.5 h-3.5" /> Yearly
-              </button>
+                <CheckSquare className="w-4 h-4 mr-2" /> {selectMode ? 'Cancel' : 'Select'}
+              </Button>
+              <Button variant="outline" onClick={() => setShowRepair(true)} className="border-border text-sm">
+                <Wrench className="w-4 h-4 mr-2" /> Repair
+              </Button>
+              <Button variant="outline" onClick={() => setShowBulkAdd(true)} className="border-border text-sm">
+                <Plus className="w-4 h-4 mr-2" /> Bulk Add
+              </Button>
+              <Button onClick={() => setShowSearch(true)} className="bg-primary hover:bg-primary/90 text-white text-sm">
+                <Plus className="w-4 h-4 mr-2" /> Add Media
+              </Button>
             </div>
-            <Button
-              variant={selectMode ? 'default' : 'outline'}
-              onClick={() => {
-                setSelectMode((mode) => !mode);
-                setSelectedIds(new Set());
-              }}
-              className={cn('border-border text-sm w-full sm:w-auto', selectMode && 'bg-primary/20 text-primary border-primary/30')}
-            >
-              <CheckSquare className="w-4 h-4 mr-2" /> {selectMode ? 'Cancel' : 'Select'}
-            </Button>
-            <Button variant="outline" onClick={() => setShowRepair(true)} className="border-border text-sm w-full sm:w-auto">
-              <Wrench className="w-4 h-4 mr-2" /> Repair Media
-            </Button>
-            <Button variant="outline" onClick={() => setShowBulkAdd(true)} className="border-border text-sm w-full sm:w-auto">
-              <Plus className="w-4 h-4 mr-2" /> Bulk Add
-            </Button>
-            <Button onClick={() => setShowSearch(true)} className="bg-primary hover:bg-primary/90 text-white text-sm w-full sm:w-auto">
-              <Plus className="w-4 h-4 mr-2" /> Add Media
-            </Button>
+
+            {/* Mobile Actions Header Row */}
+            <div className="flex w-full sm:hidden gap-2">
+              <MobileActionOverflow 
+                className="flex-[0_0_auto]"
+                actions={[
+                  { label: view === 'library' ? 'Yearly View' : 'Library View', icon: view === 'library' ? Calendar : LayoutGrid, onClick: () => setView(view === 'library' ? 'yearly' : 'library') },
+                  { label: selectMode ? 'Cancel Select' : 'Select', icon: CheckSquare, onClick: () => { setSelectMode((m) => !m); setSelectedIds(new Set()); } },
+                  { label: 'Repair Media', icon: Wrench, onClick: () => setShowRepair(true) },
+                  { label: 'Bulk Add', icon: Plus, onClick: () => setShowBulkAdd(true) }
+                ]}
+              />
+              <Button onClick={() => setShowSearch(true)} className="flex-1 bg-primary hover:bg-primary/90 text-white text-sm">
+                <Plus className="w-4 h-4 mr-2" /> Add Media
+              </Button>
+            </div>
           </PageActionRow>
         )}
       />
@@ -650,32 +671,8 @@ export default function Media() {
       ) : (
         <>
           <div className="space-y-3 mb-6">
-            <div className="flex gap-1.5 flex-wrap">
-              {TYPE_FILTERS.map((filter) => {
-                const Icon = filter.icon;
-                const count = countsByType[filter.key] || 0;
-
-                return (
-                  <button
-                    key={filter.key}
-                    onClick={() => setTypeFilter(filter.key)}
-                    className={cn(
-                      'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border',
-                      typeFilter === filter.key
-                        ? 'bg-primary/20 text-primary border-primary/30'
-                        : 'bg-secondary/20 text-muted-foreground border-border/20 hover:bg-secondary/40',
-                    )}
-                  >
-                    <Icon className="w-3 h-3" />
-                    {filter.label}
-                    <span className="opacity-60">{count}</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="flex gap-2 flex-wrap items-center">
-              <div className="relative flex-1 basis-full sm:basis-auto sm:max-w-xs">
+            <div className="flex gap-2 items-center w-full">
+              <div className="relative flex-1 sm:max-w-xs">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
                 <Input
                   value={searchQuery}
@@ -683,6 +680,80 @@ export default function Media() {
                   placeholder="Search library..."
                   className="pl-8 bg-secondary/40 border-border/50 h-8 text-sm"
                 />
+              </div>
+              <div className="sm:hidden flex-1 max-w-[120px]">
+                <MobileFilterDrawer activeCount={(typeFilter !== 'all' ? 1 : 0) + (statusFilter !== 'all' ? 1 : 0)} triggerClassName="w-full">
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <p className="text-xs font-medium text-muted-foreground">Type</p>
+                      <div className="flex gap-1.5 flex-wrap">
+                        {TYPE_FILTERS.map((filter) => {
+                          const Icon = filter.icon;
+                          const count = countsByType[filter.key] || 0;
+                          return (
+                            <button
+                              key={filter.key}
+                              onClick={() => setTypeFilter(filter.key)}
+                              className={cn(
+                                'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border',
+                                typeFilter === filter.key
+                                  ? 'bg-primary/20 text-primary border-primary/30'
+                                  : 'bg-secondary/20 text-muted-foreground border-border/20 hover:bg-secondary/40',
+                              )}
+                            >
+                              <Icon className="w-3 h-3" />
+                              {filter.label}
+                              <span className="opacity-60">{count}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <p className="text-xs font-medium text-muted-foreground">Status</p>
+                      <div className="flex gap-1 flex-wrap">
+                        {STATUS_FILTERS.map((status) => (
+                          <button
+                            key={status.key}
+                            onClick={() => setStatusFilter(status.key)}
+                            className={cn(
+                              'px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
+                              statusFilter === status.key ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-secondary/40',
+                            )}
+                          >
+                            {status.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </MobileFilterDrawer>
+              </div>
+            </div>
+
+            {/* Desktop Filters */}
+            <div className="hidden sm:block space-y-3">
+              <div className="flex gap-1.5 flex-wrap">
+                {TYPE_FILTERS.map((filter) => {
+                  const Icon = filter.icon;
+                  const count = countsByType[filter.key] || 0;
+                  return (
+                    <button
+                      key={filter.key}
+                      onClick={() => setTypeFilter(filter.key)}
+                      className={cn(
+                        'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border',
+                        typeFilter === filter.key
+                          ? 'bg-primary/20 text-primary border-primary/30'
+                          : 'bg-secondary/20 text-muted-foreground border-border/20 hover:bg-secondary/40',
+                      )}
+                    >
+                      <Icon className="w-3 h-3" />
+                      {filter.label}
+                      <span className="opacity-60">{count}</span>
+                    </button>
+                  );
+                })}
               </div>
               <div className="flex gap-1">
                 {STATUS_FILTERS.map((status) => (

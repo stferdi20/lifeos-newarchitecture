@@ -1,7 +1,7 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
 
-export function PageHeader({ icon: Icon, title, description, actions, className, titleClassName }) {
+export function PageHeader({ icon: Icon, title, description, actions, className = '', titleClassName = '' }) {
   return (
     <div className={cn('flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between', className)}>
       <div className="min-w-0">
@@ -28,7 +28,7 @@ export function PageHeader({ icon: Icon, title, description, actions, className,
   );
 }
 
-export function PageActionRow({ className, children }) {
+export function PageActionRow({ className = '', children }) {
   return (
     <div className={cn('flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap', className)}>
       {children}

@@ -17,6 +17,8 @@ import ManualNoteModal from '../components/resources/ManualNoteModal';
 import BulkAddModal from '../components/resources/BulkAddModal';
 import BulkResourceActionBar from '../components/resources/BulkResourceActionBar';
 import { PageHeader, PageActionRow } from '@/components/layout/page-header';
+import { MobileActionOverflow } from '@/components/layout/MobileActionOverflow';
+import { MobileFilterDrawer } from '@/components/layout/MobileFilterDrawer';
 import { PageLoader } from '@/components/ui/page-loader';
 
 async function fetchResourceLinks(entityApi, resourceId) {
@@ -361,45 +363,90 @@ export default function Resources() {
         description="AI-powered knowledge capture & organization."
         actions={(
           <PageActionRow>
-            <div className="relative w-full sm:max-w-xs">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search..." className="border-border bg-secondary/40 pl-9" />
+            {/* Desktop Actions */}
+            <div className="hidden sm:flex gap-2 w-full sm:w-auto items-center">
+              <div className="relative w-full sm:max-w-xs">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search..." className="border-border bg-secondary/40 pl-9" />
+              </div>
+              <Button variant="outline" onClick={() => setShowManualNote(true)} className="border-border gap-1.5">
+                <FileText className="w-4 h-4" /> Note
+              </Button>
+              <Button variant="outline" onClick={() => setShowBulkAdd(true)} className="border-border gap-1.5">
+                <Sparkles className="w-4 h-4" /> Bulk Add
+              </Button>
+              <Button
+                variant={selectMode ? 'default' : 'outline'}
+                onClick={() => {
+                  if (selectMode) {
+                    clearSelection();
+                    return;
+                  }
+                  setSelectMode(true);
+                  setSelectedIds(new Set());
+                }}
+                className="border-border gap-1.5"
+              >
+                <CheckSquare className="w-4 h-4" /> {selectMode ? 'Cancel' : 'Select'}
+              </Button>
+              <Button onClick={() => setShowAddUrl(true)} className="gap-1.5">
+                <Sparkles className="w-4 h-4" /> Add URL
+              </Button>
             </div>
-            <Button variant="outline" onClick={() => setShowManualNote(true)} className="w-full border-border gap-1.5 sm:w-auto">
-              <FileText className="w-4 h-4" /> Note
-            </Button>
-            <Button variant="outline" onClick={() => setShowBulkAdd(true)} className="w-full border-border gap-1.5 sm:w-auto">
-              <Sparkles className="w-4 h-4" /> Bulk Add
-            </Button>
-            <Button
-              variant={selectMode ? 'default' : 'outline'}
-              onClick={() => {
-                if (selectMode) {
-                  clearSelection();
-                  return;
-                }
-                setSelectMode(true);
-                setSelectedIds(new Set());
-              }}
-              className="w-full border-border gap-1.5 sm:w-auto"
-            >
-              <CheckSquare className="w-4 h-4" /> {selectMode ? 'Cancel' : 'Select'}
-            </Button>
-            <Button onClick={() => setShowAddUrl(true)} className="w-full gap-1.5 sm:w-auto">
-              <Sparkles className="w-4 h-4" /> Add URL
-            </Button>
+
+            {/* Mobile Actions Header Row */}
+            <div className="flex w-full sm:hidden gap-2">
+              <MobileActionOverflow 
+                className="flex-[0_0_auto]"
+                actions={[
+                  { label: 'Note', icon: FileText, onClick: () => setShowManualNote(true) },
+                  { label: 'Bulk Add', icon: Sparkles, onClick: () => setShowBulkAdd(true) },
+                  { label: selectMode ? 'Cancel Select' : 'Select', icon: CheckSquare, onClick: () => {
+                    if (selectMode) clearSelection();
+                    else { setSelectMode(true); setSelectedIds(new Set()); }
+                  }}
+                ]}
+              />
+              <Button onClick={() => setShowAddUrl(true)} className="flex-1 bg-primary hover:bg-primary/90 text-white text-sm">
+                <Sparkles className="w-4 h-4 mr-2" /> Add URL
+              </Button>
+            </div>
           </PageActionRow>
         )}
       />
 
-      <ResourceFilters
-        typeFilter={typeFilter} setTypeFilter={setTypeFilter}
-        areaFilter={areaFilter} setAreaFilter={setAreaFilter}
-        archivedFilter={archivedFilter} setArchivedFilter={setArchivedFilter}
-        projectFilter={projectFilter} setProjectFilter={setProjectFilter}
-        tagFilter={tagFilter} setTagFilter={setTagFilter}
-        projects={projects} allTags={allTags} areas={areas}
-      />
+      <div className="sm:hidden flex gap-2 w-full">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search..." className="border-border bg-secondary/40 pl-9" />
+        </div>
+        <div className="flex-1 max-w-[120px]">
+          <MobileFilterDrawer 
+            activeCount={(typeFilter !== 'all' ? 1 : 0) + (areaFilter !== 'all' ? 1 : 0) + (archivedFilter !== 'active' ? 1 : 0) + (projectFilter ? 1 : 0) + (tagFilter ? 1 : 0)} 
+            triggerClassName="w-full"
+          >
+            <ResourceFilters
+              typeFilter={typeFilter} setTypeFilter={setTypeFilter}
+              areaFilter={areaFilter} setAreaFilter={setAreaFilter}
+              archivedFilter={archivedFilter} setArchivedFilter={setArchivedFilter}
+              projectFilter={projectFilter} setProjectFilter={setProjectFilter}
+              tagFilter={tagFilter} setTagFilter={setTagFilter}
+              projects={projects} allTags={allTags} areas={areas}
+            />
+          </MobileFilterDrawer>
+        </div>
+      </div>
+
+      <div className="hidden sm:block">
+        <ResourceFilters
+          typeFilter={typeFilter} setTypeFilter={setTypeFilter}
+          areaFilter={areaFilter} setAreaFilter={setAreaFilter}
+          archivedFilter={archivedFilter} setArchivedFilter={setArchivedFilter}
+          projectFilter={projectFilter} setProjectFilter={setProjectFilter}
+          tagFilter={tagFilter} setTagFilter={setTagFilter}
+          projects={projects} allTags={allTags} areas={areas}
+        />
+      </div>
 
       <p className="text-xs text-muted-foreground">{filteredResources.length} resource{filteredResources.length !== 1 ? 's' : ''}</p>
 

@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PageActionRow, PageHeader } from '@/components/layout/page-header';
+import { MobileFilterDrawer } from '@/components/layout/MobileFilterDrawer';
 import TaskDetailModal from '@/components/tasks/TaskDetailModal';
 import { updateTaskWithReminderSync } from '@/lib/googleReminderSync';
 import TaskRow from '@/components/tasks/TaskRow';
@@ -85,17 +86,39 @@ export default function Tasks() {
 
       <section className="rounded-3xl border border-border/40 bg-card/50 p-4 sm:p-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="relative w-full max-w-xl">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search tasks, cards, and workspaces..."
-              className="border-border/50 bg-secondary/20 pl-9"
-            />
+          <div className="relative w-full max-w-xl flex gap-2">
+            <div className="relative flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search tasks, cards, and workspaces..."
+                className="border-border/50 bg-secondary/20 pl-9"
+              />
+            </div>
+            <div className="md:hidden flex-[0_0_auto] max-w-[110px]">
+              <MobileFilterDrawer activeCount={filter !== 'active' ? 1 : 0} triggerClassName="w-full h-full">
+                <div className="flex flex-col gap-2">
+                  {FILTER_OPTIONS.map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => setFilter(option.id)}
+                      className={`flex items-center px-4 py-3 rounded-xl text-sm font-medium border transition-all text-left ${
+                        filter === option.id
+                          ? 'bg-primary/10 border-primary/30 text-primary'
+                          : 'bg-secondary/20 border-border/30 text-muted-foreground hover:bg-secondary/40'
+                      }`}
+                    >
+                      <span>{option.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </MobileFilterDrawer>
+            </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="hidden md:flex flex-wrap gap-2">
             {FILTER_OPTIONS.map((option) => (
               <button
                 key={option.id}

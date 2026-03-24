@@ -94,8 +94,14 @@ export default function Sidebar({ expanded, onToggle, isMobile = false, mobileOp
   return (
     <aside className={containerClasses}>
       {/* Logo */}
-      <div className="h-16 flex items-center justify-between px-4 shrink-0">
-        <Link to={createPageUrl('Dashboard')} className="flex items-center gap-2.5 min-w-0">
+      <div className={cn(
+        "h-16 flex items-center shrink-0",
+        expanded ? "justify-between px-4" : "justify-center px-2"
+      )}>
+        <Link 
+          to={createPageUrl('Dashboard')} 
+          className={cn("flex items-center gap-2.5 min-w-0", !expanded && "hidden")}
+        >
           <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center shrink-0 shadow-lg shadow-violet-500/20">
             <span className="text-white font-bold text-sm">L</span>
           </div>
@@ -105,9 +111,13 @@ export default function Sidebar({ expanded, onToggle, isMobile = false, mobileOp
         </Link>
         <button
           onClick={onToggle}
-          className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-white/[0.06] transition-colors shrink-0"
+          className={cn(
+            "rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-white/[0.06] transition-colors shrink-0",
+            expanded ? "w-8 h-8 ml-2" : "w-12 h-12"
+          )}
+          aria-label={expanded ? "Collapse navigation" : "Open navigation"}
         >
-          {expanded ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+          {expanded ? <ChevronLeft className="w-5 h-5" /> : <ChevronRight className="w-6 h-6" />}
         </button>
       </div>
 

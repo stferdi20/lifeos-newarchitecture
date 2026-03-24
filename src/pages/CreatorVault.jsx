@@ -8,6 +8,7 @@ import { format } from 'date-fns';
 import { toast } from 'sonner';
 import BulkAddCreatorModal from '../components/creator/BulkAddCreatorModal';
 import { PageHeader } from '@/components/layout/page-header';
+import { MobileFilterDrawer } from '@/components/layout/MobileFilterDrawer';
 
 const PLATFORM_CONFIG = {
   x: { label: 'X', icon: '𝕏', color: 'bg-zinc-500/20 text-zinc-300 border-zinc-500/30', urlBase: 'https://x.com/' },
@@ -142,8 +143,8 @@ export default function CreatorVault() {
         )}
       />
 
-      {/* Search & Filters */}
-      <div className="flex flex-col sm:flex-row gap-3">
+      {/* Desktop Search & Filters */}
+      <div className="hidden sm:flex flex-row gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/50" />
           <input
@@ -179,6 +180,59 @@ export default function CreatorVault() {
               </button>
             ) : null
           ))}
+        </div>
+      </div>
+
+      {/* Mobile Search & Filters */}
+      <div className="flex sm:hidden gap-2 w-full">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/50" />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search..."
+            className="w-full pl-9 pr-3 py-2 bg-secondary/50 border border-border/50 rounded-xl text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-fuchsia-500/50"
+          />
+        </div>
+        <div className="flex-[0_0_auto] max-w-[110px]">
+          <MobileFilterDrawer activeCount={platformFilter !== 'all' ? 1 : 0} triggerClassName="w-full h-full rounded-xl">
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => { setPlatformFilter('all'); }}
+                className={cn('flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium border transition-all text-left',
+                  platformFilter === 'all'
+                    ? 'bg-fuchsia-500/10 border-fuchsia-500/30 text-fuchsia-500'
+                    : 'bg-secondary/20 border-border/30 text-muted-foreground'
+                )}
+              >
+                <span>All Platforms</span>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-secondary">
+                  {platformCounts.all || 0}
+                </span>
+              </button>
+              {Object.entries(PLATFORM_CONFIG).map(([key, cfg]) => (
+                platformCounts[key] ? (
+                  <button
+                    key={key}
+                    onClick={() => { setPlatformFilter(key); }}
+                    className={cn('flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-medium border transition-all text-left',
+                      platformFilter === key
+                        ? 'bg-fuchsia-500/10 border-fuchsia-500/30 text-fuchsia-500'
+                        : 'bg-secondary/20 border-border/30 text-muted-foreground'
+                    )}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span className={cn('w-6 h-6 rounded-md flex items-center justify-center text-xs', cfg.color)}>{cfg.icon}</span>
+                      {cfg.label}
+                    </span>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-secondary">
+                      {platformCounts[key]}
+                    </span>
+                  </button>
+                ) : null
+              ))}
+            </div>
+          </MobileFilterDrawer>
         </div>
       </div>
 

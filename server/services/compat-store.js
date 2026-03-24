@@ -75,6 +75,10 @@ function matchesFilter(record, filter = {}) {
       }
     }
 
+    if (actual != null && expected != null && String(actual) === String(expected)) {
+      return true;
+    }
+
     return actual === expected;
   });
 }

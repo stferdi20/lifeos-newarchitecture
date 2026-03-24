@@ -7,6 +7,8 @@ import InvestmentCard from '@/components/investments/InvestmentCard';
 import InvestmentFormModal from '@/components/investments/InvestmentFormModal';
 import PortfolioSummary from '@/components/investments/PortfolioSummary';
 import { PageHeader, PageActionRow } from '@/components/layout/page-header';
+import { MobileActionOverflow } from '@/components/layout/MobileActionOverflow';
+import { MobileFilterDrawer } from '@/components/layout/MobileFilterDrawer';
 
 const FILTERS = [
   { key: 'all', label: 'All' },
@@ -30,7 +32,7 @@ export default function Investments() {
 
   const deleteMutation = useMutation({
     mutationFn: (id) => Investment.delete(id),
-    onSuccess: () => qc.invalidateQueries(['investments']),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['investments'] }),
   });
 
   const handleRefreshPrices = async () => {
@@ -52,7 +54,7 @@ export default function Investments() {
         });
       }
     }
-    qc.invalidateQueries(['investments']);
+    qc.invalidateQueries({ queryKey: ['investments'] });
     setRefreshing(false);
   };
 
@@ -73,7 +75,7 @@ export default function Investments() {
         await Investment.update(saved.id, { current_price: r.price, last_updated: new Date().toISOString() });
       }
     }
-    qc.invalidateQueries(['investments']);
+    qc.invalidateQueries({ queryKey: ['investments'] });
     setShowForm(false);
     setEditing(null);
   };
@@ -87,22 +89,56 @@ export default function Investments() {
         description="Track your portfolio across stocks, crypto, TCG & cash"
         actions={(
           <PageActionRow>
-            <Button variant="outline" size="sm" onClick={handleRefreshPrices} disabled={refreshing} className="w-full sm:w-auto">
-            <RefreshCw className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
-            {refreshing ? 'Refreshing...' : 'Refresh Prices'}
-            </Button>
-            <Button size="sm" onClick={() => { setEditing(null); setShowForm(true); }} className="w-full sm:w-auto">
-            <Plus className="w-4 h-4 mr-2" />
-            Add
-            </Button>
+            {/* Desktop Actions */}
+            <div className="hidden sm:flex gap-2">
+              <Button variant="outline" size="sm" onClick={handleRefreshPrices} disabled={refreshing}>
+                <RefreshCw className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+                {refreshing ? 'Refreshing...' : 'Refresh Prices'}
+              </Button>
+              <Button size="sm" onClick={() => { setEditing(null); setShowForm(true); }}>
+                <Plus className="w-4 h-4 mr-2" /> Add
+              </Button>
+            </div>
+            
+            {/* Mobile Actions Header Row */}
+            <div className="flex w-full sm:hidden gap-2">
+              <MobileActionOverflow 
+                className="flex-[0_0_auto]"
+                actions={[
+                  { label: refreshing ? 'Refreshing...' : 'Refresh Prices', icon: RefreshCw, disabled: refreshing, onClick: handleRefreshPrices }
+                ]}
+              />
+              <Button onClick={() => { setEditing(null); setShowForm(true); }} className="flex-1 bg-primary hover:bg-primary/90 text-white text-sm">
+                <Plus className="w-4 h-4 mr-2" /> Add
+              </Button>
+            </div>
           </PageActionRow>
         )}
       />
 
       {investments.length > 0 && <PortfolioSummary investments={investments} />}
 
-      {/* Filter tabs */}
-      <div className="flex gap-2 flex-wrap">
+      {/* Filter tabs - Mobile */}
+      <div className="sm:hidden mb-4">
+        <MobileFilterDrawer activeCount={filter !== 'all' ? 1 : 0} triggerClassName="w-full">
+          <div className="flex flex-col gap-2">
+            {FILTERS.map(f => (
+              <button key={f.key} onClick={() => setFilter(f.key)}
+                className={`flex justify-between items-center px-4 py-3 rounded-xl text-sm font-medium transition-all text-left border ${
+                  filter === f.key ? 'bg-primary/10 text-primary border-primary/30' : 'bg-secondary/20 text-muted-foreground hover:bg-secondary/40 border-border/30'
+                }`}>
+                <span>{f.label}</span>
+                <span className="text-xs opacity-60 px-2 py-0.5 rounded-full bg-secondary/50">
+                  {f.key === 'all' ? investments.length : investments.filter(i => i.type === f.key).length}
+                </span>
+              </button>
+            ))}
+          </div>
+        </MobileFilterDrawer>
+      </div>
+
+      {/* Filter tabs - Desktop */}
+      <div className="hidden sm:flex gap-2 flex-wrap">
         {FILTERS.map(f => (
           <button key={f.key} onClick={() => setFilter(f.key)}
             className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
