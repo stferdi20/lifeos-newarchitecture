@@ -9,7 +9,7 @@ import { shouldUseSupabaseAuth } from '@/lib/runtime-config';
 import { getSupabaseBrowserClient } from '@/lib/supabase-browser';
 
 export default function Login() {
-  const { isAuthenticated, isLoadingAuth, authStateEvent } = useAuth();
+  const { isAuthenticated, isLoadingAuth, authStateEvent, clearPasswordRecoveryState } = useAuth();
   const [mode, setMode] = useState('sign-in');
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -199,6 +199,7 @@ export default function Login() {
       const { error } = await client.auth.updateUser({ password });
       if (error) throw error;
 
+      clearPasswordRecoveryState();
       setLinkError('');
       setConfirmPassword('');
       toast.success('Password updated. You can now sign in with email and password.');

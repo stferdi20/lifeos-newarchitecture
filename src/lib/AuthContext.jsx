@@ -3,6 +3,30 @@ import { hasSupabaseBrowserConfig } from '@/lib/runtime-config';
 import { getSupabaseBrowserClient } from '@/lib/supabase-browser';
 
 const AuthContext = createContext();
+const PASSWORD_RECOVERY_STORAGE_KEY = 'lifeos.password-recovery';
+
+function hasRecoveryTypeInUrl() {
+  if (typeof window === 'undefined') return false;
+
+  const searchParams = new URLSearchParams(window.location.search);
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+  return searchParams.get('type') === 'recovery' || hashParams.get('type') === 'recovery';
+}
+
+function markPasswordRecoveryActive() {
+  if (typeof window === 'undefined') return;
+  window.sessionStorage.setItem(PASSWORD_RECOVERY_STORAGE_KEY, '1');
+}
+
+function clearPasswordRecoveryFlag() {
+  if (typeof window === 'undefined') return;
+  window.sessionStorage.removeItem(PASSWORD_RECOVERY_STORAGE_KEY);
+}
+
+function isPasswordRecoveryActive() {
+  if (typeof window === 'undefined') return false;
+  return window.sessionStorage.getItem(PASSWORD_RECOVERY_STORAGE_KEY) === '1';
+}
 
 function normalizeSupabaseUser(user) {
   if (!user) return null;
@@ -21,7 +45,9 @@ export const AuthProvider = ({ children }) => {
   const [isLoadingPublicSettings, setIsLoadingPublicSettings] = useState(true);
   const [authError, setAuthError] = useState(null);
   const [appPublicSettings, setAppPublicSettings] = useState(null);
-  const [authStateEvent, setAuthStateEvent] = useState(null);
+  const [authStateEvent, setAuthStateEvent] = useState(
+    hasRecoveryTypeInUrl() || isPasswordRecoveryActive() ? 'PASSWORD_RECOVERY' : null
+  );
 
   useEffect(() => {
     const client = getSupabaseBrowserClient();
@@ -38,7 +64,16 @@ export const AuthProvider = ({ children }) => {
     checkSupabaseAuth(client);
 
     const { data } = client.auth.onAuthStateChange((event, session) => {
-      setAuthStateEvent(event);
+      if (event === 'PASSWORD_RECOVERY' || hasRecoveryTypeInUrl()) {
+        markPasswordRecoveryActive();
+        setAuthStateEvent('PASSWORD_RECOVERY');
+      } else if (event === 'SIGNED_OUT') {
+        clearPasswordRecoveryFlag();
+        setAuthStateEvent(null);
+      } else {
+        setAuthStateEvent(isPasswordRecoveryActive() ? 'PASSWORD_RECOVERY' : event);
+      }
+
       const nextUser = normalizeSupabaseUser(session?.user);
       setUser(nextUser);
       setIsAuthenticated(Boolean(session?.user));
@@ -63,7 +98,12 @@ export const AuthProvider = ({ children }) => {
       if (error) throw error;
 
       const nextUser = normalizeSupabaseUser(data.session?.user);
-      setAuthStateEvent(null);
+      if (hasRecoveryTypeInUrl() || isPasswordRecoveryActive()) {
+        markPasswordRecoveryActive();
+        setAuthStateEvent('PASSWORD_RECOVERY');
+      } else {
+        setAuthStateEvent(null);
+      }
       setUser(nextUser);
       setIsAuthenticated(Boolean(nextUser));
       setIsLoadingAuth(false);
@@ -91,11 +131,17 @@ export const AuthProvider = ({ children }) => {
   const logout = (shouldRedirect = true) => {
     setUser(null);
     setIsAuthenticated(false);
+    clearPasswordRecoveryFlag();
     setAuthStateEvent(null);
     const client = getSupabaseBrowserClient();
     client?.auth.signOut().finally(() => {
       if (shouldRedirect) window.location.assign('/Login');
     });
+  };
+
+  const clearPasswordRecoveryState = () => {
+    clearPasswordRecoveryFlag();
+    setAuthStateEvent(null);
   };
 
   const navigateToLogin = () => {
@@ -113,6 +159,7 @@ export const AuthProvider = ({ children }) => {
       appPublicSettings,
       authProvider: 'supabase',
       logout,
+      clearPasswordRecoveryState,
       navigateToLogin,
       checkAppState: checkSupabaseAuth,
     }}>
