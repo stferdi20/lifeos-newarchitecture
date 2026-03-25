@@ -2,7 +2,7 @@ import React, { Suspense, lazy } from 'react';
 import { Toaster } from '@/components/ui/toaster';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClientInstance } from '@/lib/query-client';
-import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-dom';
+import { BrowserRouter as Router, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import { featureFlags, isFeatureEnabled } from '@/lib/featureFlags';
 import { getKanbanV2MigrationState } from '@/lib/kanbanMigration';
@@ -60,10 +60,19 @@ const ProjectsRoute = () => {
   return kanbanV2Enabled && migrationVerified ? <ProjectsV2 /> : <ProjectsLegacy />;
 };
 
+function isRecoveryLoginUrl(location) {
+  if (location?.pathname !== '/Login') return false;
+
+  const searchParams = new URLSearchParams(location.search);
+  const hashParams = new URLSearchParams(String(location.hash || '').replace(/^#/, ''));
+  return searchParams.get('type') === 'recovery' || hashParams.get('type') === 'recovery';
+}
+
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, authStateEvent, navigateToLogin, isAuthenticated } = useAuth();
+  const location = useLocation();
   const usingSupabaseAuth = shouldUseSupabaseAuth();
-  const isRecoveringPassword = authStateEvent === 'PASSWORD_RECOVERY';
+  const isRecoveringPassword = authStateEvent === 'PASSWORD_RECOVERY' || isRecoveryLoginUrl(location);
 
   if (isLoadingPublicSettings || isLoadingAuth) {
     return <RouteFallback />;
