@@ -61,14 +61,15 @@ const ProjectsRoute = () => {
 };
 
 const AuthenticatedApp = () => {
-  const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin, isAuthenticated } = useAuth();
+  const { isLoadingAuth, isLoadingPublicSettings, authError, authStateEvent, navigateToLogin, isAuthenticated } = useAuth();
   const usingSupabaseAuth = shouldUseSupabaseAuth();
+  const isRecoveringPassword = authStateEvent === 'PASSWORD_RECOVERY';
 
   if (isLoadingPublicSettings || isLoadingAuth) {
     return <RouteFallback />;
   }
 
-  if (usingSupabaseAuth && !isAuthenticated) {
+  if (usingSupabaseAuth && (!isAuthenticated || isRecoveringPassword)) {
     return (
       <Routes>
         <Route path="/Login" element={<RouteElement><Login /></RouteElement>} />

@@ -21,6 +21,7 @@ export const AuthProvider = ({ children }) => {
   const [isLoadingPublicSettings, setIsLoadingPublicSettings] = useState(true);
   const [authError, setAuthError] = useState(null);
   const [appPublicSettings, setAppPublicSettings] = useState(null);
+  const [authStateEvent, setAuthStateEvent] = useState(null);
 
   useEffect(() => {
     const client = getSupabaseBrowserClient();
@@ -36,7 +37,8 @@ export const AuthProvider = ({ children }) => {
 
     checkSupabaseAuth(client);
 
-    const { data } = client.auth.onAuthStateChange((_event, session) => {
+    const { data } = client.auth.onAuthStateChange((event, session) => {
+      setAuthStateEvent(event);
       const nextUser = normalizeSupabaseUser(session?.user);
       setUser(nextUser);
       setIsAuthenticated(Boolean(session?.user));
@@ -61,6 +63,7 @@ export const AuthProvider = ({ children }) => {
       if (error) throw error;
 
       const nextUser = normalizeSupabaseUser(data.session?.user);
+      setAuthStateEvent(null);
       setUser(nextUser);
       setIsAuthenticated(Boolean(nextUser));
       setIsLoadingAuth(false);
@@ -88,6 +91,7 @@ export const AuthProvider = ({ children }) => {
   const logout = (shouldRedirect = true) => {
     setUser(null);
     setIsAuthenticated(false);
+    setAuthStateEvent(null);
     const client = getSupabaseBrowserClient();
     client?.auth.signOut().finally(() => {
       if (shouldRedirect) window.location.assign('/Login');
@@ -105,6 +109,7 @@ export const AuthProvider = ({ children }) => {
       isLoadingAuth,
       isLoadingPublicSettings,
       authError,
+      authStateEvent,
       appPublicSettings,
       authProvider: 'supabase',
       logout,
