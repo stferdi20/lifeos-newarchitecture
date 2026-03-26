@@ -154,3 +154,21 @@ Still intentionally incomplete:
 - full route-by-route replacement of all `base44Client` imports with typed domain APIs
 - removal of archived `base44/functions/` reference code from the repo
 - complete production smoke testing on a live Vercel deployment
+
+## Menubar Compatibility
+
+This web/backend app currently owns the backend contract used by the native menubar app. That means a backend refactor can break the menubar even if the web UI still works.
+
+The main shared routes are:
+
+- `/auth/login`
+- `/auth/refresh`
+- `/auth/me`
+- `/tasks`
+- `/calendar/sync`
+- `/resources/analyze`
+- `/resources`
+
+Before changing auth, tasks, calendar, or resource route shapes, read:
+
+- [`docs/MENUBAR_COMPATIBILITY.md`](/Users/stefanusferdi/Documents/Data%20Penting/Antigravity%20Projects/LifeOS%20Trifecta/lifeos-new%20architecture/docs/MENUBAR_COMPATIBILITY.md)
