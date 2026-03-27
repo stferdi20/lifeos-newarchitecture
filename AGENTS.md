@@ -91,6 +91,8 @@ Do not treat this as optional housekeeping.
 
 - Use a `codex/` branch by default unless the user asked for a different branch or you are already on the correct task branch.
 - After verifying your change, commit the relevant repo changes and push them to `origin`, unless the user explicitly says not to push yet.
+- Unless the user explicitly asks for branch-only work, PR-only work, or no promotion to production, land validated changes onto `main` and push `origin/main` before handoff.
+- If work begins on a `codex/` branch, finish by fast-forwarding or otherwise safely merging the validated branch into `main`, then push `main`.
 - Do not ask the user to run normal git commands that you can run directly.
 - Do not stage unrelated dirty-worktree changes just to make a push succeed.
 - If a safe commit is impossible because unrelated work is mixed into the same hunks, stop and explain the blocker.
