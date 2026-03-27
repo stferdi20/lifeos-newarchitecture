@@ -192,6 +192,36 @@ function normalizeTitleCandidate(title = '', siteName = '') {
   return stripText(cleaned);
 }
 
+function normalizeMaybeNumber(value) {
+  if (value == null || value === '') return null;
+  const normalized = Number(String(value).replace(/,/g, ''));
+  return Number.isFinite(normalized) ? normalized : null;
+}
+
+function normalizeIsoDate(value = '') {
+  const text = stripText(value);
+  if (!text) return '';
+  const date = new Date(text);
+  return Number.isNaN(date.getTime()) ? text : date.toISOString();
+}
+
+function stripXmlTags(value = '') {
+  return String(value || '')
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function decodeHtmlEntities(value = '') {
+  return String(value || '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
 function deriveAudience({ resourceType = '', text = '' }) {
   if (resourceType === 'youtube') return 'People who prefer learning from video explanations or creator breakdowns.';
   if (resourceType === 'research_paper') return 'People doing deeper research who want stronger evidence before acting.';
@@ -446,6 +476,8 @@ function extractJsonLdMetadata(jsonLdItems = []) {
   const publishedDates = [];
   const thumbnails = [];
   const siteNames = [];
+  const dois = [];
+  const publishers = [];
 
   for (const item of jsonLdItems) {
     const graphItems = Array.isArray(item?.['@graph']) ? item['@graph'] : [item];
@@ -460,6 +492,8 @@ function extractJsonLdMetadata(jsonLdItems = []) {
       authors.push(getJsonLdAuthorName(entry?.author), getJsonLdAuthorName(entry?.creator));
       keywords.push(entry?.keywords, entry?.about?.name, entry?.publisher?.name);
       publishedDates.push(entry?.datePublished, entry?.dateCreated, entry?.dateModified);
+      dois.push(entry?.identifier, entry?.doi);
+      publishers.push(entry?.publisher?.name);
       thumbnails.push(
         typeof entry?.image === 'string' ? entry.image : entry?.image?.url,
         entry?.thumbnailUrl,
@@ -477,6 +511,8 @@ function extractJsonLdMetadata(jsonLdItems = []) {
     publishedDate: dedupeStrings(publishedDates, 1)[0] || '',
     thumbnail: dedupeStrings(thumbnails, 1)[0] || '',
     siteName: dedupeStrings(siteNames, 1)[0] || '',
+    doi: dedupeStrings(dois, 1)[0] || '',
+    publisher: dedupeStrings(publishers, 1)[0] || '',
   };
 }
 
@@ -624,6 +660,279 @@ function looksLikeLowQualityHtmlText(text = '') {
   if (normalized.length > 700 && sentenceLikeSegments <= 2) return true;
 
   return false;
+}
+
+function parseGitHubRepo(url = '') {
+  try {
+    const parsed = new URL(url);
+    if (!/github\.com$/i.test(parsed.hostname.replace(/^www\./, ''))) return null;
+    const [owner, repo] = parsed.pathname.split('/').filter(Boolean);
+    if (!owner || !repo) return null;
+    return {
+      owner,
+      repo: repo.replace(/\.git$/i, ''),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchGitHubRepoData(url, meta = {}, jsonLdMetadata = {}) {
+  const parsedRepo = parseGitHubRepo(url);
+  if (!parsedRepo) return null;
+
+  const { owner, repo } = parsedRepo;
+  const headers = {
+    Accept: 'application/vnd.github+json',
+    'User-Agent': USER_AGENT,
+  };
+  if (process.env.GITHUB_TOKEN) {
+    headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+  }
+
+  let repoPayload = null;
+  let readmePayload = null;
+
+  try {
+    const response = await fetch(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`, {
+      headers,
+      signal: AbortSignal.timeout(12000),
+    });
+    if (response.ok) repoPayload = await response.json();
+  } catch {
+    // ignore
+  }
+
+  try {
+    const response = await fetch(`https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/readme`, {
+      headers,
+      signal: AbortSignal.timeout(12000),
+    });
+    if (response.ok) readmePayload = await response.json();
+  } catch {
+    // ignore
+  }
+
+  let readmeExcerpt = '';
+  const encodedReadme = typeof readmePayload?.content === 'string' ? readmePayload.content.replace(/\n/g, '') : '';
+  if (encodedReadme) {
+    try {
+      readmeExcerpt = normalizeLongText(Buffer.from(encodedReadme, 'base64').toString('utf8'), 10000);
+    } catch {
+      readmeExcerpt = '';
+    }
+  }
+
+  const topics = normalizeKeywordValues(repoPayload?.topics || [], 12);
+  const description = stripText(repoPayload?.description || meta.description || meta['og:description'] || jsonLdMetadata.description || '');
+  const content = normalizeLongText([
+    description ? `Repository description: ${description}` : '',
+    topics.length ? `Topics: ${topics.join(', ')}` : '',
+    readmeExcerpt ? `README excerpt:\n${readmeExcerpt}` : '',
+  ].filter(Boolean).join('\n\n'), 24000);
+
+  return {
+    owner,
+    repoName: repo,
+    description,
+    readmeExcerpt,
+    primaryLanguage: stripText(repoPayload?.language || ''),
+    topics,
+    stars: normalizeMaybeNumber(repoPayload?.stargazers_count),
+    forks: normalizeMaybeNumber(repoPayload?.forks_count),
+    openIssues: normalizeMaybeNumber(repoPayload?.open_issues_count),
+    lastPushAt: normalizeIsoDate(repoPayload?.pushed_at || ''),
+    license: stripText(repoPayload?.license?.spdx_id || repoPayload?.license?.name || ''),
+    status: repoPayload?.archived ? 'deprecated' : (repoPayload ? 'active' : 'unknown'),
+    author: stripText(repoPayload?.owner?.login || owner),
+    title: repo,
+    thumbnail: stripText(repoPayload?.owner?.avatar_url || meta['og:image'] || ''),
+    keywords: topics,
+    content,
+    publishedDate: normalizeIsoDate(repoPayload?.created_at || ''),
+  };
+}
+
+function parseArxivId(url = '') {
+  const match = String(url || '').match(/arxiv\.org\/(?:abs|pdf)\/([^/?#]+?)(?:\.pdf)?$/i);
+  return match?.[1] || '';
+}
+
+function parseDoiValue(value = '') {
+  const decoded = decodeURIComponent(String(value || ''));
+  const doiMatch = decoded.match(/10\.\d{4,9}\/[-._;()/:A-Z0-9]+/i);
+  return doiMatch?.[0] || '';
+}
+
+function derivePaperIdentifiers(url = '', meta = {}, jsonLdMetadata = {}) {
+  return {
+    arxivId: parseArxivId(url) || stripText(meta['citation_arxiv_id'] || ''),
+    doi: parseDoiValue(url)
+      || parseDoiValue(meta['citation_doi'] || '')
+      || parseDoiValue(meta['dc.identifier'] || '')
+      || parseDoiValue(jsonLdMetadata?.doi || ''),
+  };
+}
+
+async function fetchArxivPaperData(arxivId = '') {
+  if (!arxivId) return null;
+  try {
+    const response = await fetch(`https://export.arxiv.org/api/query?id_list=${encodeURIComponent(arxivId)}`, {
+      headers: { 'User-Agent': USER_AGENT },
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!response.ok) return null;
+    const xml = await response.text();
+    const title = stripXmlTags(xml.match(/<entry>[\s\S]*?<title>([\s\S]*?)<\/title>/i)?.[1] || '');
+    const abstract = stripXmlTags(xml.match(/<entry>[\s\S]*?<summary>([\s\S]*?)<\/summary>/i)?.[1] || '');
+    const published = stripXmlTags(xml.match(/<entry>[\s\S]*?<published>([\s\S]*?)<\/published>/i)?.[1] || '');
+    const authors = [...xml.matchAll(/<author>\s*<name>([\s\S]*?)<\/name>\s*<\/author>/gi)].map((entry) => stripXmlTags(entry[1]));
+    return {
+      title,
+      abstract,
+      authors: dedupeStrings(authors, 12),
+      venue: 'arXiv',
+      year: normalizeMaybeNumber((published.match(/\b(19|20)\d{2}\b/) || [])[0]),
+      pdfUrl: `https://arxiv.org/pdf/${arxivId}.pdf`,
+      publishedDate: normalizeIsoDate(published),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchCrossrefPaperData(doi = '') {
+  if (!doi) return null;
+  try {
+    const response = await fetch(`https://api.crossref.org/works/${encodeURIComponent(doi)}`, {
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': USER_AGENT,
+      },
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!response.ok) return null;
+    const payload = await response.json();
+    const message = payload?.message || {};
+    const authors = toArray(message.author).map((author) => stripText([author?.given, author?.family].filter(Boolean).join(' ')));
+    const publishedParts = message['published-print']?.['date-parts']?.[0]
+      || message['published-online']?.['date-parts']?.[0]
+      || message.created?.['date-parts']?.[0]
+      || [];
+    const publishedDate = publishedParts.length ? normalizeIsoDate(new Date(...publishedParts.map((part, index) => (index === 1 ? part - 1 : part))).toISOString()) : '';
+    return {
+      title: stripText(toArray(message.title)[0] || ''),
+      abstract: stripXmlTags(message.abstract || ''),
+      authors: dedupeStrings(authors, 12),
+      venue: stripText(toArray(message['container-title'])[0] || message.publisher || ''),
+      year: normalizeMaybeNumber(publishedParts[0]),
+      pdfUrl: stripText(toArray(message.link).find((entry) => /pdf/i.test(entry?.content_type || ''))?.URL || ''),
+      publishedDate,
+      keywords: normalizeKeywordValues(message.subject || [], 12),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchResearchPaperData(url, meta = {}, jsonLdMetadata = {}) {
+  const identifiers = derivePaperIdentifiers(url, meta, jsonLdMetadata);
+  const [arxivData, crossrefData] = await Promise.all([
+    fetchArxivPaperData(identifiers.arxivId),
+    fetchCrossrefPaperData(identifiers.doi),
+  ]);
+  const authors = dedupeStrings([
+    ...(crossrefData?.authors || []),
+    ...(arxivData?.authors || []),
+    stripText(meta['citation_author'] || ''),
+    stripText(jsonLdMetadata.author || ''),
+  ], 12);
+  const abstract = stripText(crossrefData?.abstract || arxivData?.abstract || meta['citation_abstract'] || jsonLdMetadata.description || meta.description || '');
+  const title = normalizeTitleCandidate(
+    crossrefData?.title || arxivData?.title || meta['citation_title'] || jsonLdMetadata.title || meta['og:title'] || '',
+    meta['og:site_name'] || jsonLdMetadata.siteName || '',
+  );
+  const keywords = normalizeKeywordValues([
+    ...(crossrefData?.keywords || []),
+    meta['citation_keywords'] || '',
+    ...(jsonLdMetadata.keywords || []),
+  ], 12);
+  const sectionsExcerpt = normalizeLongText([
+    abstract ? `Abstract: ${abstract}` : '',
+    crossrefData?.venue ? `Venue: ${crossrefData.venue}` : (arxivData?.venue ? `Venue: ${arxivData.venue}` : ''),
+  ].filter(Boolean).join('\n\n'), 12000);
+  const content = normalizeLongText([
+    title ? `Paper title: ${title}` : '',
+    authors.length ? `Authors: ${authors.join(', ')}` : '',
+    abstract ? `Abstract:\n${abstract}` : '',
+    sectionsExcerpt && sectionsExcerpt !== abstract ? `Details:\n${sectionsExcerpt}` : '',
+  ].filter(Boolean).join('\n\n'), 24000);
+
+  return {
+    title,
+    authors,
+    abstract,
+    venue: stripText(crossrefData?.venue || arxivData?.venue || meta['citation_journal_title'] || jsonLdMetadata.publisher || ''),
+    year: normalizeMaybeNumber(crossrefData?.year || arxivData?.year || (meta['citation_publication_date'] || '').match(/\b(19|20)\d{2}\b/)?.[0]),
+    doi: identifiers.doi,
+    arxivId: identifiers.arxivId,
+    pdfUrl: stripText(crossrefData?.pdfUrl || arxivData?.pdfUrl || ''),
+    keywords,
+    sectionsExcerpt,
+    publishedDate: normalizeIsoDate(crossrefData?.publishedDate || arxivData?.publishedDate || meta['citation_publication_date'] || ''),
+    content,
+  };
+}
+
+async function fetchPdfData(url, meta = {}, jsonLdMetadata = {}) {
+  const details = {
+    title: normalizeTitleCandidate(meta['og:title'] || jsonLdMetadata.title || '', meta['og:site_name'] || ''),
+    author: stripText(meta.author || meta['dc.creator'] || jsonLdMetadata.author || ''),
+    pageCount: null,
+    textExcerpt: '',
+    tableOfContents: [],
+    keywords: normalizeKeywordValues([meta.keywords || '', ...(jsonLdMetadata.keywords || [])], 12),
+    creationDate: normalizeIsoDate(meta['article:published_time'] || ''),
+  };
+
+  try {
+    const response = await fetch(url, {
+      headers: { 'User-Agent': USER_AGENT },
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!response.ok) return details;
+    const bytes = await response.arrayBuffer();
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    const loadingTask = pdfjs.getDocument({ data: bytes, useWorkerFetch: false, isEvalSupported: false });
+    const pdf = await loadingTask.promise;
+    details.pageCount = pdf.numPages || null;
+    const pageTexts = [];
+    for (let pageNumber = 1; pageNumber <= Math.min(pdf.numPages, 5); pageNumber += 1) {
+      const page = await pdf.getPage(pageNumber);
+      const text = await page.getTextContent();
+      const pageText = normalizeLongText(
+        toArray(text.items)
+          .map((item) => String(item?.str || ''))
+          .join(' '),
+        5000,
+      );
+      if (pageText) pageTexts.push(pageText);
+    }
+    details.textExcerpt = normalizeLongText(pageTexts.join('\n\n'), 16000);
+    if (!details.title) {
+      details.title = stripText(pdf?._pdfInfo?.info?.Title || '');
+    }
+    if (!details.author) {
+      details.author = stripText(pdf?._pdfInfo?.info?.Author || '');
+    }
+    if (!details.creationDate) {
+      details.creationDate = stripText(pdf?._pdfInfo?.info?.CreationDate || '');
+    }
+  } catch {
+    // keep metadata-only PDF details
+  }
+
+  return details;
 }
 
 function extractYoutubeVideoId(url) {
@@ -829,6 +1138,7 @@ async function fetchYouTubeMetadata(normalizedUrl, html) {
   const innertubeResult = await fetchYoutubeTranscriptFromInnertube(videoId, html);
   const playerResponse = innertubeResult.playerResponse || initialPlayerResponse || {};
   const videoDetails = playerResponse?.videoDetails || {};
+  const microformat = playerResponse?.microformat?.playerMicroformatRenderer || {};
   const initialData = extractInitialDataFromHtml(html);
   let oembed = null;
 
@@ -878,10 +1188,15 @@ async function fetchYouTubeMetadata(normalizedUrl, html) {
     thumbnail: oembed?.thumbnail_url || (videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : ''),
     description: cleanedDescription,
     keywords: cleanedKeywords,
-    publishedDate: '',
+    publishedDate: normalizeIsoDate(microformat?.publishDate || microformat?.uploadDate || ''),
     transcript,
     language,
     youtubeAiSummary,
+    videoId,
+    channel: stripText(videoDetails?.author || oembed?.author_name || ''),
+    durationSeconds: normalizeMaybeNumber(videoDetails?.lengthSeconds),
+    viewCount: normalizeMaybeNumber(videoDetails?.viewCount),
+    captionLanguage: language,
   };
 }
 
@@ -1089,6 +1404,9 @@ function normalizeExtractorPayload(url, payload, officialMetadata) {
     || '';
   const publishedAt = getString(root, 'published_at', 'publishedAt', 'taken_at', 'takenAt', 'timestamp');
   const videoUrl = getString(root, 'video_url', 'videoUrl') || mediaItems.find((item) => item.type === 'video')?.source_url || '';
+  const audioTitle = getString(root, 'audio_title', 'audioTitle', 'music_title', 'musicTitle', 'audio_name');
+  const likeCount = getNumber(root, 'like_count', 'likeCount', 'likes');
+  const commentCount = getNumber(root, 'comment_count', 'commentCount', 'comments');
 
   return {
     canonicalUrl: normalizeInstagramUrl(getString(root, 'url', 'canonical_url', 'canonicalUrl', 'permalink') || url),
@@ -1100,6 +1418,10 @@ function normalizeExtractorPayload(url, payload, officialMetadata) {
     thumbnailUrl,
     mediaItems,
     videoUrl,
+    audioTitle,
+    likeCount,
+    commentCount,
+    slideCount: mediaItems.length || null,
     ingestionSource: 'extractor_fallback',
     transcript: '',
     transcriptError: '',
@@ -1210,6 +1532,10 @@ async function fetchInstagramExtraction(url) {
       thumbnailUrl: officialMetadata?.thumbnailUrl || '',
       mediaItems: [],
       videoUrl: '',
+      audioTitle: '',
+      likeCount: null,
+      commentCount: null,
+      slideCount: null,
       ingestionSource: 'official_api',
       transcript: '',
       transcriptError: '',
@@ -1296,6 +1622,9 @@ async function fetchPageSummary(inputUrl) {
     articleBody: jsonLdMetadata.articleBody || '',
   });
   const metadataFallbackContent = buildMetadataFallbackContent({ title, description, jsonLdSummary });
+  const githubData = resourceType === 'github_repo' ? await fetchGitHubRepoData(canonicalUrl, meta, jsonLdMetadata) : null;
+  const researchPaperData = resourceType === 'research_paper' ? await fetchResearchPaperData(canonicalUrl, meta, jsonLdMetadata) : null;
+  const pdfData = resourceType === 'pdf' ? await fetchPdfData(canonicalUrl, meta, jsonLdMetadata) : null;
 
   if (resourceType === 'youtube') {
     const youtube = await fetchYouTubeMetadata(canonicalUrl, html);
@@ -1313,9 +1642,14 @@ async function fetchPageSummary(inputUrl) {
       resourceType,
       meta,
       jsonLdSummary,
+      jsonLdMetadata,
       youtubeAiSummary: youtube.youtubeAiSummary || '',
+      youtubeData: youtube,
       redditThreadData: null,
       instagramExtraction: null,
+      githubData: null,
+      researchPaperData: null,
+      pdfData: null,
       isRedditThread: false,
     };
   }
@@ -1336,8 +1670,12 @@ async function fetchPageSummary(inputUrl) {
       resourceType,
       meta,
       jsonLdSummary,
+      jsonLdMetadata,
       redditThreadData,
       instagramExtraction: null,
+      githubData: null,
+      researchPaperData: null,
+      pdfData: null,
       isRedditThread: Boolean(redditThreadData),
     };
   }
@@ -1377,8 +1715,90 @@ async function fetchPageSummary(inputUrl) {
       resourceType,
       meta,
       jsonLdSummary,
+      jsonLdMetadata,
       redditThreadData: null,
       instagramExtraction,
+      githubData: null,
+      researchPaperData: null,
+      pdfData: null,
+      isRedditThread: false,
+    };
+  }
+
+  if (resourceType === 'github_repo') {
+    return {
+      canonicalUrl,
+      title: githubData?.title || title,
+      author: githubData?.author || author,
+      thumbnail: githubData?.thumbnail || thumbnail,
+      description: githubData?.description || description,
+      keywords: githubData?.keywords || keywords,
+      publishedDate: githubData?.publishedDate || publishedDate,
+      content: githubData?.content || cleanedBodyText || structuredWebsiteContent || metadataFallbackContent,
+      contentSource: githubData?.content ? 'github_readme' : (cleanedBodyText ? 'html_text' : (structuredWebsiteContent ? 'structured_content' : 'metadata_description')),
+      contentLanguage: '',
+      resourceType,
+      meta,
+      jsonLdSummary,
+      jsonLdMetadata,
+      youtubeAiSummary: '',
+      redditThreadData: null,
+      instagramExtraction: null,
+      githubData,
+      researchPaperData: null,
+      pdfData: null,
+      isRedditThread: false,
+    };
+  }
+
+  if (resourceType === 'research_paper') {
+    return {
+      canonicalUrl,
+      title: researchPaperData?.title || title,
+      author: researchPaperData?.authors?.join(', ') || author,
+      thumbnail,
+      description: researchPaperData?.abstract || description,
+      keywords: researchPaperData?.keywords || keywords,
+      publishedDate: researchPaperData?.publishedDate || publishedDate,
+      content: researchPaperData?.content || structuredWebsiteContent || cleanedBodyText || metadataFallbackContent,
+      contentSource: researchPaperData?.content ? 'research_metadata' : (cleanedBodyText ? 'html_text' : (structuredWebsiteContent ? 'structured_content' : 'metadata_description')),
+      contentLanguage: '',
+      resourceType,
+      meta,
+      jsonLdSummary,
+      jsonLdMetadata,
+      youtubeAiSummary: '',
+      redditThreadData: null,
+      instagramExtraction: null,
+      githubData: null,
+      researchPaperData,
+      pdfData: null,
+      isRedditThread: false,
+    };
+  }
+
+  if (resourceType === 'pdf') {
+    return {
+      canonicalUrl,
+      title: pdfData?.title || title,
+      author: pdfData?.author || author,
+      thumbnail,
+      description: description || pdfData?.textExcerpt || '',
+      keywords: pdfData?.keywords || keywords,
+      publishedDate: pdfData?.creationDate || publishedDate,
+      content: pdfData?.textExcerpt || structuredWebsiteContent || metadataFallbackContent,
+      contentSource: pdfData?.textExcerpt ? 'pdf_text' : (structuredWebsiteContent ? 'structured_content' : (metadataFallbackContent ? 'metadata_description' : 'metadata_only')),
+      contentLanguage: '',
+      resourceType,
+      meta,
+      jsonLdSummary,
+      jsonLdMetadata,
+      youtubeAiSummary: '',
+      redditThreadData: null,
+      instagramExtraction: null,
+      githubData: null,
+      researchPaperData: null,
+      pdfData,
       isRedditThread: false,
     };
   }
@@ -1397,9 +1817,13 @@ async function fetchPageSummary(inputUrl) {
     resourceType,
     meta,
     jsonLdSummary,
+    jsonLdMetadata,
     youtubeAiSummary: '',
     redditThreadData: null,
     instagramExtraction: null,
+    githubData: null,
+    researchPaperData: null,
+    pdfData: null,
     isRedditThread: false,
   };
 }
@@ -1441,6 +1865,66 @@ function buildInstagramContext(instagramExtraction) {
   ].filter(Boolean).join('\n');
 }
 
+function buildYouTubeContext(youtubeData) {
+  if (!youtubeData) return '';
+  return [
+    youtubeData.videoId ? `Video ID: ${youtubeData.videoId}` : '',
+    youtubeData.channel ? `Channel: ${youtubeData.channel}` : '',
+    youtubeData.durationSeconds != null ? `Duration Seconds: ${youtubeData.durationSeconds}` : '',
+    youtubeData.viewCount != null ? `View Count: ${youtubeData.viewCount}` : '',
+    youtubeData.publishedDate ? `Published At: ${youtubeData.publishedDate}` : '',
+    youtubeData.captionLanguage ? `Caption Language: ${youtubeData.captionLanguage}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+function buildGitHubContext(githubData) {
+  if (!githubData) return '';
+  return [
+    githubData.owner ? `Owner: ${githubData.owner}` : '',
+    githubData.repoName ? `Repository: ${githubData.repoName}` : '',
+    githubData.primaryLanguage ? `Primary Language: ${githubData.primaryLanguage}` : '',
+    githubData.topics?.length ? `Topics: ${githubData.topics.join(', ')}` : '',
+    githubData.stars != null ? `Stars: ${githubData.stars}` : '',
+    githubData.forks != null ? `Forks: ${githubData.forks}` : '',
+    githubData.openIssues != null ? `Open Issues: ${githubData.openIssues}` : '',
+    githubData.lastPushAt ? `Last Push: ${githubData.lastPushAt}` : '',
+    githubData.license ? `License: ${githubData.license}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+function buildPaperContext(researchPaperData) {
+  if (!researchPaperData) return '';
+  return [
+    researchPaperData.authors?.length ? `Authors: ${researchPaperData.authors.join(', ')}` : '',
+    researchPaperData.venue ? `Venue: ${researchPaperData.venue}` : '',
+    researchPaperData.year != null ? `Year: ${researchPaperData.year}` : '',
+    researchPaperData.doi ? `DOI: ${researchPaperData.doi}` : '',
+    researchPaperData.arxivId ? `arXiv ID: ${researchPaperData.arxivId}` : '',
+    researchPaperData.pdfUrl ? `PDF URL: ${researchPaperData.pdfUrl}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+function buildPdfContext(pdfData) {
+  if (!pdfData) return '';
+  return [
+    pdfData.pageCount != null ? `Page Count: ${pdfData.pageCount}` : '',
+    pdfData.creationDate ? `Creation Date: ${pdfData.creationDate}` : '',
+    pdfData.keywords?.length ? `Keywords: ${pdfData.keywords.join(', ')}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+function buildWebsiteTypeContext(extracted) {
+  const lines = [];
+  if (extracted.resourceType === 'article') {
+    if (extracted.meta?.['article:section']) lines.push(`Article Section: ${extracted.meta['article:section']}`);
+    if (extracted.meta?.['og:site_name']) lines.push(`Site Name: ${extracted.meta['og:site_name']}`);
+  }
+  if (extracted.resourceType === 'website' && extracted.jsonLdMetadata?.siteName) {
+    lines.push(`Website Name: ${extracted.jsonLdMetadata.siteName}`);
+  }
+  return lines.join('\n');
+}
+
 function buildPrompt({ url, extracted, heuristic, areaNames = [] }) {
   const isReddit = extracted.resourceType === 'reddit';
   const isInstagram = extracted.resourceType === 'instagram_reel' || extracted.resourceType === 'instagram_carousel';
@@ -1459,8 +1943,13 @@ function buildPrompt({ url, extracted, heuristic, areaNames = [] }) {
     extracted.keywords?.length ? `Extracted keywords: ${extracted.keywords.join(', ')}` : '',
     buildMetadataContext(extracted) ? `Metadata:\n${buildMetadataContext(extracted)}` : '',
     extracted.jsonLdSummary ? `Structured data:\n${extracted.jsonLdSummary}` : '',
+    buildYouTubeContext(extracted.youtubeData) ? `YouTube context:\n${buildYouTubeContext(extracted.youtubeData)}` : '',
     buildRedditContext(extracted.redditThreadData) ? `Reddit context:\n${buildRedditContext(extracted.redditThreadData)}` : '',
     buildInstagramContext(extracted.instagramExtraction) ? `Instagram context:\n${buildInstagramContext(extracted.instagramExtraction)}` : '',
+    buildGitHubContext(extracted.githubData) ? `GitHub context:\n${buildGitHubContext(extracted.githubData)}` : '',
+    buildPaperContext(extracted.researchPaperData) ? `Paper context:\n${buildPaperContext(extracted.researchPaperData)}` : '',
+    buildPdfContext(extracted.pdfData) ? `PDF context:\n${buildPdfContext(extracted.pdfData)}` : '',
+    buildWebsiteTypeContext(extracted) ? `Type-specific context:\n${buildWebsiteTypeContext(extracted)}` : '',
     '',
     extracted.content ? `Primary extracted content:\n${extracted.content.slice(0, MAX_PROMPT_CONTENT_CHARS)}` : 'Primary extracted content: none',
     '',
@@ -1642,8 +2131,19 @@ function resolveAreaAssignment(resultAreaName, areas, mergedData, extracted) {
 function buildAnalysisPayload({ mergedData, extracted, areaAssignment }) {
   const isReddit = extracted.resourceType === 'reddit';
   const isInstagram = extracted.resourceType === 'instagram_reel' || extracted.resourceType === 'instagram_carousel';
+  const isYouTube = extracted.resourceType === 'youtube';
+  const isGitHub = extracted.resourceType === 'github_repo';
+  const isResearchPaper = extracted.resourceType === 'research_paper';
+  const isPdf = extracted.resourceType === 'pdf';
+  const isArticle = extracted.resourceType === 'article';
+  const isWebsite = extracted.resourceType === 'website';
   const instagramExtraction = extracted.instagramExtraction;
   const redditThreadData = extracted.redditThreadData;
+  const youtubeData = extracted.youtubeData;
+  const githubData = extracted.githubData;
+  const researchPaperData = extracted.researchPaperData;
+  const pdfData = extracted.pdfData;
+  const siteName = stripText(extracted.meta?.['og:site_name'] || extracted.jsonLdMetadata?.siteName || '');
 
   return {
     ...mergedData,
@@ -1671,8 +2171,26 @@ function buildAnalysisPayload({ mergedData, extracted, areaAssignment }) {
       ? {
           reddit_subreddit: redditThreadData?.subreddit || '',
           reddit_author: redditThreadData?.author || '',
+          reddit_flair: redditThreadData?.flair || '',
           reddit_post_score: redditThreadData?.score ?? null,
           reddit_comment_count: redditThreadData?.commentCount ?? null,
+          reddit_post_body: redditThreadData?.selfText || '',
+          reddit_top_comments: redditThreadData?.topComments || [],
+          reddit_permalink: redditThreadData?.permalink || '',
+        }
+      : {}),
+    ...(isYouTube
+      ? {
+          youtube_video_id: youtubeData?.videoId || '',
+          youtube_channel: youtubeData?.channel || '',
+          youtube_duration_seconds: youtubeData?.durationSeconds ?? null,
+          youtube_view_count: youtubeData?.viewCount ?? null,
+          youtube_publish_date: youtubeData?.publishedDate || '',
+          youtube_description: youtubeData?.description || extracted.description || '',
+          youtube_transcript: youtubeData?.transcript || extracted.content || '',
+          youtube_ai_summary: extracted.youtubeAiSummary || '',
+          youtube_keywords: youtubeData?.keywords || extracted.keywords || [],
+          youtube_caption_language: youtubeData?.captionLanguage || extracted.contentLanguage || '',
         }
       : {}),
     ...(isInstagram && instagramExtraction
@@ -1681,8 +2199,79 @@ function buildAnalysisPayload({ mergedData, extracted, areaAssignment }) {
           instagram_caption: instagramExtraction.caption || '',
           instagram_transcript: instagramExtraction.transcript || '',
           instagram_media_items: instagramExtraction.mediaItems || [],
+          instagram_audio_title: instagramExtraction.audioTitle || '',
+          instagram_posted_at: instagramExtraction.publishedAt || '',
+          instagram_like_count: instagramExtraction.likeCount ?? null,
+          instagram_comment_count: instagramExtraction.commentCount ?? null,
+          instagram_slide_count: instagramExtraction.slideCount ?? null,
           ingestion_source: instagramExtraction.ingestionSource || '',
           ingestion_error: instagramExtraction.transcriptError || '',
+        }
+      : {}),
+    ...(isGitHub
+      ? {
+          github_owner: githubData?.owner || '',
+          github_repo_name: githubData?.repoName || '',
+          github_description: githubData?.description || extracted.description || '',
+          github_readme_excerpt: githubData?.readmeExcerpt || '',
+          github_primary_language: githubData?.primaryLanguage || '',
+          github_topics: githubData?.topics || [],
+          github_stars: githubData?.stars ?? null,
+          github_forks: githubData?.forks ?? null,
+          github_open_issues: githubData?.openIssues ?? null,
+          github_last_push_at: githubData?.lastPushAt || '',
+          github_license: githubData?.license || '',
+          github_status: githubData?.status || mergedData.status || 'unknown',
+        }
+      : {}),
+    ...(isResearchPaper
+      ? {
+          paper_title: researchPaperData?.title || mergedData.title || '',
+          paper_authors: researchPaperData?.authors || [],
+          paper_abstract: researchPaperData?.abstract || extracted.description || '',
+          paper_venue: researchPaperData?.venue || '',
+          paper_year: researchPaperData?.year ?? null,
+          paper_doi: researchPaperData?.doi || '',
+          paper_arxiv_id: researchPaperData?.arxivId || '',
+          paper_pdf_url: researchPaperData?.pdfUrl || '',
+          paper_keywords: researchPaperData?.keywords || extracted.keywords || [],
+          paper_sections_excerpt: researchPaperData?.sectionsExcerpt || extracted.content || '',
+        }
+      : {}),
+    ...(isPdf
+      ? {
+          pdf_title: pdfData?.title || mergedData.title || '',
+          pdf_author: pdfData?.author || extracted.author || '',
+          pdf_page_count: pdfData?.pageCount ?? null,
+          pdf_text_excerpt: pdfData?.textExcerpt || extracted.content || '',
+          pdf_table_of_contents: pdfData?.tableOfContents || [],
+          pdf_keywords: pdfData?.keywords || extracted.keywords || [],
+          pdf_creation_date: pdfData?.creationDate || extracted.publishedDate || '',
+        }
+      : {}),
+    ...(isArticle
+      ? {
+          article_title: mergedData.title || extracted.title || '',
+          article_author: extracted.author || '',
+          article_site_name: siteName,
+          article_section: stripText(extracted.meta?.['article:section'] || ''),
+          article_published_date: extracted.publishedDate || '',
+          article_updated_date: normalizeIsoDate(extracted.meta?.['article:modified_time'] || ''),
+          article_description: extracted.description || '',
+          article_keywords: extracted.keywords || [],
+          article_body_excerpt: normalizeLongText(extracted.content || '', 6000),
+        }
+      : {}),
+    ...(isWebsite
+      ? {
+          website_title: mergedData.title || extracted.title || '',
+          website_site_name: siteName,
+          website_description: extracted.description || '',
+          website_author: extracted.author || '',
+          website_keywords: extracted.keywords || [],
+          website_content_kind: extracted.contentSource === 'structured_content' ? 'structured' : (extracted.contentSource === 'html_text' ? 'page_text' : 'metadata'),
+          website_structured_summary: extracted.jsonLdSummary || '',
+          website_main_text_excerpt: normalizeLongText(extracted.content || '', 6000),
         }
       : {}),
   };
@@ -1705,9 +2294,14 @@ export async function analyzeResource({ url, title = '', content = '', userId = 
         resourceType: inferResourceType(normalizedInputUrl),
         meta: {},
         jsonLdSummary: '',
+        jsonLdMetadata: {},
         youtubeAiSummary: '',
+        youtubeData: null,
         redditThreadData: null,
         instagramExtraction: null,
+        githubData: null,
+        researchPaperData: null,
+        pdfData: null,
         isRedditThread: false,
       }
     : await fetchPageSummary(normalizedInputUrl);

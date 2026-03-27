@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ExternalLink, Star, Trash2, Tag, Zap, Heart, Clock, Github, Archive, ArchiveRestore, Lightbulb, CheckCircle2, Quote, Users, BookOpen, MessageSquareText, ArrowUpCircle, MessagesSquare, Clapperboard, Download, FolderOpen, RefreshCw, AlertTriangle } from 'lucide-react';
+import { ExternalLink, Star, Trash2, Tag, Zap, Heart, Clock, Github, Archive, ArchiveRestore, Lightbulb, CheckCircle2, Quote, Users, BookOpen, MessageSquareText, ArrowUpCircle, MessagesSquare, Clapperboard, Download, FolderOpen, RefreshCw, AlertTriangle, GraduationCap, FileText } from 'lucide-react';
 import { LifeArea, Resource } from '@/lib/resources-api';
 import { retryInstagramDownloadForResource } from '@/lib/instagram-downloader-api';
 import ReactMarkdown from 'react-markdown';
@@ -22,6 +22,10 @@ const CONTENT_SOURCE_LABELS = {
   html_text: 'Page text',
   reddit_thread: 'Thread text',
   pdf_text: 'PDF text',
+  github_readme: 'GitHub README',
+  research_metadata: 'Paper metadata',
+  structured_content: 'Structured content',
+  metadata_description: 'Metadata summary',
   metadata_only: 'Metadata only',
   instagram_caption: 'Instagram caption',
   instagram_caption_transcript: 'Caption + transcript',
@@ -50,6 +54,27 @@ function ResourceListSection({ title, icon: Icon, items = [], accentClass = 'tex
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+function ResourceFactsSection({ title, icon: Icon, facts = [], accentClass = 'text-muted-foreground' }) {
+  const visibleFacts = facts.filter((fact) => fact?.value !== '' && fact?.value != null);
+  if (!visibleFacts.length) return null;
+
+  return (
+    <div className="rounded-xl border border-border/50 bg-secondary/20 p-4">
+      <p className={cn('mb-3 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider', accentClass)}>
+        <Icon className="h-3.5 w-3.5" /> {title}
+      </p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {visibleFacts.map((fact) => (
+          <div key={`${title}-${fact.label}`} className="rounded-lg border border-border/50 bg-background/40 px-3 py-2">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{fact.label}</p>
+            <p className="mt-1 text-sm text-foreground/80 break-words whitespace-pre-wrap">{fact.value}</p>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -97,8 +122,13 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
   }, [resource?.area_id, resource?.is_archived, resource?.user_rating]);
 
   const isGitHub = resource.resource_type === 'github_repo';
+  const isYouTube = resource.resource_type === 'youtube';
   const isReddit = resource.resource_type === 'reddit';
   const isInstagram = resource.resource_type === 'instagram_reel' || resource.resource_type === 'instagram_carousel';
+  const isResearchPaper = resource.resource_type === 'research_paper';
+  const isPdf = resource.resource_type === 'pdf';
+  const isArticle = resource.resource_type === 'article';
+  const isWebsite = resource.resource_type === 'website';
   const showDebugStatus = import.meta.env.DEV || (resource.enrichment_status && resource.enrichment_status !== 'rich');
   const redditCommentTakeaways = Array.isArray(resource.reddit_top_comment_summaries)
     ? resource.reddit_top_comment_summaries.filter(Boolean)
@@ -389,6 +419,102 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
                 <p className="text-xs text-amber-300">{resource.ingestion_error}</p>
               )}
             </div>
+          )}
+
+          {isYouTube && (
+            <ResourceFactsSection
+              title="YouTube Details"
+              icon={Clapperboard}
+              accentClass="text-red-300"
+              facts={[
+                { label: 'Channel', value: resource.youtube_channel || resource.author || '' },
+                { label: 'Video ID', value: resource.youtube_video_id || '' },
+                { label: 'Duration', value: resource.youtube_duration_seconds ? `${resource.youtube_duration_seconds}s` : '' },
+                { label: 'Views', value: resource.youtube_view_count != null ? Number(resource.youtube_view_count).toLocaleString() : '' },
+                { label: 'Published', value: resource.youtube_publish_date ? String(resource.youtube_publish_date).slice(0, 10) : '' },
+                { label: 'Caption Language', value: resource.youtube_caption_language || '' },
+              ]}
+            />
+          )}
+
+          {isReddit && (
+            <ResourceFactsSection
+              title="Reddit Details"
+              icon={MessageSquareText}
+              accentClass="text-orange-300"
+              facts={[
+                { label: 'Subreddit', value: derivedSubreddit ? `r/${derivedSubreddit}` : '' },
+                { label: 'Author', value: resource.reddit_author ? `u/${resource.reddit_author}` : '' },
+                { label: 'Flair', value: resource.reddit_flair || '' },
+                { label: 'Thread Type', value: resource.reddit_thread_type || '' },
+                { label: 'Post Score', value: resource.reddit_post_score != null ? Number(resource.reddit_post_score).toLocaleString() : '' },
+                { label: 'Comments', value: resource.reddit_comment_count != null ? Number(resource.reddit_comment_count).toLocaleString() : '' },
+              ]}
+            />
+          )}
+
+          {isGitHub && (
+            <ResourceFactsSection
+              title="GitHub Details"
+              icon={Github}
+              accentClass="text-slate-200"
+              facts={[
+                { label: 'Owner', value: resource.github_owner || '' },
+                { label: 'Repository', value: resource.github_repo_name || '' },
+                { label: 'Primary Language', value: resource.github_primary_language || '' },
+                { label: 'Stars', value: resource.github_stars != null ? Number(resource.github_stars).toLocaleString() : '' },
+                { label: 'Forks', value: resource.github_forks != null ? Number(resource.github_forks).toLocaleString() : '' },
+                { label: 'Open Issues', value: resource.github_open_issues != null ? Number(resource.github_open_issues).toLocaleString() : '' },
+                { label: 'Last Push', value: resource.github_last_push_at ? String(resource.github_last_push_at).slice(0, 10) : '' },
+                { label: 'License', value: resource.github_license || '' },
+              ]}
+            />
+          )}
+
+          {isResearchPaper && (
+            <ResourceFactsSection
+              title="Paper Details"
+              icon={GraduationCap}
+              accentClass="text-violet-300"
+              facts={[
+                { label: 'Authors', value: Array.isArray(resource.paper_authors) ? resource.paper_authors.join(', ') : '' },
+                { label: 'Venue', value: resource.paper_venue || '' },
+                { label: 'Year', value: resource.paper_year || '' },
+                { label: 'DOI', value: resource.paper_doi || '' },
+                { label: 'arXiv ID', value: resource.paper_arxiv_id || '' },
+                { label: 'PDF URL', value: resource.paper_pdf_url || '' },
+              ]}
+            />
+          )}
+
+          {isPdf && (
+            <ResourceFactsSection
+              title="PDF Details"
+              icon={FileText}
+              accentClass="text-amber-300"
+              facts={[
+                { label: 'Author', value: resource.pdf_author || '' },
+                { label: 'Pages', value: resource.pdf_page_count || '' },
+                { label: 'Created', value: resource.pdf_creation_date || '' },
+                { label: 'Keywords', value: Array.isArray(resource.pdf_keywords) ? resource.pdf_keywords.join(', ') : '' },
+              ]}
+            />
+          )}
+
+          {(isArticle || isWebsite) && (
+            <ResourceFactsSection
+              title={isArticle ? 'Article Details' : 'Website Details'}
+              icon={BookOpen}
+              accentClass="text-cyan-300"
+              facts={[
+                { label: 'Site', value: resource.article_site_name || resource.website_site_name || '' },
+                { label: 'Author', value: resource.article_author || resource.website_author || '' },
+                { label: 'Published', value: resource.article_published_date || '' },
+                { label: 'Updated', value: resource.article_updated_date || '' },
+                { label: 'Section', value: resource.article_section || '' },
+                { label: 'Content Kind', value: resource.website_content_kind || '' },
+              ]}
+            />
           )}
 
           {resource.content && resource.resource_type !== 'note' && (
