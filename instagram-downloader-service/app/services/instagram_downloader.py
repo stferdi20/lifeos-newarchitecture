@@ -38,6 +38,14 @@ class InstagramDownloaderError(Exception):
         self.status_code = status_code
 
 
+def default_browser_cookies_target() -> str:
+    # The local-first worker runs on the user's Mac, where Safari cookies are the
+    # most reliable no-export path for Instagram sessions.
+    if os.name == "posix" and hasattr(os, "uname") and os.uname().sysname == "Darwin":
+        return "safari"
+    return ""
+
+
 def escape_drive_query(value: str) -> str:
     return str(value or "").replace("\\", "\\\\").replace("'", "\\'")
 
@@ -93,6 +101,10 @@ def build_ydl_options(download_dir: Path) -> dict[str, Any]:
         "merge_output_format": "mp4",
     }
 
+    browser = os.getenv("INSTAGRAM_COOKIES_FROM_BROWSER", "").strip().lower() or default_browser_cookies_target()
+    if browser:
+        options["cookiesfrombrowser"] = (browser,)
+
     cookiefile = os.getenv("INSTAGRAM_COOKIEFILE", "").strip()
     if cookiefile:
         options["cookiefile"] = cookiefile
@@ -107,6 +119,15 @@ def build_generic_ydl_options() -> dict[str, Any]:
         "windowsfilenames": True,
         "restrictfilenames": False,
     }
+
+    browser = (
+        os.getenv("YTDLP_COOKIES_FROM_BROWSER", "").strip().lower()
+        or os.getenv("YOUTUBE_COOKIES_FROM_BROWSER", "").strip().lower()
+        or os.getenv("INSTAGRAM_COOKIES_FROM_BROWSER", "").strip().lower()
+        or default_browser_cookies_target()
+    )
+    if browser:
+        options["cookiesfrombrowser"] = (browser,)
 
     cookiefile = (
         os.getenv("YOUTUBE_COOKIEFILE", "").strip()

@@ -44,6 +44,7 @@ Optional environment variables:
 ```bash
 INSTAGRAM_DOWNLOADER_DOWNLOAD_ROOT=./downloads
 INSTAGRAM_DOWNLOADER_SHARED_SECRET=
+INSTAGRAM_COOKIES_FROM_BROWSER=
 INSTAGRAM_COOKIEFILE=
 LIFEOS_API_BASE_URL=
 INSTAGRAM_DOWNLOADER_POLL_INTERVAL_SECONDS=10
@@ -51,6 +52,8 @@ INSTAGRAM_DOWNLOADER_WORKER_ID=
 INSTAGRAM_DOWNLOADER_WORKER_LABEL=
 ```
 
+On macOS, the worker now defaults to Safari browser cookies for Instagram extraction unless you override it.
+`INSTAGRAM_COOKIES_FROM_BROWSER` can be set to a browser like `safari` or `chrome` so the worker uses live browser cookies for Instagram extraction.
 `INSTAGRAM_COOKIEFILE` is useful when public extraction is blocked and you need a logged-in browser-exported cookie file for Instagram.
 `YOUTUBE_COOKIEFILE` or `YTDLP_COOKIEFILE` can help when YouTube subtitle extraction needs a valid cookie file in the worker runtime.
 
