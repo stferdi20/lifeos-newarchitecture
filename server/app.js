@@ -25,6 +25,7 @@ import projectCategoryRoutes from './routes/project-categories.js';
 import calendarRoutes from './routes/calendar.js';
 import eventTemplateRoutes from './routes/event-templates.js';
 import googleRoutes from './routes/google.js';
+import instagramDownloaderRoutes from './routes/instagram-downloader.js';
 import fileRoutes from './routes/files.js';
 import aiRoutes from './routes/ai.js';
 import tcgRoutes from './routes/tcg.js';
@@ -67,6 +68,7 @@ function registerApiRoutes(app) {
   app.route('/calendar', calendarRoutes);
   app.route('/event-templates', eventTemplateRoutes);
   app.route('/google', googleRoutes);
+  app.route('/instagram-downloader', instagramDownloaderRoutes);
   app.route('/files', fileRoutes);
   app.route('/ai', aiRoutes);
   app.route('/tcg', tcgRoutes);

@@ -1,0 +1,42 @@
+import os
+
+from fastapi import APIRouter, Header, Response, status
+
+from app.schemas.download import DownloadRequest, DownloadResponse
+from app.services.instagram_downloader import InstagramDownloaderError, download_instagram_media
+
+
+router = APIRouter()
+
+
+def is_authorized(secret_header: str | None) -> bool:
+    expected = os.getenv("INSTAGRAM_DOWNLOADER_SHARED_SECRET", "").strip()
+    if not expected:
+        return True
+    return bool(secret_header) and secret_header == expected
+
+
+@router.post("/download", response_model=DownloadResponse)
+async def download_instagram(
+    payload: DownloadRequest,
+    response: Response,
+    x_downloader_secret: str | None = Header(default=None),
+):
+    if not is_authorized(x_downloader_secret):
+        response.status_code = status.HTTP_401_UNAUTHORIZED
+        return DownloadResponse(success=False, error="Unauthorized downloader request.")
+
+    try:
+        return await download_instagram_media(payload)
+    except InstagramDownloaderError as error:
+        response.status_code = error.status_code
+        return DownloadResponse(
+            success=False,
+            input_url=payload.url,
+            media_type="unknown",
+            download_dir=None,
+            files=[],
+            drive_folder=None,
+            drive_files=[],
+            error=error.message,
+        )

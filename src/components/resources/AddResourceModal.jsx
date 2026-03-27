@@ -2,9 +2,10 @@ import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Youtube, MessageSquare, Link2, Newspaper, GraduationCap, Globe, FileDown, Loader2, Sparkles, Clapperboard } from 'lucide-react';
-import { analyzeResourceUrl } from '@/lib/resources-api';
+import { createResourceFromUrl } from '@/lib/resources-api';
 import { isNormalizedResourceUrl, normalizeResourceUrl } from '@/lib/resource-url';
 import { ResponsiveModal, ResponsiveModalContent, ResponsiveModalHeader, ResponsiveModalTitle } from '@/components/ui/responsive-modal';
+import { toast } from 'sonner';
 
 const examples = [
   { icon: Youtube, label: 'YouTube', color: 'text-red-400' },
@@ -34,8 +35,11 @@ export default function AddResourceModal({ open, onClose, onCreated, projectId }
     try {
       const payload = { url: normalizedUrl };
       if (projectId) payload.project_id = projectId;
-      const resource = await analyzeResourceUrl(payload);
-      onCreated?.(resource);
+      const result = await createResourceFromUrl(payload);
+      onCreated?.(result.resource);
+      if (result.queued) {
+        toast.success('Instagram import queued. It will process when your downloader worker is online.');
+      }
       setUrl('');
       onClose();
     } catch (e) {

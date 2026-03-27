@@ -1,0 +1,84 @@
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+
+MediaType = Literal["reel", "post", "carousel", "unknown"]
+FileType = Literal["video", "image", "unknown"]
+
+
+class GoogleDriveUploadRequest(BaseModel):
+    access_token: str = Field(min_length=1)
+    parent_folder_id: str | None = None
+
+
+class DownloadRequest(BaseModel):
+    url: str = Field(min_length=1)
+    google_drive: GoogleDriveUploadRequest | None = None
+    include_analysis: bool = True
+    download_base_dir: str | None = None
+
+
+class DownloadedFile(BaseModel):
+    filename: str
+    filepath: str
+    type: FileType
+
+
+class GoogleDriveFile(BaseModel):
+    id: str
+    name: str
+    mime_type: str | None = None
+    url: str
+    size: int | None = None
+
+
+class GoogleDriveFolder(BaseModel):
+    id: str
+    name: str
+    url: str
+
+
+class DownloadResponse(BaseModel):
+    success: bool
+    input_url: str | None = None
+    media_type: MediaType | None = "unknown"
+    download_dir: str | None = None
+    files: list[DownloadedFile] = Field(default_factory=list)
+    drive_folder: GoogleDriveFolder | None = None
+    drive_files: list[GoogleDriveFile] = Field(default_factory=list)
+    error: str | None = None
+
+
+class WorkerHeartbeatRequest(BaseModel):
+    worker_id: str
+    label: str | None = None
+    version: str | None = None
+    metadata: dict = Field(default_factory=dict)
+    current_job_id: str | None = None
+
+
+class WorkerClaimedJob(BaseModel):
+    id: str
+    owner_user_id: str
+    resource_id: str
+    source_url: str
+    status: str
+    retry_count: int = 0
+    last_error: str | None = None
+    drive_target: str | None = None
+    drive_folder_id: str | None = None
+    project_id: str | None = None
+    include_analysis: bool = True
+    worker_id: str | None = None
+    requested_at: str | None = None
+    scheduled_for: str | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
+    payload: dict = Field(default_factory=dict)
+
+
+class WorkerClaimEnvelope(BaseModel):
+    job: WorkerClaimedJob
+    google_drive: GoogleDriveUploadRequest
+    settings: dict = Field(default_factory=dict)

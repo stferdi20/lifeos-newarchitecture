@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Loader2, Sparkles, CheckCircle2, XCircle, Link2 } from 'lucide-react';
-import { analyzeResourceUrl } from '@/lib/resources-api';
+import { createResourceFromUrl } from '@/lib/resources-api';
 import { cn } from '@/lib/utils';
 import { isNormalizedResourceUrl, normalizeResourceUrl } from '@/lib/resource-url';
 import { ResponsiveModal, ResponsiveModalContent, ResponsiveModalHeader, ResponsiveModalTitle } from '@/components/ui/responsive-modal';
@@ -32,7 +32,7 @@ export default function BulkAddModal({ open, onClose, onCreated, projectId }) {
       try {
         const payload = { url: urls[i] };
         if (projectId) payload.project_id = projectId;
-        await analyzeResourceUrl(payload);
+        await createResourceFromUrl(payload);
         setResults(prev => prev.map((r, idx) => idx === i ? { ...r, status: 'success' } : r));
       } catch {
         setResults(prev => prev.map((r, idx) => idx === i ? { ...r, status: 'error' } : r));

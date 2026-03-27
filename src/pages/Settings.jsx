@@ -2,6 +2,7 @@ import React from 'react';
 import { LogOut, Settings as SettingsIcon, UserRound } from 'lucide-react';
 import { PageHeader } from '@/components/layout/page-header';
 import GoogleConnectionsPanel from '@/components/google/GoogleConnectionsPanel';
+import InstagramDownloaderPanel from '@/components/settings/InstagramDownloaderPanel';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/AuthContext';
 
@@ -43,6 +44,13 @@ export default function Settings() {
           Connections
         </h2>
         <GoogleConnectionsPanel />
+      </div>
+
+      <div className="space-y-2">
+        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider px-1">
+          Automation
+        </h2>
+        <InstagramDownloaderPanel />
       </div>
     </div>
   );

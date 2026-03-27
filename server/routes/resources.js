@@ -4,6 +4,7 @@ import { zValidator } from '@hono/zod-validator';
 import { requireUser } from '../lib/supabase.js';
 import { safeJson } from '../lib/http.js';
 import { invokeCompatFunction } from '../services/compat-functions.js';
+import { submitInstagramDownload } from '../services/instagram-download-queue.js';
 import {
   bulkCreateCompatEntities,
   createCompatEntity,
@@ -20,6 +21,14 @@ const resourceAnalyzeSchema = z.object({
   project_id: z.string().optional(),
 });
 
+const instagramDownloadSchema = z.object({
+  url: z.string().url(),
+  upload_to_drive: z.boolean().optional().default(true),
+  drive_folder_id: z.string().optional(),
+  include_analysis: z.boolean().optional().default(true),
+  project_id: z.string().optional(),
+});
+
 const resourceRoutes = new Hono();
 
 resourceRoutes.post('/analyze', zValidator('json', resourceAnalyzeSchema), async (c) => {
@@ -32,6 +41,20 @@ resourceRoutes.post('/analyze', zValidator('json', resourceAnalyzeSchema), async
     provider: result.provider,
     model: result.model,
   });
+});
+
+resourceRoutes.post('/instagram-download', zValidator('json', instagramDownloadSchema), async (c) => {
+  const auth = await requireUser(c);
+  const body = c.req.valid('json');
+
+  const result = await submitInstagramDownload(auth.user.id, {
+    url: body.url,
+    projectId: body.project_id || '',
+    driveFolderId: body.upload_to_drive ? (body.drive_folder_id || '') : '',
+    includeAnalysis: body.include_analysis,
+  });
+
+  return c.json(result, result.queued ? 202 : 200);
 });
 
 resourceRoutes.get('/', async (c) => {

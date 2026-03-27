@@ -51,6 +51,10 @@ export function getServerEnv() {
     LIFEOS_LOG_VERBOSE: normalizeBoolean(process.env.LIFEOS_LOG_VERBOSE, false),
     APP_ORIGIN: normalizeString(process.env.APP_ORIGIN),
     SUPABASE_STORAGE_BUCKET_UPLOADS: normalizeString(process.env.SUPABASE_STORAGE_BUCKET_UPLOADS) || 'uploads',
+    INSTAGRAM_DOWNLOADER_BASE_URL: normalizeString(process.env.INSTAGRAM_DOWNLOADER_BASE_URL),
+    INSTAGRAM_DOWNLOADER_SHARED_SECRET: normalizeString(process.env.INSTAGRAM_DOWNLOADER_SHARED_SECRET),
+    INSTAGRAM_DOWNLOADER_TIMEOUT_MS: Number(process.env.INSTAGRAM_DOWNLOADER_TIMEOUT_MS || 120000),
+    INSTAGRAM_DOWNLOADER_STATUS_STALE_MS: Number(process.env.INSTAGRAM_DOWNLOADER_STATUS_STALE_MS || 90000),
   };
 
   return cachedEnv;

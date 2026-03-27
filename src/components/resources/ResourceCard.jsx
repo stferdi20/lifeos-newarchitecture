@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import {
   Youtube, MessageSquare, Newspaper, GraduationCap, FileText, Globe, FileDown,
-  ExternalLink, Star, Github, CheckSquare, Archive, ArchiveRestore, Clapperboard, Trash2
+  ExternalLink, Star, Github, CheckSquare, Archive, ArchiveRestore, Clapperboard, Trash2, FolderOpen
 } from 'lucide-react';
 
 const typeConfig = {
@@ -138,6 +138,14 @@ export default function ResourceCard({
   const safeMainTopic = asText(resource.main_topic);
   const safeTags = Array.isArray(resource.tags) ? resource.tags.filter((tag) => typeof tag === 'string' && tag.trim()) : [];
   const safeThumbnail = typeof resource.thumbnail === 'string' && resource.thumbnail.trim() ? resource.thumbnail : '';
+  const driveUrl = resource.drive_folder_url || resource.drive_files?.[0]?.url || '';
+  const downloadStatusClass = resource.download_status === 'failed'
+    ? 'bg-red-500/10 text-red-300'
+    : resource.download_status === 'processing'
+      ? 'bg-sky-500/10 text-sky-300'
+      : resource.download_status === 'uploaded'
+        ? 'bg-emerald-500/10 text-emerald-300'
+        : 'bg-secondary text-muted-foreground';
 
   return (
     <div
@@ -245,9 +253,21 @@ export default function ResourceCard({
               </span>
             )}
             {resource.download_status && resource.download_status !== 'skipped' && (
-              <span className="text-[10px] rounded-full bg-secondary px-1.5 py-0.5 text-muted-foreground">
+              <span className={cn('text-[10px] rounded-full px-1.5 py-0.5', downloadStatusClass)}>
                 {resource.download_status}
               </span>
+            )}
+            {driveUrl && (
+              <a
+                href={driveUrl}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-200 transition-colors hover:bg-emerald-500/20"
+              >
+                <FolderOpen className="h-3 w-3" />
+                Open in Drive
+              </a>
             )}
           </div>
         )}

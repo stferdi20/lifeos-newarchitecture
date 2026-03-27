@@ -1,0 +1,561 @@
+import { HttpError } from '../lib/http.js';
+import { getServiceRoleClient } from '../lib/supabase.js';
+import { getServerEnv } from '../config/env.js';
+import { createCompatEntity, getCompatEntity, updateCompatEntity } from './compat-store.js';
+import { inferResourceType, normalizeResourceRecord } from './compat-functions.js';
+import { analyzeResource } from './resources.js';
+import { getGoogleAccessToken } from './google.js';
+import { requestInstagramDownload } from './instagram-downloader.js';
+
+const INSTAGRAM_JOB_TYPE = 'instagram_download';
+const GLOBAL_DRIVE_TARGET = 'global_instagram_folder';
+const INSTAGRAM_IMPORTS_FOLDER_NAME = 'Instagram Imports';
+const DEFAULT_POLL_INTERVAL_SECONDS = 10;
+
+function getAdmin() {
+  return getServiceRoleClient();
+}
+
+function extractInstagramToken(url = '') {
+  const match = String(url || '').match(/instagram\.com\/(?:reel|p|tv)\/([^/?#]+)/i);
+  return match?.[1] || '';
+}
+
+function buildPendingTitle(url = '') {
+  const resourceType = inferResourceType(url);
+  const token = extractInstagramToken(url);
+  const label = resourceType === 'instagram_reel' ? 'Instagram Reel' : 'Instagram Post';
+  return token ? `${label} ${token}` : label;
+}
+
+function buildQueuedSummary() {
+  return 'Queued for Instagram download. It will process automatically when your downloader worker is online.';
+}
+
+function buildProcessingSummary() {
+  return 'Instagram media is being downloaded and uploaded to Google Drive.';
+}
+
+function buildFailedSummary(message = '') {
+  return message ? `Instagram download failed: ${message}` : 'Instagram download failed.';
+}
+
+function normalizeJob(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    owner_user_id: row.owner_user_id,
+    resource_id: row.resource_id,
+    source_url: row.source_url,
+    status: row.status,
+    retry_count: Number(row.retry_count || 0),
+    last_error: row.last_error || '',
+    drive_target: row.drive_target,
+    drive_folder_id: row.drive_folder_id || '',
+    project_id: row.project_id || '',
+    include_analysis: Boolean(row.include_analysis),
+    worker_id: row.worker_id || '',
+    requested_at: row.requested_at || row.created_at || null,
+    scheduled_for: row.scheduled_for || null,
+    started_at: row.started_at || null,
+    completed_at: row.completed_at || null,
+    payload: row.payload || {},
+    created_at: row.created_at || null,
+    updated_at: row.updated_at || null,
+  };
+}
+
+function normalizeSettings(row, fallback = {}) {
+  const record = row || {};
+  return {
+    download_base_dir: record.download_base_dir || fallback.download_base_dir || '',
+    worker_enabled: record.worker_enabled ?? fallback.worker_enabled ?? true,
+    auto_start_worker: record.auto_start_worker ?? fallback.auto_start_worker ?? true,
+    poll_interval_seconds: Math.max(Number(record.poll_interval_seconds || fallback.poll_interval_seconds || DEFAULT_POLL_INTERVAL_SECONDS), 2),
+    preferred_drive_folder_id: record.preferred_drive_folder_id || fallback.preferred_drive_folder_id || '',
+  };
+}
+
+async function fetchResourceRecords(ownerUserId, resourceIds = []) {
+  const ids = [...new Set((resourceIds || []).filter(Boolean))];
+  if (!ids.length) return new Map();
+
+  const result = await getAdmin()
+    .from('legacy_entity_records')
+    .select('record_id,data')
+    .eq('entity_type', 'Resource')
+    .eq('owner_user_id', ownerUserId)
+    .in('record_id', ids);
+
+  if (result.error) throw new HttpError(500, result.error.message);
+  return new Map((result.data || []).map((row) => [row.record_id, row.data || {}]));
+}
+
+export async function getInstagramDownloaderSettingsForUser(userId) {
+  const result = await getAdmin()
+    .from('instagram_downloader_settings')
+    .select('*')
+    .eq('owner_user_id', userId)
+    .maybeSingle();
+
+  if (result.error) throw new HttpError(500, result.error.message);
+  return normalizeSettings(result.data);
+}
+
+export async function updateInstagramDownloaderSettingsForUser(userId, updates = {}) {
+  const payload = normalizeSettings({
+    ...updates,
+    poll_interval_seconds: updates.poll_interval_seconds,
+  }, await getInstagramDownloaderSettingsForUser(userId));
+
+  const result = await getAdmin()
+    .from('instagram_downloader_settings')
+    .upsert({
+      owner_user_id: userId,
+      ...payload,
+      preferred_drive_folder_id: payload.preferred_drive_folder_id || null,
+    }, { onConflict: 'owner_user_id' })
+    .select('*')
+    .single();
+
+  if (result.error) throw new HttpError(500, result.error.message);
+  return normalizeSettings(result.data);
+}
+
+function toInstagramMediaItems(download = {}) {
+  return (download.files || []).map((file, index) => {
+    const driveFile = (download.drive_files || []).find((entry) => entry.name === file.filename) || null;
+    return {
+      index,
+      type: file.type || 'unknown',
+      filename: file.filename,
+      filepath: file.filepath,
+      drive_file_id: driveFile?.id || null,
+      drive_url: driveFile?.url || null,
+    };
+  });
+}
+
+async function analyzeInstagramResource(userId, url) {
+  try {
+    const analyzed = await analyzeResource({
+      url,
+      title: '',
+      content: '',
+      userId,
+    });
+    return analyzed?.data || {};
+  } catch {
+    return {};
+  }
+}
+
+export async function createPendingInstagramResource(userId, { url, projectId = '' }) {
+  const resourceType = inferResourceType(url);
+  const resource = await createCompatEntity(userId, 'Resource', {
+    title: buildPendingTitle(url),
+    url,
+    source_url: url,
+    resource_type: resourceType,
+    summary: buildQueuedSummary(),
+    why_it_matters: 'This Instagram resource is waiting for the downloader worker to process it.',
+    who_its_for: 'People capturing Instagram reels and posts into their LifeOS library.',
+    main_topic: 'Instagram import',
+    resource_score: 5,
+    tags: ['instagram', 'queued'],
+    key_points: [],
+    actionable_points: [],
+    use_cases: ['Wait for the downloader worker to finish processing this link.'],
+    download_status: 'queued',
+    downloader_mode: 'queue',
+    instagram_media_items: [],
+    drive_folder_url: '',
+    drive_folder_id: '',
+    drive_target: GLOBAL_DRIVE_TARGET,
+    is_archived: false,
+  });
+
+  if (projectId) {
+    await createCompatEntity(userId, 'ProjectResource', {
+      project_id: projectId,
+      resource_id: resource.id,
+      created_date: new Date().toISOString(),
+    });
+  }
+
+  return resource;
+}
+
+export async function updateInstagramResourceQueued(userId, resourceId, jobId) {
+  return updateCompatEntity(userId, 'Resource', resourceId, {
+    download_status: 'queued',
+    summary: buildQueuedSummary(),
+    downloader_job_id: jobId,
+    downloader_updated_at: new Date().toISOString(),
+  });
+}
+
+export async function updateInstagramResourceProcessing(userId, resourceId, workerId = '') {
+  return updateCompatEntity(userId, 'Resource', resourceId, {
+    download_status: 'processing',
+    summary: buildProcessingSummary(),
+    ingestion_error: '',
+    downloader_worker_id: workerId,
+    downloader_updated_at: new Date().toISOString(),
+  });
+}
+
+export async function updateInstagramResourceFailed(userId, resourceId, errorMessage) {
+  return updateCompatEntity(userId, 'Resource', resourceId, {
+    download_status: 'failed',
+    summary: buildFailedSummary(errorMessage),
+    ingestion_error: errorMessage || '',
+    downloader_updated_at: new Date().toISOString(),
+  });
+}
+
+export async function applySuccessfulInstagramDownload(userId, resourceId, sourceUrl, download, { includeAnalysis = true } = {}) {
+  const current = await getCompatEntity(userId, 'Resource', resourceId);
+  const analysis = includeAnalysis ? await analyzeInstagramResource(userId, sourceUrl) : {};
+  const normalized = normalizeResourceRecord(sourceUrl, analysis);
+  const driveFolder = download.drive_folder || null;
+  const driveFiles = Array.isArray(download.drive_files) ? download.drive_files : [];
+
+  return updateCompatEntity(userId, 'Resource', resourceId, {
+    ...current,
+    ...normalized,
+    title: normalized.title || current.title || buildPendingTitle(sourceUrl),
+    summary: normalized.summary || current.summary || 'Instagram media downloaded successfully.',
+    download_status: driveFiles.length > 0 ? 'uploaded' : 'downloaded',
+    ingestion_error: '',
+    downloader_job_id: '',
+    downloader_updated_at: new Date().toISOString(),
+    downloader_completed_at: new Date().toISOString(),
+    instagram_media_items: toInstagramMediaItems(download),
+    drive_folder_id: driveFolder?.id || '',
+    drive_folder_url: driveFolder?.url || '',
+    drive_folder_name: driveFolder?.name || INSTAGRAM_IMPORTS_FOLDER_NAME,
+    drive_files: driveFiles,
+    drive_target: GLOBAL_DRIVE_TARGET,
+  });
+}
+
+export async function createInstagramDownloadJob(userId, {
+  resourceId,
+  url,
+  driveFolderId = '',
+  projectId = '',
+  includeAnalysis = true,
+}) {
+  const now = new Date().toISOString();
+  const result = await getAdmin()
+    .from('instagram_download_jobs')
+    .insert({
+      owner_user_id: userId,
+      resource_id: resourceId,
+      source_url: url,
+      status: 'queued',
+      retry_count: 0,
+      drive_target: GLOBAL_DRIVE_TARGET,
+      drive_folder_id: driveFolderId || null,
+      project_id: projectId || null,
+      include_analysis: includeAnalysis,
+      requested_at: now,
+      scheduled_for: now,
+      payload: {
+        job_type: INSTAGRAM_JOB_TYPE,
+      },
+    })
+    .select('*')
+    .single();
+
+  if (result.error) throw new HttpError(500, result.error.message);
+  return normalizeJob(result.data);
+}
+
+export async function requeueFailedInstagramJobs(userId) {
+  const now = new Date().toISOString();
+  const result = await getAdmin()
+    .from('instagram_download_jobs')
+    .update({
+      status: 'queued',
+      scheduled_for: now,
+      started_at: null,
+      completed_at: null,
+      worker_id: null,
+      updated_at: now,
+    })
+    .eq('owner_user_id', userId)
+    .eq('status', 'failed')
+    .select('*');
+
+  if (result.error) throw new HttpError(500, result.error.message);
+  const rows = (result.data || []).map(normalizeJob);
+  await Promise.all(rows.map((job) => updateCompatEntity(userId, 'Resource', job.resource_id, {
+    download_status: 'queued',
+    summary: buildQueuedSummary(),
+    downloader_updated_at: now,
+  }).catch(() => null)));
+  return rows;
+}
+
+export async function getInstagramDownloaderStatusForUser(userId) {
+  const env = getServerEnv();
+  const settings = await getInstagramDownloaderSettingsForUser(userId);
+  const workerRes = await getAdmin()
+    .from('instagram_downloader_workers')
+    .select('*')
+    .order('last_heartbeat_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (workerRes.error) throw new HttpError(500, workerRes.error.message);
+
+  const jobsRes = await getAdmin()
+    .from('instagram_download_jobs')
+    .select('*')
+    .eq('owner_user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(25);
+
+  if (jobsRes.error) throw new HttpError(500, jobsRes.error.message);
+
+  const jobs = (jobsRes.data || []).map(normalizeJob);
+  const resourcesById = await fetchResourceRecords(userId, jobs.map((job) => job.resource_id));
+  const worker = workerRes.data
+    ? {
+        worker_id: workerRes.data.worker_id,
+        label: workerRes.data.label || workerRes.data.worker_id,
+        status: workerRes.data.status || 'unknown',
+        last_heartbeat_at: workerRes.data.last_heartbeat_at,
+        current_job_id: workerRes.data.current_job_id || '',
+        version: workerRes.data.version || '',
+        metadata: workerRes.data.metadata || {},
+        online: Date.now() - Date.parse(workerRes.data.last_heartbeat_at) <= Math.max(env.INSTAGRAM_DOWNLOADER_STATUS_STALE_MS || 90000, 10000),
+      }
+    : {
+        worker_id: '',
+        label: 'Instagram Downloader',
+        status: 'offline',
+        last_heartbeat_at: null,
+        current_job_id: '',
+        version: '',
+        metadata: {},
+        online: false,
+      };
+
+  const counts = jobs.reduce((acc, job) => {
+    acc.total += 1;
+    if (job.status === 'queued') acc.queued += 1;
+    if (job.status === 'processing') acc.processing += 1;
+    if (job.status === 'failed') acc.failed += 1;
+    return acc;
+  }, { total: 0, queued: 0, processing: 0, failed: 0 });
+
+  return {
+    worker,
+    settings,
+    queue: {
+      ...counts,
+      items: jobs.map((job) => ({
+        ...job,
+        resource_title: resourcesById.get(job.resource_id)?.title || buildPendingTitle(job.source_url),
+      })),
+    },
+  };
+}
+
+export async function registerInstagramWorkerHeartbeat({ workerId, label = '', version = '', metadata = {}, currentJobId = null }) {
+  const result = await getAdmin()
+    .from('instagram_downloader_workers')
+    .upsert({
+      worker_id: workerId,
+      label: label || workerId,
+      status: 'online',
+      last_heartbeat_at: new Date().toISOString(),
+      current_job_id: currentJobId || null,
+      version: version || null,
+      metadata,
+    }, { onConflict: 'worker_id' })
+    .select('*')
+    .single();
+
+  if (result.error) throw new HttpError(500, result.error.message);
+  return result.data;
+}
+
+export async function claimNextInstagramDownloadJob(workerId) {
+  const queued = await getAdmin()
+    .from('instagram_download_jobs')
+    .select('*')
+    .eq('status', 'queued')
+    .order('scheduled_for', { ascending: true })
+    .order('created_at', { ascending: true })
+    .limit(10);
+
+  if (queued.error) throw new HttpError(500, queued.error.message);
+
+  for (const row of queued.data || []) {
+    const claimed = await getAdmin()
+      .from('instagram_download_jobs')
+      .update({
+        status: 'processing',
+        started_at: new Date().toISOString(),
+        worker_id: workerId,
+      })
+      .eq('id', row.id)
+      .eq('status', 'queued')
+      .select('*')
+      .maybeSingle();
+
+    if (claimed.error) throw new HttpError(500, claimed.error.message);
+    if (!claimed.data) continue;
+
+    const job = normalizeJob(claimed.data);
+    await updateInstagramResourceProcessing(job.owner_user_id, job.resource_id, workerId).catch(() => null);
+
+    let driveAccessToken = '';
+    try {
+      driveAccessToken = await getGoogleAccessToken(job.owner_user_id, 'drive');
+    } catch (error) {
+      await failInstagramDownloadJob(job.id, error?.message || 'Google Drive is not connected for this account.');
+      continue;
+    }
+
+    return {
+      job,
+      settings: await getInstagramDownloaderSettingsForUser(job.owner_user_id),
+      google_drive: {
+        access_token: driveAccessToken,
+        parent_folder_id: job.drive_folder_id || '',
+      },
+    };
+  }
+
+  return null;
+}
+
+export async function completeInstagramDownloadJob(jobId, download) {
+  const result = await getAdmin()
+    .from('instagram_download_jobs')
+    .select('*')
+    .eq('id', jobId)
+    .maybeSingle();
+
+  if (result.error) throw new HttpError(500, result.error.message);
+  if (!result.data) throw new HttpError(404, 'Instagram download job not found.');
+
+  const job = normalizeJob(result.data);
+  const resource = await applySuccessfulInstagramDownload(job.owner_user_id, job.resource_id, job.source_url, download, {
+    includeAnalysis: job.include_analysis,
+  });
+
+  const deleteResult = await getAdmin()
+    .from('instagram_download_jobs')
+    .delete()
+    .eq('id', jobId);
+
+  if (deleteResult.error) throw new HttpError(500, deleteResult.error.message);
+
+  await registerInstagramWorkerHeartbeat({
+    workerId: job.worker_id || 'worker',
+    currentJobId: null,
+  }).catch(() => null);
+
+  return { job, resource };
+}
+
+export async function failInstagramDownloadJob(jobId, errorMessage) {
+  const current = await getAdmin()
+    .from('instagram_download_jobs')
+    .select('*')
+    .eq('id', jobId)
+    .maybeSingle();
+
+  if (current.error) throw new HttpError(500, current.error.message);
+  if (!current.data) throw new HttpError(404, 'Instagram download job not found.');
+
+  const row = current.data;
+  const retryCount = Number(row.retry_count || 0) + 1;
+  const result = await getAdmin()
+    .from('instagram_download_jobs')
+    .update({
+      status: 'failed',
+      retry_count: retryCount,
+      last_error: errorMessage || 'Instagram download failed.',
+      completed_at: new Date().toISOString(),
+    })
+    .eq('id', jobId)
+    .select('*')
+    .single();
+
+  if (result.error) throw new HttpError(500, result.error.message);
+
+  const job = normalizeJob(result.data);
+  await updateInstagramResourceFailed(job.owner_user_id, job.resource_id, job.last_error).catch(() => null);
+  return job;
+}
+
+function isWorkerUnavailable(error) {
+  return error instanceof HttpError
+    && error.status === 502
+    && /unavailable/i.test(error.message || '');
+}
+
+export async function submitInstagramDownload(userId, {
+  url,
+  projectId = '',
+  driveFolderId = '',
+  includeAnalysis = true,
+}) {
+  const settings = await getInstagramDownloaderSettingsForUser(userId);
+  const targetDriveFolderId = driveFolderId || settings.preferred_drive_folder_id || '';
+  const resource = await createPendingInstagramResource(userId, { url, projectId });
+  let directDownload = null;
+
+  if (settings.worker_enabled && getServerEnv().INSTAGRAM_DOWNLOADER_BASE_URL) {
+    try {
+      directDownload = await requestInstagramDownload({
+        userId,
+        url,
+        uploadToDrive: true,
+        driveFolderId: targetDriveFolderId,
+        downloadBaseDir: settings.download_base_dir,
+        includeAnalysis: false,
+      });
+    } catch (error) {
+      if (!isWorkerUnavailable(error)) {
+        await updateInstagramResourceFailed(userId, resource.id, error?.message || 'Instagram downloader failed.').catch(() => null);
+        throw error;
+      }
+    }
+  }
+
+  if (directDownload) {
+    const updated = await applySuccessfulInstagramDownload(userId, resource.id, url, directDownload, { includeAnalysis });
+    return {
+      success: true,
+      queued: false,
+      resource: updated,
+      job: null,
+      download: directDownload,
+    };
+  }
+
+  const job = await createInstagramDownloadJob(userId, {
+    resourceId: resource.id,
+    url,
+    driveFolderId: targetDriveFolderId,
+    projectId,
+    includeAnalysis,
+  });
+  const updated = await updateInstagramResourceQueued(userId, resource.id, job.id);
+
+  return {
+    success: true,
+    queued: true,
+    resource: updated,
+    job,
+    download: null,
+  };
+}

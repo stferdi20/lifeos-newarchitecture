@@ -25,7 +25,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { generateStructuredAi } from '@/lib/ai-api';
-import { CardResource, ProjectResource, Resource, analyzeResourceUrl } from '@/lib/resources-api';
+import { CardResource, ProjectResource, Resource, createResourceFromUrl } from '@/lib/resources-api';
 import {
   ResponsiveModal,
   ResponsiveModalContent,
@@ -292,12 +292,13 @@ export default function ResourceLinkPickerModal({
     }
     setSubmitLoading(true);
     try {
-      const resource = await analyzeResourceUrl({ url: normalizedUrl, project_id: projectId || undefined });
+      const result = await createResourceFromUrl({ url: normalizedUrl, project_id: projectId || undefined });
+      const resource = result.resource;
       if (!resource?.id) throw new Error('Resource was created but no id was returned.');
       await createCardResourceLink(resource.id);
       invalidateResourceQueries();
       onLinked?.();
-      toast.success('Resource analyzed, saved, and linked to this card.');
+      toast.success(result.queued ? 'Instagram import queued and linked to this card.' : 'Resource analyzed, saved, and linked to this card.');
       onClose();
     } catch (error) {
       toast.error(error?.message || 'Failed to analyze and link this resource.');

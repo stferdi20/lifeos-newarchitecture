@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ClipboardPaste, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { analyzeResourceUrl } from '@/lib/resources-api';
+import { createResourceFromUrl } from '@/lib/resources-api';
 import { isNormalizedResourceUrl, normalizeResourceUrl } from '@/lib/resource-url';
 
 export default function QuickPasteButton({ onCreated, projectId }) {
@@ -21,11 +21,11 @@ export default function QuickPasteButton({ onCreated, projectId }) {
       const payload = { url: normalizedUrl };
       if (projectId) payload.project_id = projectId;
 
-      toast.info('Analyzing pasted URL...', { id: 'quick-paste-toast' });
-      const resource = await analyzeResourceUrl(payload);
+      toast.info('Saving pasted URL...', { id: 'quick-paste-toast' });
+      const result = await createResourceFromUrl(payload);
 
-      toast.success('Resource saved!', { id: 'quick-paste-toast' });
-      onCreated?.(resource);
+      toast.success(result.queued ? 'Instagram import queued.' : 'Resource saved!', { id: 'quick-paste-toast' });
+      onCreated?.(result.resource);
     } catch (e) {
       const backendError = e?.response?.data?.error || e?.message || '';
       toast.error(backendError || 'Failed to analyze URL.', { id: 'quick-paste-toast' });

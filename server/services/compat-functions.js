@@ -162,7 +162,7 @@ const MATCH_CANDIDATE_LIMIT = 8;
 const SEARCH_QUERY_LIMIT = 6;
 const FALLBACK_AUTO_ACCEPT_THRESHOLD = 0.74;
 
-function inferResourceType(url = '') {
+export function inferResourceType(url = '') {
   const value = String(url || '').toLowerCase();
   if (value.includes('youtube.com') || value.includes('youtu.be')) return 'youtube';
   if (value.includes('reddit.com')) return 'reddit';
@@ -559,7 +559,7 @@ Return valid JSON only with:
   }
 }
 
-function normalizeResourceRecord(url, analysis = {}) {
+export function normalizeResourceRecord(url, analysis = {}) {
   return {
     title: analysis.title || url,
     author: analysis.author || '',
