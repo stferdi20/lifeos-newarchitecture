@@ -7,6 +7,10 @@ import { z } from 'zod';
 import { routeStructuredJson } from '../lib/llm-router.js';
 import { listCompatEntities, updateCompatEntity } from './compat-store.js';
 import { requestYouTubeTranscript } from './instagram-downloader.js';
+import {
+  chooseHeuristicArea,
+  isKnowledgeAreaName,
+} from './resource-area-heuristics.js';
 
 const ANALYSIS_VERSION = 'resource-enrichment-v6';
 const USER_AGENT = 'LifeOS/1.0 (+https://lifeos-self-hosted.vercel.app)';
@@ -2462,37 +2466,17 @@ function shouldRepairAnalysis(result, extracted) {
 }
 
 function classifySpecificAreaHeuristically({ extracted, mergedData, areas }) {
-  const nonKnowledgeAreas = (areas || []).filter((area) => stripText(area.name).toLowerCase() !== 'knowledge');
-  if (!nonKnowledgeAreas.length) return '';
-
-  const haystack = stripText([
-    mergedData.title,
-    mergedData.summary,
-    mergedData.why_it_matters,
-    mergedData.main_topic,
-    mergedData.tags?.join(' '),
-    extracted.description,
-    String(extracted.content || '').slice(0, 3000),
-  ].filter(Boolean).join(' ')).toLowerCase();
-
-  let bestArea = '';
-  let bestScore = 0;
-
-  for (const area of nonKnowledgeAreas) {
-    const words = stripText(area.name)
-      .toLowerCase()
-      .split(/[^a-z0-9]+/)
-      .filter((word) => word.length >= 3);
-    if (!words.length) continue;
-
-    const score = words.reduce((total, word) => total + (haystack.includes(word) ? 1 : 0), 0);
-    if (score > bestScore) {
-      bestArea = area.name;
-      bestScore = score;
-    }
-  }
-
-  return bestScore > 0 ? bestArea : '';
+  return chooseHeuristicArea({
+    areas,
+    title: mergedData.title,
+    summary: mergedData.summary,
+    whyItMatters: mergedData.why_it_matters,
+    mainTopic: mergedData.main_topic,
+    tags: mergedData.tags,
+    description: extracted.description,
+    content: extracted.content,
+    resourceType: extracted.resourceType,
+  }).areaName;
 }
 
 function getEnrichmentStatus(result, extracted) {
@@ -2576,7 +2560,7 @@ function buildEnrichmentWarning(mergedData, extracted) {
   }
 }
 
-function resolveAreaAssignment(resultAreaName, areas, mergedData, extracted) {
+export function resolveAreaAssignment(resultAreaName, areas, mergedData, extracted, { allowKnowledgeFallback = true } = {}) {
   const normalizedAreaName = stripText(resultAreaName).toLowerCase();
   const areaMap = new Map((areas || []).map((area) => [String(area.name || '').toLowerCase(), area]));
   let matchedArea = areaMap.get(normalizedAreaName) || null;
@@ -2594,14 +2578,23 @@ function resolveAreaAssignment(resultAreaName, areas, mergedData, extracted) {
     }
   }
 
-  if (!matchedArea) {
+  if (!matchedArea && allowKnowledgeFallback) {
     matchedArea = areaMap.get('knowledge') || (areas || [])[0] || null;
     matchedByFallback = true;
+  }
+
+  if (!matchedArea) {
+    return {
+      area_id: '',
+      area_name: '',
+      area_needs_review: false,
+    };
   }
 
   const lowConfidence = (
     matchedByFallback
     || !normalizedAreaName
+    || isKnowledgeAreaName(matchedArea?.name || '')
     || getEnrichmentStatus(mergedData, extracted) !== 'rich'
     || String(extracted.content || '').length < (extracted.resourceType === 'reddit' ? 600 : 900)
   );
@@ -2892,8 +2885,8 @@ export async function analyzeResource({ url, title = '', content = '', userId = 
   };
 
   let resolvedAreaName = stripText(result.data.area_name || heuristic.area_name);
-  let areaAssignment = resolveAreaAssignment(resolvedAreaName, areas, mergedData, extracted);
-  if ((!resolvedAreaName || !areaAssignment.area_id || areaAssignment.area_name === 'Knowledge') && areas.length) {
+  let areaAssignment = resolveAreaAssignment(resolvedAreaName, areas, mergedData, extracted, { allowKnowledgeFallback: false });
+  if ((!resolvedAreaName || !areaAssignment.area_id || isKnowledgeAreaName(areaAssignment.area_name)) && areas.length) {
     const secondPassAreaName = await classifyAreaFromContent({
       extracted,
       mergedData,
@@ -2902,20 +2895,24 @@ export async function analyzeResource({ url, title = '', content = '', userId = 
     });
     if (secondPassAreaName) {
       resolvedAreaName = secondPassAreaName;
-      areaAssignment = resolveAreaAssignment(secondPassAreaName, areas, mergedData, extracted);
+      areaAssignment = resolveAreaAssignment(secondPassAreaName, areas, mergedData, extracted, { allowKnowledgeFallback: false });
     }
   }
-  if (areaAssignment.area_name === 'Knowledge' && areas.some((area) => stripText(area.name).toLowerCase() !== 'knowledge')) {
+  if ((!areaAssignment.area_id || isKnowledgeAreaName(areaAssignment.area_name) || areaAssignment.area_needs_review)
+    && areas.some((area) => !isKnowledgeAreaName(area.name))) {
     const heuristicAreaName = classifySpecificAreaHeuristically({ extracted, mergedData, areas });
     if (heuristicAreaName) {
-      const heuristicAssignment = resolveAreaAssignment(heuristicAreaName, areas, mergedData, extracted);
-      if (heuristicAssignment.area_name && heuristicAssignment.area_name !== 'Knowledge') {
+      const heuristicAssignment = resolveAreaAssignment(heuristicAreaName, areas, mergedData, extracted, { allowKnowledgeFallback: false });
+      if (heuristicAssignment.area_name && !isKnowledgeAreaName(heuristicAssignment.area_name)) {
         areaAssignment = {
           ...heuristicAssignment,
           area_needs_review: true,
         };
       }
     }
+  }
+  if (!areaAssignment.area_id && areas.length) {
+    areaAssignment = resolveAreaAssignment('Knowledge', areas, mergedData, extracted, { allowKnowledgeFallback: true });
   }
   const data = buildAnalysisPayload({ mergedData, extracted, areaAssignment });
   if (extracted.youtubeAiSummary) {
@@ -2962,10 +2959,6 @@ function matchesReenrichFilters(resource, filters = {}, projectResourceIds = nul
   if (projectResourceIds && !projectResourceIds.has(resource.id)) return false;
   if (tagFilter && !(Array.isArray(resource.tags) ? resource.tags : []).includes(tagFilter)) return false;
   return matchesReenrichSearch(resource, filters.search || '');
-}
-
-function isKnowledgeAreaName(value = '') {
-  return stripText(value).toLowerCase() === 'knowledge';
 }
 
 function getEnrichmentRank(status = '') {
@@ -3024,6 +3017,20 @@ export function preserveStrongerExistingData(resource, analyzedData) {
     };
   }
 
+  if (
+    existingHasArea
+    && !existingIsKnowledge
+    && stripText(resource.area_name) !== stripText(nextData.area_name)
+    && Boolean(analyzedData.area_needs_review)
+  ) {
+    return {
+      ...nextData,
+      area_id: resource.area_id || '',
+      area_name: resource.area_name || '',
+      area_needs_review: Boolean(resource.area_needs_review),
+    };
+  }
+
   return nextData;
 }
 
@@ -3058,9 +3065,16 @@ export async function reEnrichResourcesForUser(userId, { resourceIds = [], filte
 
   for (const resource of targets) {
     const resourceUrl = normalizeResourceUrl(resource.source_url || resource.url || '');
-    if (!resourceUrl || !isValidHttpUrl(resourceUrl) || resource.resource_type === 'note') {
+    const isInstagramResource = ['instagram_reel', 'instagram_carousel'].includes(String(resource.resource_type || ''));
+    if (!resourceUrl || !isValidHttpUrl(resourceUrl) || resource.resource_type === 'note' || isInstagramResource) {
       skipped += 1;
-      items.push({ id: resource.id, status: 'skipped', reason: 'Resource does not have a re-enrichable URL.' });
+      items.push({
+        id: resource.id,
+        status: 'skipped',
+        reason: isInstagramResource
+          ? 'Instagram resources are excluded from backend re-enrichment.'
+          : 'Resource does not have a re-enrichable URL.',
+      });
       continue;
     }
 

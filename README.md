@@ -80,6 +80,20 @@ YTDLP_TIMEOUT_MS=20000
 ```
 
 OpenRouter is the primary backend LLM provider for resource enrichment. Gemini and Hugging Face remain available as fallbacks when their keys are configured.
+
+Sequential live re-enrichment for deployed resources is available with:
+
+```bash
+npm run reenrich:live -- --base-url https://lifeos-self-hosted.vercel.app --token YOUR_ACCESS_TOKEN
+```
+
+Helpful flags:
+
+- `--dry-run` to inspect targets and suggested corrections without mutating live data
+- `--project-id <id>` to limit to one project
+- `--search <term>` / `--type <type>` / `--area-id <id>` / `--tag <tag>` for narrower scopes
+- `--include-instagram` only if you explicitly want to override the default non-IG safeguard
+
 YouTube transcript extraction now follows the same worker pattern as Instagram:
 
 - if a transcript is immediately available, enrichment uses it right away

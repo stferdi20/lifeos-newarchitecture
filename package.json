@@ -18,6 +18,8 @@
     "migrate:export:domains": "node scripts/export-base44-domains.js",
     "migrate:import:domains": "node scripts/import-domains-to-supabase.js",
     "migrate:verify:domains": "node scripts/verify-domains-migration.js",
+    "reenrich:live": "node scripts/reenrich-resources-live.js",
+    "test:resources": "node --test server/services/__tests__/*.test.js",
     "typecheck": "tsc -p ./jsconfig.json",
     "preview": "vite preview"
   },
