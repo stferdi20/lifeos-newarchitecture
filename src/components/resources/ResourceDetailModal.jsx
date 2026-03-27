@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -66,15 +66,35 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
     queryFn: () => LifeArea.list(),
   });
 
+  const resourceQuery = useQuery({
+    queryKey: ['resource-detail', resource?.id],
+    queryFn: () => Resource.get(resource.id),
+    enabled: Boolean(open && resource?.id),
+    refetchInterval: (query) => {
+      const current = query.state.data || resource;
+      const isInstagramResource = current?.resource_type === 'instagram_reel' || current?.resource_type === 'instagram_carousel';
+      if (!isInstagramResource) return false;
+      return ['queued', 'processing'].includes(current?.download_status) ? 3000 : false;
+    },
+  });
+
   const retryInstagramMutation = useMutation({
     mutationFn: () => retryInstagramDownloadForResource(resource.id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['resources'] });
       queryClient.invalidateQueries({ queryKey: ['instagram-downloader-status'] });
+      queryClient.invalidateQueries({ queryKey: ['resource-detail', resource.id] });
     },
   });
 
   if (!resource) return null;
+  resource = resourceQuery.data || resource;
+
+  useEffect(() => {
+    setAreaId(resource?.area_id || '');
+    setIsArchived(resource?.is_archived || false);
+    setRating(resource?.user_rating || 0);
+  }, [resource?.area_id, resource?.is_archived, resource?.user_rating]);
 
   const isGitHub = resource.resource_type === 'github_repo';
   const isReddit = resource.resource_type === 'reddit';
