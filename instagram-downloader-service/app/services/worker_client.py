@@ -5,11 +5,13 @@ from contextlib import suppress
 
 import httpx
 
-from app.schemas.download import DownloadRequest, DownloadResponse
-from app.services.instagram_downloader import InstagramDownloaderError, download_instagram_media
+from app.schemas.download import DownloadRequest, DownloadResponse, YouTubeTranscriptRequest
+from app.services.instagram_downloader import InstagramDownloaderError, download_instagram_media, fetch_youtube_transcript
 
 
 WORKER_VERSION = "0.2.0"
+INSTAGRAM_JOB_TYPE = "instagram_download"
+YOUTUBE_TRANSCRIPT_JOB_TYPE = "youtube_transcript"
 
 
 class WorkerLoop:
@@ -106,19 +108,31 @@ class WorkerLoop:
     async def process_claimed_job(self, client: httpx.AsyncClient, claimed_job: dict):
         job = claimed_job.get("job") or {}
         google_drive = claimed_job.get("google_drive") or {}
+        job_type = (job.get("payload") or {}).get("job_type") or INSTAGRAM_JOB_TYPE
         self.current_job_id = job.get("id")
         await self.heartbeat(client)
 
         try:
-          download = await download_instagram_media(
-              DownloadRequest(
-                  url=job["source_url"],
-                  google_drive=google_drive,
-                  include_analysis=job.get("include_analysis", True),
-                  download_base_dir=(claimed_job.get("settings") or {}).get("download_base_dir"),
+          if job_type == YOUTUBE_TRANSCRIPT_JOB_TYPE:
+              transcript = await fetch_youtube_transcript(
+                  YouTubeTranscriptRequest(
+                      url=job["source_url"],
+                  )
               )
-          )
-          await self.complete_job(client, job["id"], download)
+              if transcript.success:
+                  await self.complete_job(client, job["id"], transcript)
+              else:
+                  await self.fail_job(client, job["id"], transcript.error or "YouTube transcript extraction failed.")
+          else:
+              download = await download_instagram_media(
+                  DownloadRequest(
+                      url=job["source_url"],
+                      google_drive=google_drive,
+                      include_analysis=job.get("include_analysis", True),
+                      download_base_dir=(claimed_job.get("settings") or {}).get("download_base_dir"),
+                  )
+              )
+              await self.complete_job(client, job["id"], download)
         except InstagramDownloaderError as error:
           await self.fail_job(client, job["id"], error.message)
         except Exception as error:

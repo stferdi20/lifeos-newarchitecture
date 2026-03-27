@@ -4,6 +4,7 @@ Local-first Python backend for:
 
 - downloading Instagram reels, posts, and carousels with `yt-dlp`
 - extracting YouTube transcripts with `yt-dlp` for the main LifeOS backend
+- polling the LifeOS backend queue so local-worker jobs can complete when your machine is online
 
 ## What It Does
 
@@ -110,5 +111,5 @@ curl -X POST http://127.0.0.1:9001/youtube-transcript \
 - The actual `yt-dlp` extraction and download logic lives in `app/services/instagram_downloader.py`.
 - If you want to change where files are stored, edit `build_request_download_dir()` in `app/services/instagram_downloader.py`.
 - Your existing web app should call the current Node backend route, not this service directly. The app-facing route is `POST /api/resources/instagram-download`.
-- The main backend also uses this worker for YouTube transcript extraction before it falls back to local `yt-dlp` or metadata-only enrichment.
-- If `LIFEOS_API_BASE_URL` and `INSTAGRAM_DOWNLOADER_SHARED_SECRET` are set, the worker also polls the backend queue and processes jobs automatically.
+- The main backend now uses the same worker for queued Instagram downloads and queued YouTube transcript jobs.
+- If `LIFEOS_API_BASE_URL` and `INSTAGRAM_DOWNLOADER_SHARED_SECRET` are set, the worker polls the backend queue and processes both job types automatically.

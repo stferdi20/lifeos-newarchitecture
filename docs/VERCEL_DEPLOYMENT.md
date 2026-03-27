@@ -82,16 +82,20 @@ These integrations are already proxied through your backend, so the browser stil
 
 ## YouTube Transcript Note
 
-Vercel functions do not reliably provide a `yt-dlp` binary. Production YouTube transcript extraction should therefore go through the Python downloader worker configured by `INSTAGRAM_DOWNLOADER_BASE_URL`.
+YouTube now follows the same queue-backed worker pattern as Instagram.
 
-Current production order:
+Production order:
 
-1. Python worker at `INSTAGRAM_DOWNLOADER_BASE_URL`
-2. local `yt-dlp` if the current runtime has it
-3. legacy direct transcript extraction
+1. immediate transcript extraction if available
+2. queue a YouTube transcript job for the local Python worker
+3. local `yt-dlp` or legacy direct extraction when applicable
 4. description or metadata fallback
 
-If the worker is not configured, YouTube resources may still save, but they can drop to description or metadata-only enrichment much more often.
+Important consequence:
+
+- if your local Python worker is already polling the backend for Instagram jobs, it can also process YouTube transcript jobs
+- Vercel does not need a public `yt-dlp` binary for this pattern
+- `INSTAGRAM_DOWNLOADER_BASE_URL` is only needed if you want direct backend-to-worker calls instead of the queue-backed worker flow
 
 ## Google OAuth Setup
 

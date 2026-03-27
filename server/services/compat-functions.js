@@ -1324,16 +1324,26 @@ async function invokeAnalyzeResource(userId, payload = {}) {
     normalizeResourceRecord(url, analyzed.data),
   );
 
+  let finalResource = resource;
+  if (resource?.resource_type === 'youtube' && resource?.content_source !== 'youtube_transcript') {
+    try {
+      const { maybeQueueYouTubeTranscriptJobForResource } = await import('./instagram-download-queue.js');
+      finalResource = await maybeQueueYouTubeTranscriptJobForResource(userId, resource);
+    } catch {
+      finalResource = resource;
+    }
+  }
+
   if (payload.project_id) {
     await createCompatEntity(userId, 'ProjectResource', {
       project_id: payload.project_id,
-      resource_id: resource.id,
+      resource_id: finalResource.id,
       created_date: new Date().toISOString(),
     });
   }
 
   return {
-    resource,
+    resource: finalResource,
     analysis: analyzed.data,
     provider: analyzed.provider,
     model: analyzed.model,

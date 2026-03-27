@@ -2848,7 +2848,7 @@ function getEnrichmentRank(status = '') {
   }
 }
 
-function preserveStrongerExistingData(resource, analyzedData) {
+export function preserveStrongerExistingData(resource, analyzedData) {
   const existingRank = getEnrichmentRank(resource.enrichment_status);
   const nextRank = getEnrichmentRank(analyzedData.enrichment_status);
   const shouldPreserveExistingEnrichment = existingRank > nextRank;

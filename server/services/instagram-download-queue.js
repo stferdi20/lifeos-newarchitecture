@@ -3,11 +3,12 @@ import { getServiceRoleClient } from '../lib/supabase.js';
 import { getServerEnv } from '../config/env.js';
 import { createCompatEntity, getCompatEntity, updateCompatEntity } from './compat-store.js';
 import { inferResourceType, normalizeResourceRecord } from './compat-functions.js';
-import { analyzeResource } from './resources.js';
+import { analyzeResource, preserveStrongerExistingData } from './resources.js';
 import { getGoogleAccessToken } from './google.js';
 import { requestInstagramDownload } from './instagram-downloader.js';
 
 const INSTAGRAM_JOB_TYPE = 'instagram_download';
+const YOUTUBE_TRANSCRIPT_JOB_TYPE = 'youtube_transcript';
 const GLOBAL_DRIVE_TARGET = 'global_instagram_folder';
 const INSTAGRAM_IMPORTS_FOLDER_NAME = 'Instagram Imports';
 const DEFAULT_POLL_INTERVAL_SECONDS = 10;
@@ -40,6 +41,22 @@ function buildFailedSummary(message = '') {
   return message ? `Instagram download failed: ${message}` : 'Instagram download failed.';
 }
 
+function buildQueuedTranscriptSummary() {
+  return 'Queued for YouTube transcript enrichment. It will upgrade automatically when your local downloader worker is online.';
+}
+
+function buildProcessingTranscriptSummary() {
+  return 'YouTube transcript is being fetched by your local downloader worker.';
+}
+
+function buildFailedTranscriptSummary(message = '') {
+  return message ? `YouTube transcript enrichment failed: ${message}` : 'YouTube transcript enrichment failed.';
+}
+
+function getJobType(job = {}) {
+  return job?.payload?.job_type || INSTAGRAM_JOB_TYPE;
+}
+
 function normalizeJob(row) {
   if (!row) return null;
   return {
@@ -60,6 +77,7 @@ function normalizeJob(row) {
     started_at: row.started_at || null,
     completed_at: row.completed_at || null,
     payload: row.payload || {},
+    job_type: row.payload?.job_type || INSTAGRAM_JOB_TYPE,
     created_at: row.created_at || null,
     updated_at: row.updated_at || null,
   };
@@ -195,6 +213,18 @@ export async function updateInstagramResourceQueued(userId, resourceId, jobId) {
   });
 }
 
+export async function updateYouTubeTranscriptQueued(userId, resourceId, jobId) {
+  return updateCompatEntity(userId, 'Resource', resourceId, {
+    youtube_transcript_status: 'queued',
+    youtube_transcript_source: 'worker_yt_dlp',
+    youtube_transcript_error: 'Waiting for your local downloader worker to fetch subtitles.',
+    summary: buildQueuedTranscriptSummary(),
+    downloader_job_id: jobId,
+    downloader_mode: 'queue',
+    downloader_updated_at: new Date().toISOString(),
+  });
+}
+
 export async function updateInstagramResourceProcessing(userId, resourceId, workerId = '') {
   return updateCompatEntity(userId, 'Resource', resourceId, {
     download_status: 'processing',
@@ -205,11 +235,32 @@ export async function updateInstagramResourceProcessing(userId, resourceId, work
   });
 }
 
+export async function updateYouTubeTranscriptProcessing(userId, resourceId, workerId = '') {
+  return updateCompatEntity(userId, 'Resource', resourceId, {
+    youtube_transcript_status: 'processing',
+    youtube_transcript_source: 'worker_yt_dlp',
+    youtube_transcript_error: '',
+    summary: buildProcessingTranscriptSummary(),
+    downloader_worker_id: workerId,
+    downloader_updated_at: new Date().toISOString(),
+  });
+}
+
 export async function updateInstagramResourceFailed(userId, resourceId, errorMessage) {
   return updateCompatEntity(userId, 'Resource', resourceId, {
     download_status: 'failed',
     summary: buildFailedSummary(errorMessage),
     ingestion_error: errorMessage || '',
+    downloader_updated_at: new Date().toISOString(),
+  });
+}
+
+export async function updateYouTubeTranscriptFailed(userId, resourceId, errorMessage) {
+  return updateCompatEntity(userId, 'Resource', resourceId, {
+    youtube_transcript_status: 'error',
+    youtube_transcript_source: 'worker_yt_dlp',
+    youtube_transcript_error: errorMessage || 'YouTube transcript enrichment failed.',
+    summary: buildFailedTranscriptSummary(errorMessage),
     downloader_updated_at: new Date().toISOString(),
   });
 }
@@ -246,6 +297,7 @@ export async function createInstagramDownloadJob(userId, {
   driveFolderId = '',
   projectId = '',
   includeAnalysis = true,
+  jobType = INSTAGRAM_JOB_TYPE,
 }) {
   const now = new Date().toISOString();
   const result = await getAdmin()
@@ -263,7 +315,7 @@ export async function createInstagramDownloadJob(userId, {
       requested_at: now,
       scheduled_for: now,
       payload: {
-        job_type: INSTAGRAM_JOB_TYPE,
+        job_type: jobType,
       },
     })
     .select('*')
@@ -271,6 +323,59 @@ export async function createInstagramDownloadJob(userId, {
 
   if (result.error) throw new HttpError(500, result.error.message);
   return normalizeJob(result.data);
+}
+
+export async function createYouTubeTranscriptJob(userId, {
+  resourceId,
+  url,
+}) {
+  return createInstagramDownloadJob(userId, {
+    resourceId,
+    url,
+    driveFolderId: '',
+    projectId: '',
+    includeAnalysis: true,
+    jobType: YOUTUBE_TRANSCRIPT_JOB_TYPE,
+  });
+}
+
+async function findExistingYouTubeTranscriptJob(userId, resourceId) {
+  const result = await getAdmin()
+    .from('instagram_download_jobs')
+    .select('*')
+    .eq('owner_user_id', userId)
+    .eq('resource_id', resourceId)
+    .order('created_at', { ascending: false })
+    .limit(20);
+
+  if (result.error) throw new HttpError(500, result.error.message);
+  return (result.data || [])
+    .map(normalizeJob)
+    .find((job) => job.job_type === YOUTUBE_TRANSCRIPT_JOB_TYPE && ['queued', 'processing'].includes(job.status)) || null;
+}
+
+export async function maybeQueueYouTubeTranscriptJobForResource(userId, resource = {}) {
+  if (!userId) return resource;
+  if (resource?.resource_type !== 'youtube') return resource;
+  if (resource?.content_source === 'youtube_transcript') return resource;
+
+  const settings = await getInstagramDownloaderSettingsForUser(userId);
+  if (!settings.worker_enabled) return resource;
+
+  const existingJob = await findExistingYouTubeTranscriptJob(userId, resource.id);
+  if (existingJob) {
+    return updateYouTubeTranscriptQueued(userId, resource.id, existingJob.id);
+  }
+
+  const sourceUrl = resource.source_url || resource.url || '';
+  if (!sourceUrl) return resource;
+
+  const job = await createYouTubeTranscriptJob(userId, {
+    resourceId: resource.id,
+    url: sourceUrl,
+  });
+
+  return updateYouTubeTranscriptQueued(userId, resource.id, job.id);
 }
 
 export async function requeueFailedInstagramJobs(userId) {
@@ -475,6 +580,15 @@ export async function claimNextInstagramDownloadJob(workerId) {
     if (!claimed.data) continue;
 
     const job = normalizeJob(claimed.data);
+    if (job.job_type === YOUTUBE_TRANSCRIPT_JOB_TYPE) {
+      await updateYouTubeTranscriptProcessing(job.owner_user_id, job.resource_id, workerId).catch(() => null);
+      return {
+        job,
+        settings: await getInstagramDownloaderSettingsForUser(job.owner_user_id),
+        google_drive: null,
+      };
+    }
+
     await updateInstagramResourceProcessing(job.owner_user_id, job.resource_id, workerId).catch(() => null);
 
     let driveAccessToken = '';
@@ -498,6 +612,49 @@ export async function claimNextInstagramDownloadJob(workerId) {
   return null;
 }
 
+async function applySuccessfulYouTubeTranscript(userId, resourceId, sourceUrl, transcriptResult = {}) {
+  const current = await getCompatEntity(userId, 'Resource', resourceId);
+
+  let analyzedData = {};
+  try {
+    const analyzed = await analyzeResource({
+      url: sourceUrl,
+      title: current.title || '',
+      content: transcriptResult.transcript || '',
+      userId,
+    });
+    analyzedData = analyzed?.data || {};
+  } catch {
+    analyzedData = {};
+  }
+
+  const merged = preserveStrongerExistingData(current, {
+    ...current,
+    ...analyzedData,
+    content: transcriptResult.transcript || analyzedData.content || current.content || '',
+    content_source: transcriptResult.transcript ? 'youtube_transcript' : (analyzedData.content_source || current.content_source || ''),
+    content_language: transcriptResult.language || analyzedData.content_language || current.content_language || '',
+    youtube_transcript: transcriptResult.transcript || current.youtube_transcript || '',
+    youtube_transcript_status: transcriptResult.status || 'ok',
+    youtube_transcript_error: transcriptResult.error || '',
+    youtube_transcript_source: transcriptResult.transcript_source || 'worker_yt_dlp',
+    youtube_caption_language: transcriptResult.language || current.youtube_caption_language || '',
+  });
+
+  return updateCompatEntity(userId, 'Resource', resourceId, {
+    ...current,
+    ...merged,
+    id: resourceId,
+    created_date: current.created_date,
+    downloader_job_id: '',
+    downloader_updated_at: new Date().toISOString(),
+    youtube_transcript_status: transcriptResult.status || 'ok',
+    youtube_transcript_error: transcriptResult.error || '',
+    youtube_transcript_source: transcriptResult.transcript_source || 'worker_yt_dlp',
+    youtube_caption_language: transcriptResult.language || current.youtube_caption_language || '',
+  });
+}
+
 export async function completeInstagramDownloadJob(jobId, download) {
   const result = await getAdmin()
     .from('instagram_download_jobs')
@@ -509,9 +666,11 @@ export async function completeInstagramDownloadJob(jobId, download) {
   if (!result.data) throw new HttpError(404, 'Instagram download job not found.');
 
   const job = normalizeJob(result.data);
-  const resource = await applySuccessfulInstagramDownload(job.owner_user_id, job.resource_id, job.source_url, download, {
-    includeAnalysis: job.include_analysis,
-  });
+  const resource = job.job_type === YOUTUBE_TRANSCRIPT_JOB_TYPE
+    ? await applySuccessfulYouTubeTranscript(job.owner_user_id, job.resource_id, job.source_url, download)
+    : await applySuccessfulInstagramDownload(job.owner_user_id, job.resource_id, job.source_url, download, {
+        includeAnalysis: job.include_analysis,
+      });
 
   const deleteResult = await getAdmin()
     .from('instagram_download_jobs')
@@ -555,7 +714,11 @@ export async function failInstagramDownloadJob(jobId, errorMessage) {
   if (result.error) throw new HttpError(500, result.error.message);
 
   const job = normalizeJob(result.data);
-  await updateInstagramResourceFailed(job.owner_user_id, job.resource_id, job.last_error).catch(() => null);
+  if (job.job_type === YOUTUBE_TRANSCRIPT_JOB_TYPE) {
+    await updateYouTubeTranscriptFailed(job.owner_user_id, job.resource_id, job.last_error).catch(() => null);
+  } else {
+    await updateInstagramResourceFailed(job.owner_user_id, job.resource_id, job.last_error).catch(() => null);
+  }
   return job;
 }
 

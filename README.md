@@ -80,7 +80,13 @@ YTDLP_TIMEOUT_MS=20000
 ```
 
 OpenRouter is the primary backend LLM provider for resource enrichment. Gemini and Hugging Face remain available as fallbacks when their keys are configured.
-YouTube transcript extraction now prefers the Python worker at `INSTAGRAM_DOWNLOADER_BASE_URL`, then local `yt-dlp` when it is available on `PATH` or configured via `YTDLP_BIN`, then description and metadata.
+YouTube transcript extraction now follows the same worker pattern as Instagram:
+
+- if a transcript is immediately available, enrichment uses it right away
+- if not, the resource is saved and a queue-backed worker job is created
+- your local Python worker can later fetch the transcript and upgrade the resource automatically
+
+Direct worker calls through `INSTAGRAM_DOWNLOADER_BASE_URL` are still supported, but they are no longer required for the same local-worker pattern that Instagram already uses.
 
 ## Instagram Downloader
 
@@ -103,7 +109,7 @@ INSTAGRAM_DOWNLOADER_BASE_URL=http://127.0.0.1:9001
 INSTAGRAM_DOWNLOADER_SHARED_SECRET=your-shared-secret
 ```
 
-That same worker now handles YouTube transcript extraction for the main backend, so production Vercel deployments should use this worker instead of expecting `yt-dlp` inside the serverless runtime.
+That same worker now handles YouTube transcript extraction for the main backend. If your local worker is already polling the backend queue for Instagram jobs, YouTube transcript jobs will flow through the same worker without needing Vercel to reach your machine directly.
 
 App-facing backend route:
 

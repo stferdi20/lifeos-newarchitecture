@@ -39,13 +39,13 @@ const settingsSchema = z.object({
 const workerCompleteSchema = z.object({
   success: z.boolean(),
   input_url: z.string().url(),
-  media_type: z.string(),
+  media_type: z.string().optional(),
   download_dir: z.string().nullable().optional(),
   files: z.array(z.object({
     filename: z.string(),
     filepath: z.string(),
     type: z.string(),
-  })).default([]),
+  })).default([]).optional(),
   drive_folder: z.object({
     id: z.string(),
     name: z.string(),
@@ -57,7 +57,12 @@ const workerCompleteSchema = z.object({
     mime_type: z.string().nullable().optional(),
     url: z.string().url(),
     size: z.number().nullable().optional(),
-  })).default([]),
+  })).default([]).optional(),
+  transcript: z.string().optional(),
+  language: z.string().optional(),
+  status: z.string().optional(),
+  transcript_source: z.string().optional(),
+  selected_mode: z.string().optional(),
   error: z.string().nullable().optional(),
 });
 
