@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ExternalLink, Star, Trash2, Tag, Zap, Heart, Clock, Github, Archive, ArchiveRestore, Lightbulb, CheckCircle2, Quote, Users, BookOpen, MessageSquareText, ArrowUpCircle, MessagesSquare, Clapperboard, Download, FolderOpen } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ExternalLink, Star, Trash2, Tag, Zap, Heart, Clock, Github, Archive, ArchiveRestore, Lightbulb, CheckCircle2, Quote, Users, BookOpen, MessageSquareText, ArrowUpCircle, MessagesSquare, Clapperboard, Download, FolderOpen, RefreshCw } from 'lucide-react';
 import { LifeArea, Resource } from '@/lib/resources-api';
+import { retryInstagramDownloadForResource } from '@/lib/instagram-downloader-api';
 import ReactMarkdown from 'react-markdown';
 import { cn } from '@/lib/utils';
 import { ResponsiveModal, ResponsiveModalContent, ResponsiveModalHeader, ResponsiveModalTitle } from '@/components/ui/responsive-modal';
@@ -63,6 +64,14 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
   const { data: areas = [] } = useQuery({
     queryKey: ['lifeAreas'],
     queryFn: () => LifeArea.list(),
+  });
+
+  const retryInstagramMutation = useMutation({
+    mutationFn: () => retryInstagramDownloadForResource(resource.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['resources'] });
+      queryClient.invalidateQueries({ queryKey: ['instagram-downloader-status'] });
+    },
   });
 
   if (!resource) return null;
@@ -329,6 +338,19 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
                   <a href={resource.drive_folder_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
                     <FolderOpen className="h-3.5 w-3.5" /> Open Drive Folder
                   </a>
+                )}
+                {resource.download_status === 'failed' && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 gap-1 text-xs"
+                    onClick={() => retryInstagramMutation.mutate()}
+                    disabled={retryInstagramMutation.isPending}
+                  >
+                    <RefreshCw className={cn('h-3.5 w-3.5', retryInstagramMutation.isPending && 'animate-spin')} />
+                    Retry Download
+                  </Button>
                 )}
                 {resource.download_status && resource.download_status !== 'skipped' && (
                   <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">

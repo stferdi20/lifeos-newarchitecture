@@ -154,10 +154,14 @@ async def drive_request(
     )
 
     if not response.is_success:
-        raise InstagramDownloaderError(
-            f"Google Drive upload failed with status {response.status_code}.",
-            502,
-        )
+        details = response.text.strip()
+        if response.status_code == 403:
+            message = "Google Drive denied the upload (403). Reconnect Google Drive so LifeOS has full Drive access."
+        else:
+            message = f"Google Drive upload failed with status {response.status_code}."
+        if details:
+            message = f"{message} Details: {details[:240]}"
+        raise InstagramDownloaderError(message, 502)
 
     if not response.content:
         return {}

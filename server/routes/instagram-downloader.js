@@ -12,6 +12,7 @@ import {
   getInstagramDownloaderSettingsForUser,
   registerInstagramWorkerHeartbeat,
   requeueFailedInstagramJobs,
+  retryInstagramDownloadForResource,
   updateInstagramDownloaderSettingsForUser,
 } from '../services/instagram-download-queue.js';
 
@@ -96,6 +97,12 @@ instagramDownloaderRoutes.post('/retry-failed', async (c) => {
   const auth = await requireUser(c);
   const jobs = await requeueFailedInstagramJobs(auth.user.id);
   return c.json({ success: true, jobs });
+});
+
+instagramDownloaderRoutes.post('/resources/:resourceId/retry', async (c) => {
+  const auth = await requireUser(c);
+  const result = await retryInstagramDownloadForResource(auth.user.id, c.req.param('resourceId'));
+  return c.json({ success: true, ...result });
 });
 
 instagramDownloaderRoutes.post('/worker/heartbeat', zValidator('json', workerHeartbeatSchema), async (c) => {

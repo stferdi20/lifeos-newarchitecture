@@ -6,10 +6,10 @@ import { getServiceRoleClient } from '../lib/supabase.js';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 
 export const GOOGLE_SERVICE_SCOPES = {
-  drive: ['https://www.googleapis.com/auth/drive.file'],
+  drive: ['https://www.googleapis.com/auth/drive'],
   docs: [
     'https://www.googleapis.com/auth/documents',
-    'https://www.googleapis.com/auth/drive.file',
+    'https://www.googleapis.com/auth/drive',
   ],
   calendar: ['https://www.googleapis.com/auth/calendar'],
   tasks: ['https://www.googleapis.com/auth/tasks'],

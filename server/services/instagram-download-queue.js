@@ -299,6 +299,69 @@ export async function requeueFailedInstagramJobs(userId) {
   return rows;
 }
 
+export async function retryInstagramDownloadForResource(userId, resourceId) {
+  const resource = await getCompatEntity(userId, 'Resource', resourceId);
+  const resourceType = resource?.resource_type || '';
+  if (!['instagram_reel', 'instagram_carousel', 'instagram_post'].includes(resourceType)) {
+    throw new HttpError(400, 'This resource is not an Instagram download.');
+  }
+
+  const existing = await getAdmin()
+    .from('instagram_download_jobs')
+    .select('*')
+    .eq('owner_user_id', userId)
+    .eq('resource_id', resourceId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existing.error) throw new HttpError(500, existing.error.message);
+
+  const now = new Date().toISOString();
+  if (existing.data) {
+    const job = normalizeJob(existing.data);
+    if (job.status === 'processing' || job.status === 'queued') {
+      const updated = await updateInstagramResourceQueued(userId, resourceId, job.id);
+      return { resource: updated, job, queued: true };
+    }
+
+    const retried = await getAdmin()
+      .from('instagram_download_jobs')
+      .update({
+        status: 'queued',
+        last_error: null,
+        scheduled_for: now,
+        started_at: null,
+        completed_at: null,
+        worker_id: null,
+      })
+      .eq('id', job.id)
+      .select('*')
+      .single();
+
+    if (retried.error) throw new HttpError(500, retried.error.message);
+    const normalizedJob = normalizeJob(retried.data);
+    const updated = await updateCompatEntity(userId, 'Resource', resourceId, {
+      download_status: 'queued',
+      summary: buildQueuedSummary(),
+      ingestion_error: '',
+      downloader_job_id: normalizedJob.id,
+      downloader_updated_at: now,
+    });
+    return { resource: updated, job: normalizedJob, queued: true };
+  }
+
+  const newJob = await createInstagramDownloadJob(userId, {
+    resourceId,
+    url: resource.source_url || resource.url,
+    driveFolderId: resource.drive_folder_id || '',
+    projectId: '',
+    includeAnalysis: true,
+  });
+  const updated = await updateInstagramResourceQueued(userId, resourceId, newJob.id);
+  return { resource: updated, job: newJob, queued: true };
+}
+
 export async function getInstagramDownloaderStatusForUser(userId) {
   const env = getServerEnv();
   const settings = await getInstagramDownloaderSettingsForUser(userId);

@@ -8,6 +8,10 @@ export function retryFailedInstagramDownloads() {
   return apiPost('/instagram-downloader/retry-failed', {});
 }
 
+export function retryInstagramDownloadForResource(resourceId) {
+  return apiPost(`/instagram-downloader/resources/${resourceId}/retry`, {});
+}
+
 export function getInstagramDownloaderSettings() {
   return apiGet('/instagram-downloader/settings');
 }
