@@ -95,6 +95,10 @@ function summarizeText(value, sentenceCount = 2) {
   return splitSentences(value, sentenceCount).join(' ');
 }
 
+function countMatches(value, pattern) {
+  return (String(value || '').match(pattern) || []).length;
+}
+
 function pickActionablePoints(value) {
   const candidates = splitSentences(value, 12).filter((sentence) =>
     /(?:how to|step|try|use|build|create|start|improve|avoid|remember|learn|focus|watch|read|practice|implement)/i.test(sentence),
@@ -443,6 +447,49 @@ function extractMainText(document) {
   return candidates
     .map((candidate) => normalizeLongText(candidate?.textContent || '', 25000))
     .sort((a, b) => b.length - a.length)[0] || '';
+}
+
+function buildMetadataFallbackContent({ title = '', description = '', jsonLdSummary = '' }) {
+  return normalizeLongText(
+    [
+      title ? `Title: ${title}` : '',
+      description ? `Description: ${description}` : '',
+      jsonLdSummary ? `Structured data:\n${jsonLdSummary}` : '',
+    ].filter(Boolean).join('\n\n'),
+    12000,
+  );
+}
+
+function looksLikeLowQualityHtmlText(text = '') {
+  const normalized = stripText(text);
+  if (!normalized) return true;
+
+  const lower = normalized.toLowerCase();
+  const boilerplateSignals = [
+    /skip to main/,
+    /privacy policy/,
+    /terms of service/,
+    /cookie policy/,
+    /staff picks/,
+    /top posts/,
+    /trending categories/,
+    /create a group/,
+    /no posts found with the given criteria/,
+    /sign in|log in|sign up/,
+    /download app/,
+  ].filter((pattern) => pattern.test(lower)).length;
+
+  const camelCaseTransitions = countMatches(normalized, /[a-z][A-Z]/g);
+  const punctuationCount = countMatches(normalized, /[.!?]/g);
+  const sentenceLikeSegments = splitSentences(normalized, 20).length;
+  const repeatedPromo = countMatches(lower, /generate|preview|staff picks|top posts|trending|groups for you/gi);
+
+  if (boilerplateSignals >= 2) return true;
+  if (camelCaseTransitions >= 10 && punctuationCount <= 4) return true;
+  if (repeatedPromo >= 6 && punctuationCount <= 6) return true;
+  if (normalized.length > 700 && sentenceLikeSegments <= 2) return true;
+
+  return false;
 }
 
 function extractYoutubeVideoId(url) {
@@ -1095,6 +1142,9 @@ async function fetchPageSummary(inputUrl) {
     // keep partial metadata flow alive
   }
 
+  const metadataFallbackContent = buildMetadataFallbackContent({ title, description, jsonLdSummary });
+  const cleanedBodyText = looksLikeLowQualityHtmlText(bodyText) ? '' : bodyText;
+
   if (resourceType === 'youtube') {
     const youtube = await fetchYouTubeMetadata(canonicalUrl, html);
     return {
@@ -1189,8 +1239,8 @@ async function fetchPageSummary(inputUrl) {
     description,
     keywords,
     publishedDate,
-    content: bodyText,
-    contentSource: bodyText ? 'html_text' : 'metadata_only',
+    content: cleanedBodyText || metadataFallbackContent,
+    contentSource: cleanedBodyText ? 'html_text' : (metadataFallbackContent ? 'metadata_description' : 'metadata_only'),
     contentLanguage: '',
     resourceType,
     meta,
