@@ -112,14 +112,16 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
     },
   });
 
-  if (!resource) return null;
-  resource = resourceQuery.data || resource;
+  const resolvedResource = resourceQuery.data || resource;
 
   useEffect(() => {
-    setAreaId(resource?.area_id || '');
-    setIsArchived(resource?.is_archived || false);
-    setRating(resource?.user_rating || 0);
-  }, [resource?.area_id, resource?.is_archived, resource?.user_rating]);
+    setAreaId(resolvedResource?.area_id || '');
+    setIsArchived(resolvedResource?.is_archived || false);
+    setRating(resolvedResource?.user_rating || 0);
+  }, [resolvedResource?.area_id, resolvedResource?.is_archived, resolvedResource?.user_rating]);
+
+  if (!resolvedResource) return null;
+  resource = resolvedResource;
 
   const isGitHub = resource.resource_type === 'github_repo';
   const isYouTube = resource.resource_type === 'youtube';
