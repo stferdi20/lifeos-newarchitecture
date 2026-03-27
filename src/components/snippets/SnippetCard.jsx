@@ -11,6 +11,19 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 
+function snippetDisplayText(snippet) {
+  const primary = String(
+    snippet?.body_text
+    || snippet?.plain_text_preview
+    || snippet?.title
+    || (snippet?.snippet_type === 'image' ? 'Untitled image snippet' : 'Untitled snippet')
+  );
+  return primary
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean) || primary;
+}
+
 function formatRelativeCopy(snippet) {
   if (!snippet?.last_copied_at) return 'Never copied';
   const timestamp = Date.parse(snippet.last_copied_at);
@@ -35,6 +48,7 @@ export default function SnippetCard({
 }) {
   const isImage = snippet.snippet_type === 'image';
   const tagList = Array.isArray(snippet.tags) ? snippet.tags : [];
+  const displayText = snippetDisplayText(snippet);
 
   return (
     <Card className={cn(
@@ -49,7 +63,7 @@ export default function SnippetCard({
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
-                <h3 className="truncate text-base font-semibold text-foreground">{snippet.title}</h3>
+                <h3 className="truncate text-base font-semibold text-foreground">{displayText}</h3>
                 {snippet.is_favorite ? <Star className="h-4 w-4 fill-amber-300 text-amber-300" /> : null}
                 <Badge variant="secondary" className="border-white/10 bg-white/[0.06] text-xs capitalize text-foreground/80">
                   {snippet.snippet_type}
@@ -64,12 +78,12 @@ export default function SnippetCard({
               <p className="mt-2 whitespace-pre-wrap break-words text-sm text-muted-foreground">
                 {isImage
                   ? (snippet.plain_text_preview || 'Stored image snippet ready to copy or download.')
-                  : (snippet.body_text || snippet.plain_text_preview || 'Empty snippet')}
+                  : (snippet.body_text || snippet.plain_text_preview || snippet.title || 'Empty snippet')}
               </p>
 
               {isImage && snippet.image_url ? (
                 <div className="mt-3 overflow-hidden rounded-2xl border border-white/10 bg-black/20">
-                  <img src={snippet.image_url} alt={snippet.title} className="h-44 w-full object-cover" />
+                  <img src={snippet.image_url} alt={displayText} className="h-44 w-full object-cover" />
                 </div>
               ) : null}
 

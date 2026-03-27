@@ -17,6 +17,14 @@ Read this file before editing tracked files. The goal is to make multi-agent wor
 
 This repo covers the web app and backend. The native menubar app in the sibling `lifeos-menubar` folder is not part of this git repo, but this repo still owns backend contracts that the menubar consumes.
 
+## Cross-surface sync rule
+
+- If a change in this repo affects a feature that also exists in the menubar app, do not treat the webapp/backend change as isolated by default.
+- Check whether the native menubar flow, payload shape, caching strategy, copy behavior, or UX should also be updated so both surfaces stay connected and seamless.
+- If the counterpart should change, update it in the same task when possible.
+- If the counterpart change is risky or ambiguous, pause and confirm with the user instead of letting the two surfaces drift.
+- Apply the same reasoning in reverse when a menubar task implies webapp or backend support changes.
+
 ## Required start-of-task workflow
 
 Before making edits:

@@ -1,11 +1,12 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AppWindow, Copy, LayoutGrid, List, Plus, Scissors, Sparkles } from 'lucide-react';
+import { AppWindow, ClipboardPaste, LayoutGrid, List, Scissors, Sparkles, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { PageActionRow, PageHeader } from '@/components/layout/page-header';
 import { listBoardWorkspaces } from '@/lib/projects-api';
 import { Snippet, trackSnippetCopy } from '@/lib/snippets-api';
+import { uploadFileToManagedStorage } from '@/lib/storage-upload';
 import SnippetFilters from '@/components/snippets/SnippetFilters';
 import SnippetEditorDialog from '@/components/snippets/SnippetEditorDialog';
 import SnippetCard from '@/components/snippets/SnippetCard';
@@ -33,6 +34,16 @@ async function copyImageSnippet(snippet) {
   return 'url';
 }
 
+async function readImageDimensions(url) {
+  if (typeof window === 'undefined') return { width: null, height: null };
+  return new Promise((resolve) => {
+    const img = new window.Image();
+    img.onload = () => resolve({ width: img.naturalWidth || null, height: img.naturalHeight || null });
+    img.onerror = () => resolve({ width: null, height: null });
+    img.src = url;
+  });
+}
+
 export default function Snippets() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
@@ -43,6 +54,7 @@ export default function Snippets() {
   const [viewMode, setViewMode] = useState('grid');
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editingSnippet, setEditingSnippet] = useState(null);
+  const fileInputRef = useRef(null);
 
   const { data: snippets = [], isLoading } = useQuery({
     queryKey: ['snippets'],
@@ -150,7 +162,12 @@ export default function Snippets() {
 
   const copyMutation = useMutation({
     mutationFn: (snippetId) => trackSnippetCopy(snippetId),
-    onSuccess: () => invalidateSnippets(),
+    onSuccess: (updatedSnippet) => {
+      queryClient.setQueryData(['snippets'], (current = []) => (
+        current.map((snippet) => (snippet.id === updatedSnippet?.id ? { ...snippet, ...updatedSnippet } : snippet))
+      ));
+      invalidateSnippets();
+    },
   });
 
   const handleSave = async (payload) => {
@@ -193,9 +210,76 @@ export default function Snippets() {
     });
   };
 
-  const openCreateDialog = () => {
-    setEditingSnippet(null);
-    setIsEditorOpen(true);
+  const handleQuickPasteCreate = async () => {
+    try {
+      if (navigator.clipboard?.read) {
+        const items = await navigator.clipboard.read();
+        for (const item of items) {
+          const imageType = item.types.find((type) => type.startsWith('image/'));
+          if (!imageType) continue;
+          const blob = await item.getType(imageType);
+          const file = new File([blob], `snippet-${Date.now()}.${imageType.split('/').pop() || 'png'}`, { type: imageType });
+          await handleQuickCreateImage(file);
+          return;
+        }
+      }
+
+      const text = await navigator.clipboard.readText();
+      if (!text.trim()) {
+        toast.error('Clipboard is empty right now.');
+        return;
+      }
+
+      await createMutation.mutateAsync({
+        snippet_type: 'text',
+        title: '',
+        body_text: text,
+        tags: [],
+        workspace_id: null,
+        is_favorite: false,
+      });
+      toast.success('Snippet pasted and saved.');
+    } catch (error) {
+      toast.error(error?.message || 'Clipboard is not available.');
+    }
+  };
+
+  const handleQuickCreateImage = async (file) => {
+    try {
+      if (!String(file?.type || '').startsWith('image/')) {
+        toast.error('Only image files can be used for image snippets.');
+        return;
+      }
+
+      const upload = await uploadFileToManagedStorage({
+        file,
+        pathPrefix: 'snippets',
+        entityId: 'library',
+      });
+      const dimensions = await readImageDimensions(upload.signedUrl);
+
+      await createMutation.mutateAsync({
+        snippet_type: 'image',
+        title: '',
+        body_text: null,
+        image_url: upload.signedUrl,
+        storage_bucket: upload.bucket,
+        storage_path: upload.path,
+        mime_type: file.type || 'image/png',
+        width: dimensions.width,
+        height: dimensions.height,
+        tags: [],
+        workspace_id: null,
+        is_favorite: false,
+      });
+      toast.success('Image snippet saved.');
+    } catch (error) {
+      toast.error(error?.message || 'Failed to save image snippet.');
+    }
+  };
+
+  const handleQuickUploadImage = () => {
+    fileInputRef.current?.click();
   };
 
   return (
@@ -210,29 +294,26 @@ export default function Snippets() {
               {viewMode === 'grid' ? <List className="h-4 w-4" /> : <LayoutGrid className="h-4 w-4" />}
               {viewMode === 'grid' ? 'List view' : 'Grid view'}
             </Button>
-            <Button type="button" variant="outline" className="gap-2 border-white/10 bg-transparent" onClick={async () => {
-              try {
-                const text = await navigator.clipboard.readText();
-                setEditingSnippet({
-                  title: text.trim().slice(0, 48) || 'Clipboard snippet',
-                  snippet_type: 'text',
-                  body_text: text,
-                  tags: [],
-                  workspace_id: null,
-                  is_favorite: false,
-                });
-                setIsEditorOpen(true);
-              } catch (error) {
-                toast.error(error?.message || 'Clipboard text is not available.');
-              }
-            }}>
-              <Copy className="h-4 w-4" />
-              Paste clipboard
+            <Button type="button" className="gap-2" onClick={handleQuickPasteCreate}>
+              <ClipboardPaste className="h-4 w-4" />
+              Paste snippet
             </Button>
-            <Button type="button" className="gap-2" onClick={openCreateDialog}>
-              <Plus className="h-4 w-4" />
-              New snippet
+            <Button type="button" variant="outline" className="gap-2 border-white/10 bg-transparent" onClick={handleQuickUploadImage}>
+              <Upload className="h-4 w-4" />
+              Upload image
             </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (!file) return;
+                handleQuickCreateImage(file);
+                event.target.value = '';
+              }}
+            />
           </PageActionRow>
         )}
       />
@@ -266,7 +347,7 @@ export default function Snippets() {
               <Sparkles className="h-5 w-5 text-amber-300" />
             </div>
             <div className="space-y-3 text-sm text-muted-foreground">
-              <p>Primary copy action uses text content for text snippets and binary image copy for image snippets when the browser supports it.</p>
+              <p>The big paste action creates a text or image snippet instantly from your clipboard, without opening a creation form first.</p>
               <p>Press `/` anywhere on the page to jump into search.</p>
               <div className="flex items-center gap-2 text-foreground/70">
                 <AppWindow className="h-4 w-4" />
@@ -285,9 +366,9 @@ export default function Snippets() {
         <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.02] p-10 text-center">
           <h2 className="text-lg font-semibold">No snippets yet</h2>
           <p className="mt-2 text-sm text-muted-foreground">Create a text or image snippet and it will show up here for quick copying.</p>
-          <Button className="mt-4 gap-2" onClick={openCreateDialog}>
-            <Plus className="h-4 w-4" />
-            Create your first snippet
+          <Button className="mt-4 gap-2" onClick={handleQuickPasteCreate}>
+            <ClipboardPaste className="h-4 w-4" />
+            Paste your first snippet
           </Button>
         </div>
       ) : (

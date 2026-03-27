@@ -213,13 +213,12 @@ export default function SnippetEditorDialog({
         <form className="space-y-4" onSubmit={handleSubmit}>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <label className="text-sm font-medium">Title</label>
+              <label className="text-sm font-medium">Optional title</label>
               <Input
                 value={form.title}
                 onChange={(event) => setField('title', event.target.value)}
-                placeholder="Snippet title"
+                placeholder="Leave blank to use snippet preview"
                 className="border-white/10 bg-white/[0.04]"
-                required
               />
             </div>
 

@@ -10,6 +10,7 @@ This guide is the day-to-day playbook for working in the LifeOS webapp/backend r
 4. Check whether the task touches any high-risk areas in `docs/CHANGE_SAFETY_MAP.md`.
 5. If the task can affect menubar-consumed routes or shared contracts, read `docs/MENUBAR_COMPATIBILITY.md`.
 6. Decide the minimum validation needed for this task before you start coding.
+7. If the feature exists on both webapp and menubar, decide up front whether both surfaces should be updated together.
 
 ## How to claim scope and avoid stepping on other agents
 
@@ -31,8 +32,18 @@ Stop and ask when:
 
 - the same file has conflicting in-progress work you cannot safely preserve
 - the task implies a behavior or contract decision with non-obvious downstream impact
+- the task changes a cross-surface feature and it is unclear whether the webapp and menubar should keep identical behavior
 - you would need to change auth, route shape, migration semantics, or compatibility behavior without a clear source of truth
 - validation is blocked in a way that materially weakens confidence and there is no good fallback
+
+## Cross-surface default
+
+When a feature exists in both the webapp and the menubar:
+
+- assume the desired outcome is a seamless shared behavior, not two independent implementations
+- check whether UX, caching, create/edit flows, validation, and backend payload handling should stay aligned
+- update both surfaces in the same task when the change is straightforward
+- if only one surface changes, explicitly justify why the other surface was left alone
 
 ## Documentation and guidance checkpoint
 

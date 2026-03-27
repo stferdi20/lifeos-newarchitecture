@@ -14,7 +14,7 @@ import {
 const snippetRoutes = new Hono();
 
 const baseSnippetSchema = z.object({
-  title: z.string().trim().min(1).max(160),
+  title: z.string().trim().max(160).optional().nullable(),
   snippet_type: z.enum(['text', 'image']),
   body_text: z.string().nullable().optional(),
   plain_text_preview: z.string().nullable().optional(),
@@ -113,6 +113,7 @@ function normalizeSnippetPayload(payload = {}, existing = null) {
   if (snippetType === 'text') {
     return {
       ...base,
+      title,
       body_text: normalizedBodyText,
       plain_text_preview: payload.plain_text_preview ?? buildPlainTextPreview(normalizedBodyText || ''),
       image_url: null,
@@ -126,6 +127,7 @@ function normalizeSnippetPayload(payload = {}, existing = null) {
 
   return {
     ...base,
+    title,
     body_text: normalizedBodyText,
     plain_text_preview: payload.plain_text_preview ?? buildPlainTextPreview(normalizedBodyText || title),
     image_url: imageUrl,
