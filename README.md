@@ -56,11 +56,15 @@ Backend:
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
 APP_ORIGIN=
+OPENROUTER_API_KEY=
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_MODEL_CHEAP=qwen/qwen-2.5-7b-instruct
+OPENROUTER_MODEL_STANDARD=mistralai/mistral-small-3.2-24b-instruct
+OPENROUTER_MODEL_PREMIUM=anthropic/claude-3.7-sonnet
 GOOGLE_GEMINI_API_KEY=
 GOOGLE_GEMINI_MODEL_CHEAP=gemini-2.5-flash-lite
 GOOGLE_GEMINI_MODEL_STANDARD=gemini-2.5-flash
 GOOGLE_GEMINI_MODEL_PREMIUM=gemini-2.5-pro
-OPENROUTER_API_KEY=
 HUGGINGFACE_API_KEY=
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
@@ -72,6 +76,8 @@ INSTAGRAM_DOWNLOADER_SHARED_SECRET=
 INSTAGRAM_DOWNLOADER_TIMEOUT_MS=120000
 INSTAGRAM_DOWNLOADER_STATUS_STALE_MS=90000
 ```
+
+OpenRouter is the primary backend LLM provider for resource enrichment. Gemini and Hugging Face remain available as fallbacks when their keys are configured.
 
 ## Instagram Downloader
 

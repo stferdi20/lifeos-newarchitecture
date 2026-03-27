@@ -14,7 +14,7 @@ Make sure these are ready first:
 2. Your SQL migrations have been run.
 3. Your `uploads` bucket exists.
 4. Your Google OAuth app exists.
-5. Your Gemini key is working.
+5. Your OpenRouter key is working.
 
 ## Vercel Env Vars
 
@@ -30,6 +30,12 @@ SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
 SUPABASE_STORAGE_BUCKET_UPLOADS=uploads
 APP_ORIGIN=
+
+OPENROUTER_API_KEY=
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_MODEL_CHEAP=qwen/qwen-2.5-7b-instruct
+OPENROUTER_MODEL_STANDARD=mistralai/mistral-small-3.2-24b-instruct
+OPENROUTER_MODEL_PREMIUM=anthropic/claude-3.7-sonnet
 
 GOOGLE_GEMINI_API_KEY=
 GOOGLE_GEMINI_MODEL_CHEAP=gemini-2.5-flash-lite
@@ -67,7 +73,7 @@ These integrations are already proxied through your backend, so the browser stil
 - Yahoo Finance stock search and quotes
 - CoinGecko crypto search and FX helper calls
 - Pokemon TCG, YGOProDeck, Scryfall, and OptCG lookups
-- Gemini, Google Calendar, Google Docs, and Google Tasks
+- OpenRouter, Gemini, Google Calendar, Google Docs, and Google Tasks
 
 ## Google OAuth Setup
 
@@ -95,7 +101,7 @@ After deploy, check these in order:
 4. Open `Projects`
 5. Open `Calendar`
 6. Test `Connect Google`
-7. Test one Gemini-powered action
+7. Test one AI-powered action such as resource enrichment
 8. Test one file upload
 
 ## Good Defaults
@@ -103,6 +109,7 @@ After deploy, check these in order:
 - Keep the frontend using `/api`
 - Keep the API on Vercel Functions
 - Keep all LLM calls on the backend
+- Keep OpenRouter as the primary provider for resource enrichment, with Gemini as fallback
 - Keep Supabase as the only database/auth source
 
 ## If Something Fails
@@ -110,5 +117,5 @@ After deploy, check these in order:
 - `401` or empty data: check `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
 - Google connect fails: check `APP_ORIGIN` and `GOOGLE_OAUTH_REDIRECT_URI` in both Vercel and Google Cloud
 - uploads fail: make sure the `uploads` bucket exists
-- AI fails: check `GOOGLE_GEMINI_API_KEY`
+- AI fails: check `OPENROUTER_API_KEY` first, then `OPENROUTER_MODEL_CHEAP` and `OPENROUTER_MODEL_STANDARD`; if fallback is expected, also check `GOOGLE_GEMINI_API_KEY`
 - finance or TCG lookup fails: check Vercel function logs for upstream timeout or provider outage

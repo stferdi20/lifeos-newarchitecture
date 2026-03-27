@@ -245,8 +245,8 @@ async function routeRaw({
   const attemptedProviders = [];
 
   const providers = [];
-  if (env.GOOGLE_GEMINI_API_KEY) providers.push('gemini');
   if (env.OPENROUTER_API_KEY) providers.push('openrouter');
+  if (env.GOOGLE_GEMINI_API_KEY) providers.push('gemini');
   if (env.HUGGINGFACE_API_KEY) providers.push('huggingface');
 
   if (!providers.length) {
