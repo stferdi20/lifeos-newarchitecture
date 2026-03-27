@@ -4,7 +4,7 @@ import { HttpError } from './http.js';
 
 const TASK_POLICIES = {
   'calendar.parse': { tier: 'standard', temperature: 0.2, maxTokens: 900 },
-  'resource.analyze': { tier: 'standard', temperature: 0.2, maxTokens: 1600 },
+  'resource.analyze': { tier: 'standard', temperature: 0, maxTokens: 1600 },
   'resource.tags': { tier: 'cheap', temperature: 0.1, maxTokens: 400 },
   'card.subtasks': { tier: 'standard', temperature: 0.2, maxTokens: 700 },
   'card.description': { tier: 'standard', temperature: 0.2, maxTokens: 900 },

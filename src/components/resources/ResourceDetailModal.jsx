@@ -276,6 +276,15 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
             )}
           </div>
 
+          {resource.enrichment_warning && (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+                <p>{resource.enrichment_warning}</p>
+              </div>
+            </div>
+          )}
+
           {/* Area + Archive */}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <Select value={areaId || resource.area_id || ''} onValueChange={handleAreaChange}>

@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import {
   Youtube, MessageSquare, Newspaper, GraduationCap, FileText, Globe, FileDown,
-  ExternalLink, Star, Github, CheckSquare, Archive, ArchiveRestore, Clapperboard, Trash2, FolderOpen
+  ExternalLink, Star, Github, CheckSquare, Archive, ArchiveRestore, Clapperboard, Trash2, FolderOpen, AlertTriangle
 } from 'lucide-react';
 
 const typeConfig = {
@@ -287,6 +287,15 @@ export default function ResourceCard({
             </p>
             <p className="mt-1.5 text-[11px] leading-relaxed text-foreground/80 line-clamp-2">
               {previewItem.text}
+            </p>
+          </div>
+        )}
+
+        {resource.enrichment_warning && (
+          <div className="mt-3 flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300" />
+            <p className="text-[11px] leading-relaxed text-amber-100/90 line-clamp-2">
+              {resource.enrichment_warning}
             </p>
           </div>
         )}

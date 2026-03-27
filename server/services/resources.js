@@ -2010,7 +2010,7 @@ async function classifyAreaFromContent({ extracted, mergedData, areas, userId })
       prompt,
       schema: areaClassificationSchema,
       userId,
-      policy: { tier: 'cheap', temperature: 0.1, maxTokens: 120 },
+      policy: { tier: 'cheap', temperature: 0, maxTokens: 120 },
       metadata: {
         requestSummary: `resource-area:${extracted.canonicalUrl || extracted.title || 'resource'}`,
       },
@@ -2043,8 +2043,79 @@ function isDetailModalReady(result, extracted) {
   return hasCoreFraming(result) && getStructuredSectionCount(result) >= 2;
 }
 
+function getRichSectionCount(result) {
+  return [
+    normalizeStringArray(result.key_points, 6).length > 0,
+    normalizeStringArray(result.actionable_points, 5).length > 0,
+    normalizeStringArray(result.use_cases, 5).length > 0,
+    normalizeStringArray(result.learning_outcomes, 4).length > 0,
+  ].filter(Boolean).length;
+}
+
+function getExtractionStrength(extracted) {
+  const contentSource = String(extracted.contentSource || '');
+  const contentLength = String(extracted.content || '').length;
+
+  if (!contentLength || contentSource === 'metadata_only') return 'weak';
+
+  switch (extracted.resourceType) {
+    case 'youtube':
+      if (contentSource === 'youtube_transcript') return 'strong';
+      if (contentSource === 'youtube_description') return 'degraded';
+      return 'weak';
+    case 'instagram_reel':
+    case 'instagram_carousel':
+      if (contentSource === 'instagram_caption_transcript') return 'strong';
+      if (contentSource === 'instagram_caption') return 'degraded';
+      return 'weak';
+    case 'reddit':
+      if (contentSource === 'reddit_thread') return 'strong';
+      if (contentSource === 'html_text') return 'degraded';
+      return 'weak';
+    case 'github_repo':
+      if (contentSource === 'github_readme') return 'strong';
+      if (contentSource === 'html_text' || contentSource === 'structured_content') return 'degraded';
+      return 'weak';
+    case 'research_paper':
+      if (contentSource === 'research_metadata') return 'strong';
+      if (contentSource === 'html_text' || contentSource === 'structured_content') return 'degraded';
+      return 'weak';
+    case 'pdf':
+      if (contentSource === 'pdf_text') return 'strong';
+      if (contentSource === 'structured_content') return 'degraded';
+      return 'weak';
+    case 'article':
+    case 'website':
+      if (contentSource === 'html_text') return 'strong';
+      if (contentSource === 'structured_content') return 'degraded';
+      return 'weak';
+    default:
+      if (contentLength >= 1800) return 'strong';
+      if (contentLength >= 400) return 'degraded';
+      return 'weak';
+  }
+}
+
+function isRichEnrichment(result, extracted) {
+  const hasSummary = Boolean(stripText(result.summary));
+  const commentTakeaways = normalizeStringArray(result.reddit_top_comment_summaries, 5).length;
+
+  if (extracted.resourceType === 'reddit') {
+    return hasCoreFraming(result) && (getStructuredSectionCount(result) >= 1 || commentTakeaways > 0);
+  }
+
+  return hasSummary && hasCoreFraming(result) && getRichSectionCount(result) >= 2;
+}
+
 function shouldRepairAnalysis(result, extracted) {
-  return isContentRichExtraction(extracted) && !isDetailModalReady(result, extracted);
+  const extractionStrength = getExtractionStrength(extracted);
+  if (extracted.resourceType === 'reddit') {
+    return isContentRichExtraction(extracted) && !isRichEnrichment(result, extracted);
+  }
+  if (extractionStrength !== 'strong') {
+    return !isRichEnrichment(result, extracted);
+  }
+  return isContentRichExtraction(extracted) && !isRichEnrichment(result, extracted);
 }
 
 function classifySpecificAreaHeuristically({ extracted, mergedData, areas }) {
@@ -2083,12 +2154,83 @@ function classifySpecificAreaHeuristically({ extracted, mergedData, areas }) {
 
 function getEnrichmentStatus(result, extracted) {
   const contentLength = String(extracted.content || '').length;
-  const structuredSections = getStructuredSectionCount(result);
+  const structuredSections = getRichSectionCount(result);
   const hasCommentTakeaways = normalizeStringArray(result.reddit_top_comment_summaries, 5).length > 0;
   if (!contentLength) return 'metadata_only';
-  if (structuredSections >= 2 && hasCoreFraming(result)) return 'rich';
+  if (isRichEnrichment(result, extracted)) return 'rich';
   if (structuredSections >= 1 || hasCoreFraming(result) || hasCommentTakeaways) return 'partial';
   return 'sparse';
+}
+
+function buildEnrichmentWarning(mergedData, extracted) {
+  const isRich = isRichEnrichment(mergedData, extracted);
+  if (isRich) return '';
+
+  switch (extracted.resourceType) {
+    case 'youtube':
+      if (extracted.contentSource === 'metadata_only') {
+        return 'Saved with limited YouTube metadata only. A transcript or detailed description was unavailable, so this enrichment may be incomplete.';
+      }
+      if (extracted.contentSource === 'youtube_description') {
+        return 'Saved using the YouTube description because a transcript was unavailable. Rich sections may be incomplete.';
+      }
+      return 'Saved from YouTube content, but the enrichment is still incomplete. Review the result before relying on it.';
+    case 'instagram_reel':
+    case 'instagram_carousel':
+      if (extracted.contentSource === 'instagram_caption_transcript') {
+        return 'Saved from Instagram content, but the enrichment is still incomplete. Review the result before relying on it.';
+      }
+      if (extracted.contentSource === 'instagram_caption') {
+        return 'Saved using Instagram caption and media metadata because a transcript was unavailable. Rich sections may be incomplete.';
+      }
+      return 'Saved with limited Instagram metadata only. Caption or transcript extraction was unavailable.';
+    case 'article':
+    case 'website':
+      if (extracted.contentSource === 'html_text') {
+        return 'Saved from page text, but the enrichment is still incomplete. Review the result before relying on it.';
+      }
+      if (extracted.contentSource === 'structured_content') {
+        return 'Saved using partial structured page content because full page text extraction was limited. Rich sections may be incomplete.';
+      }
+      return 'Saved using metadata because full page extraction was unavailable. Rich sections may be incomplete.';
+    case 'github_repo':
+      if (extracted.contentSource === 'github_readme') {
+        return 'Saved from repository content, but the enrichment is still incomplete. Review the result before relying on it.';
+      }
+      if (extracted.contentSource === 'html_text' || extracted.contentSource === 'structured_content') {
+        return 'Saved without a strong GitHub README extraction. Repository metadata or partial page content was used instead.';
+      }
+      return 'Saved using repository metadata only because README extraction was unavailable.';
+    case 'research_paper':
+      if (extracted.contentSource === 'research_metadata') {
+        return 'Saved from research metadata, but the enrichment is still incomplete. Review the result before relying on it.';
+      }
+      if (extracted.contentSource === 'html_text' || extracted.contentSource === 'structured_content') {
+        return 'Saved using partial paper content because full research extraction was limited. Rich sections may be incomplete.';
+      }
+      return 'Saved using paper metadata only because stronger research extraction was unavailable.';
+    case 'pdf':
+      if (extracted.contentSource === 'pdf_text') {
+        return 'Saved from PDF text, but the enrichment is still incomplete. Review the result before relying on it.';
+      }
+      if (extracted.contentSource === 'structured_content') {
+        return 'Saved using structured PDF metadata because direct PDF text extraction was limited. Rich sections may be incomplete.';
+      }
+      return 'Saved using PDF metadata only because text extraction was unavailable.';
+    case 'reddit':
+      if (extracted.contentSource === 'reddit_thread') {
+        return 'Saved from Reddit thread content, but the enrichment is still incomplete. Review the result before relying on it.';
+      }
+      if (extracted.contentSource === 'html_text') {
+        return 'Saved using partial Reddit page text because structured thread extraction was limited. Rich sections may be incomplete.';
+      }
+      return 'Saved using limited Reddit metadata because stronger thread extraction was unavailable.';
+    default:
+      if (extracted.contentSource === 'html_text' || extracted.contentSource === 'structured_content') {
+        return 'Saved from partial extracted content, but the enrichment is still incomplete. Review the result before relying on it.';
+      }
+      return 'Saved using limited metadata because stronger extraction was unavailable.';
+  }
 }
 
 function resolveAreaAssignment(resultAreaName, areas, mergedData, extracted) {
@@ -2144,6 +2286,7 @@ function buildAnalysisPayload({ mergedData, extracted, areaAssignment }) {
   const researchPaperData = extracted.researchPaperData;
   const pdfData = extracted.pdfData;
   const siteName = stripText(extracted.meta?.['og:site_name'] || extracted.jsonLdMetadata?.siteName || '');
+  const enrichmentWarning = buildEnrichmentWarning(mergedData, extracted);
 
   return {
     ...mergedData,
@@ -2154,6 +2297,7 @@ function buildAnalysisPayload({ mergedData, extracted, areaAssignment }) {
     area_name: areaAssignment.area_name,
     area_needs_review: areaAssignment.area_needs_review,
     enrichment_status: getEnrichmentStatus(mergedData, extracted),
+    enrichment_warning: enrichmentWarning,
     analysis_version: ANALYSIS_VERSION,
     content_source: extracted.contentSource,
     content_language: extracted.contentLanguage || '',
@@ -2322,7 +2466,7 @@ export async function analyzeResource({ url, title = '', content = '', userId = 
       prompt,
       schema: resourceSchema,
       userId,
-      groundWithGoogleSearch: true,
+      groundWithGoogleSearch: false,
       metadata: {
         requestSummary: `resource:${normalizedInputUrl}`,
       },
@@ -2355,7 +2499,7 @@ export async function analyzeResource({ url, title = '', content = '', userId = 
         ].join('\n'),
         schema: resourceSchema,
         userId,
-        groundWithGoogleSearch: true,
+        groundWithGoogleSearch: false,
         metadata: {
           requestSummary: `resource-repair:${normalizedInputUrl}`,
         },
@@ -2514,6 +2658,7 @@ function preserveStrongerExistingData(resource, analyzedData) {
     nextData.content_source = resource.content_source || nextData.content_source || '';
     nextData.content_language = resource.content_language || nextData.content_language || '';
     nextData.enrichment_status = resource.enrichment_status || nextData.enrichment_status || '';
+    nextData.enrichment_warning = resource.enrichment_warning || nextData.enrichment_warning || '';
   }
 
   if (existingHasArea && !existingIsKnowledge && nextIsWeak) {
