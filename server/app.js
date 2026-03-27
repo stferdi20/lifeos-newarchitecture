@@ -9,6 +9,7 @@ import listRoutes from './routes/lists.js';
 import cardRoutes from './routes/cards.js';
 import taskRoutes from './routes/tasks.js';
 import resourceRoutes from './routes/resources.js';
+import snippetRoutes from './routes/snippets.js';
 import lifeAreaRoutes from './routes/life-areas.js';
 import projectResourceRoutes from './routes/project-resources.js';
 import cardResourceRoutes from './routes/card-resources.js';
@@ -50,6 +51,7 @@ function registerApiRoutes(app) {
   app.route('/cards', cardRoutes);
   app.route('/tasks', taskRoutes);
   app.route('/resources', resourceRoutes);
+  app.route('/snippets', snippetRoutes);
   app.route('/life-areas', lifeAreaRoutes);
   app.route('/project-resources', projectResourceRoutes);
   app.route('/card-resources', cardResourceRoutes);

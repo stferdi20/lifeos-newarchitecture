@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, FolderKanban, CheckSquare, Newspaper, Film, TrendingUp, Network, CalendarDays, ChevronLeft, ChevronRight, Users, Wand2, Library, X, Settings } from 'lucide-react';
+import { LayoutDashboard, FolderKanban, CheckSquare, Newspaper, Film, TrendingUp, Network, CalendarDays, ChevronLeft, ChevronRight, Users, Wand2, Library, X, Settings, Scissors } from 'lucide-react';
 import { createPageUrl } from '@/utils';
 import { cn } from '@/lib/utils';
 
@@ -11,6 +11,7 @@ const navItems = [
   { page: 'Tasks', label: 'Tasks', icon: CheckSquare },
   { page: 'Habits', label: 'Habits', icon: CheckSquare },
   { page: 'Resources', label: 'Resources', icon: Library },
+  { page: 'Snippets', label: 'Snippets', icon: Scissors },
   { page: 'KnowledgeGraph', label: 'Knowledge', icon: Network },
   { page: 'Media', label: 'Media', icon: Film },
   { page: 'CreatorVault', label: 'Creator Vault', icon: Users },

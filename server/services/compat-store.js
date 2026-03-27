@@ -5,6 +5,7 @@ export const GENERIC_COMPAT_ENTITIES = new Set([
   'Habit',
   'HabitLog',
   'Resource',
+  'Snippet',
   'LifeArea',
   'ProjectResource',
   'CardResource',

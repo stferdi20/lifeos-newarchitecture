@@ -1,0 +1,323 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AppWindow, Copy, LayoutGrid, List, Plus, Scissors, Sparkles } from 'lucide-react';
+import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
+import { PageActionRow, PageHeader } from '@/components/layout/page-header';
+import { listBoardWorkspaces } from '@/lib/projects-api';
+import { Snippet, trackSnippetCopy } from '@/lib/snippets-api';
+import SnippetFilters from '@/components/snippets/SnippetFilters';
+import SnippetEditorDialog from '@/components/snippets/SnippetEditorDialog';
+import SnippetCard from '@/components/snippets/SnippetCard';
+
+async function copyImageSnippet(snippet) {
+  if (!snippet?.image_url) {
+    throw new Error('This image snippet does not have a usable image URL.');
+  }
+
+  if (typeof window === 'undefined' || !navigator?.clipboard) {
+    throw new Error('Clipboard access is not available in this browser.');
+  }
+
+  if (typeof navigator.clipboard.write === 'function' && typeof window.ClipboardItem !== 'undefined') {
+    const response = await fetch(snippet.image_url);
+    if (!response.ok) {
+      throw new Error('Could not load the image to copy.');
+    }
+    const blob = await response.blob();
+    await navigator.clipboard.write([new window.ClipboardItem({ [blob.type || snippet.mime_type || 'image/png']: blob })]);
+    return 'image';
+  }
+
+  await navigator.clipboard.writeText(snippet.image_url);
+  return 'url';
+}
+
+export default function Snippets() {
+  const queryClient = useQueryClient();
+  const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [favoriteFilter, setFavoriteFilter] = useState('all');
+  const [workspaceFilter, setWorkspaceFilter] = useState('all');
+  const [sortOrder, setSortOrder] = useState('-last_copied_at');
+  const [viewMode, setViewMode] = useState('grid');
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [editingSnippet, setEditingSnippet] = useState(null);
+
+  const { data: snippets = [], isLoading } = useQuery({
+    queryKey: ['snippets'],
+    queryFn: () => Snippet.list('-updated_date', 500),
+  });
+
+  const { data: workspaces = [] } = useQuery({
+    queryKey: ['snippet-workspaces'],
+    queryFn: () => listBoardWorkspaces(),
+  });
+
+  const workspaceNameById = useMemo(
+    () => new Map(workspaces.map((workspace) => [workspace.id, workspace.name || workspace.title || 'Untitled workspace'])),
+    [workspaces],
+  );
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.key === '/' && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        const activeTag = document.activeElement?.tagName?.toLowerCase();
+        if (activeTag === 'input' || activeTag === 'textarea') return;
+        event.preventDefault();
+        document.getElementById('snippet-search-input')?.focus();
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  const filteredSnippets = useMemo(() => {
+    const searchTerms = search.toLowerCase().trim().split(/\s+/).filter(Boolean);
+    const filtered = snippets.filter((snippet) => {
+      if (typeFilter !== 'all' && snippet.snippet_type !== typeFilter) return false;
+      if (favoriteFilter === 'favorites' && !snippet.is_favorite) return false;
+      if (workspaceFilter === 'none' && snippet.workspace_id) return false;
+      if (workspaceFilter !== 'all' && workspaceFilter !== 'none' && snippet.workspace_id !== workspaceFilter) return false;
+
+      if (!searchTerms.length) return true;
+
+      const haystack = [
+        snippet.title,
+        snippet.body_text,
+        snippet.plain_text_preview,
+        ...(Array.isArray(snippet.tags) ? snippet.tags : []),
+      ].filter(Boolean).join(' ').toLowerCase();
+
+      return searchTerms.every((term) => haystack.includes(term));
+    });
+
+    return [...filtered].sort((left, right) => {
+      if (sortOrder === 'title') {
+        return String(left.title || '').localeCompare(String(right.title || ''));
+      }
+
+      const field = sortOrder.replace(/^-/, '');
+      const descending = sortOrder.startsWith('-');
+      const leftValue = left?.[field] ?? null;
+      const rightValue = right?.[field] ?? null;
+
+      const leftTimestamp = leftValue ? Date.parse(leftValue) : Number.NaN;
+      const rightTimestamp = rightValue ? Date.parse(rightValue) : Number.NaN;
+      let compared = 0;
+
+      if (Number.isFinite(leftTimestamp) && Number.isFinite(rightTimestamp)) {
+        compared = leftTimestamp - rightTimestamp;
+      } else if (typeof leftValue === 'number' && typeof rightValue === 'number') {
+        compared = leftValue - rightValue;
+      } else {
+        compared = String(leftValue || '').localeCompare(String(rightValue || ''));
+      }
+
+      return descending ? -compared : compared;
+    });
+  }, [favoriteFilter, search, snippets, sortOrder, typeFilter, workspaceFilter]);
+
+  const invalidateSnippets = () => queryClient.invalidateQueries({ queryKey: ['snippets'] });
+
+  const createMutation = useMutation({
+    mutationFn: (payload) => Snippet.create(payload),
+    onSuccess: () => {
+      invalidateSnippets();
+      toast.success('Snippet created.');
+    },
+    onError: (error) => toast.error(error?.message || 'Failed to create snippet.'),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, payload }) => Snippet.update(id, payload),
+    onSuccess: () => {
+      invalidateSnippets();
+      toast.success('Snippet updated.');
+    },
+    onError: (error) => toast.error(error?.message || 'Failed to update snippet.'),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (snippetId) => Snippet.delete(snippetId),
+    onSuccess: () => {
+      invalidateSnippets();
+      toast.success('Snippet deleted.');
+    },
+    onError: (error) => toast.error(error?.message || 'Failed to delete snippet.'),
+  });
+
+  const copyMutation = useMutation({
+    mutationFn: (snippetId) => trackSnippetCopy(snippetId),
+    onSuccess: () => invalidateSnippets(),
+  });
+
+  const handleSave = async (payload) => {
+    if (editingSnippet?.id) {
+      await updateMutation.mutateAsync({ id: editingSnippet.id, payload });
+    } else {
+      await createMutation.mutateAsync(payload);
+    }
+  };
+
+  const handleCopy = async (snippet) => {
+    try {
+      if (snippet.snippet_type === 'image') {
+        const mode = await copyImageSnippet(snippet);
+        toast.success(mode === 'image' ? 'Image copied to clipboard.' : 'Image link copied to clipboard.');
+      } else {
+        await navigator.clipboard.writeText(snippet.body_text || '');
+        toast.success('Snippet copied to clipboard.');
+      }
+      copyMutation.mutate(snippet.id);
+    } catch (error) {
+      toast.error(error?.message || 'Failed to copy snippet.');
+    }
+  };
+
+  const handleCopySecondary = async (snippet) => {
+    try {
+      await navigator.clipboard.writeText(snippet.image_url || '');
+      toast.success('Image link copied to clipboard.');
+      copyMutation.mutate(snippet.id);
+    } catch (error) {
+      toast.error(error?.message || 'Failed to copy image link.');
+    }
+  };
+
+  const handleToggleFavorite = async (snippet) => {
+    await updateMutation.mutateAsync({
+      id: snippet.id,
+      payload: { is_favorite: !snippet.is_favorite },
+    });
+  };
+
+  const openCreateDialog = () => {
+    setEditingSnippet(null);
+    setIsEditorOpen(true);
+  };
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        icon={Scissors}
+        title="Snippets"
+        description="A fast personal library for reusable text and image snippets across the webapp and menubar."
+        actions={(
+          <PageActionRow>
+            <Button type="button" variant="outline" className="gap-2 border-white/10 bg-transparent" onClick={() => setViewMode((current) => current === 'grid' ? 'list' : 'grid')}>
+              {viewMode === 'grid' ? <List className="h-4 w-4" /> : <LayoutGrid className="h-4 w-4" />}
+              {viewMode === 'grid' ? 'List view' : 'Grid view'}
+            </Button>
+            <Button type="button" variant="outline" className="gap-2 border-white/10 bg-transparent" onClick={async () => {
+              try {
+                const text = await navigator.clipboard.readText();
+                setEditingSnippet({
+                  title: text.trim().slice(0, 48) || 'Clipboard snippet',
+                  snippet_type: 'text',
+                  body_text: text,
+                  tags: [],
+                  workspace_id: null,
+                  is_favorite: false,
+                });
+                setIsEditorOpen(true);
+              } catch (error) {
+                toast.error(error?.message || 'Clipboard text is not available.');
+              }
+            }}>
+              <Copy className="h-4 w-4" />
+              Paste clipboard
+            </Button>
+            <Button type="button" className="gap-2" onClick={openCreateDialog}>
+              <Plus className="h-4 w-4" />
+              New snippet
+            </Button>
+          </PageActionRow>
+        )}
+      />
+
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+        <SnippetFilters
+          searchInputId="snippet-search-input"
+          search={search}
+          onSearchChange={setSearch}
+          typeFilter={typeFilter}
+          onTypeFilterChange={setTypeFilter}
+          favoriteFilter={favoriteFilter}
+          onFavoriteFilterChange={setFavoriteFilter}
+          sortOrder={sortOrder}
+          onSortOrderChange={setSortOrder}
+          workspaceFilter={workspaceFilter}
+          onWorkspaceFilterChange={setWorkspaceFilter}
+          workspaces={workspaces}
+          onReset={() => {
+            setSearch('');
+            setTypeFilter('all');
+            setFavoriteFilter('all');
+            setWorkspaceFilter('all');
+            setSortOrder('-last_copied_at');
+          }}
+        />
+
+        <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="flex items-start gap-3">
+            <div className="rounded-2xl bg-white/[0.05] p-3">
+              <Sparkles className="h-5 w-5 text-amber-300" />
+            </div>
+            <div className="space-y-3 text-sm text-muted-foreground">
+              <p>Primary copy action uses text content for text snippets and binary image copy for image snippets when the browser supports it.</p>
+              <p>Press `/` anywhere on the page to jump into search.</p>
+              <div className="flex items-center gap-2 text-foreground/70">
+                <AppWindow className="h-4 w-4" />
+                Menubar app will use the same library and copy counts.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-10 text-center text-sm text-muted-foreground">
+          Loading snippets...
+        </div>
+      ) : filteredSnippets.length === 0 ? (
+        <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.02] p-10 text-center">
+          <h2 className="text-lg font-semibold">No snippets yet</h2>
+          <p className="mt-2 text-sm text-muted-foreground">Create a text or image snippet and it will show up here for quick copying.</p>
+          <Button className="mt-4 gap-2" onClick={openCreateDialog}>
+            <Plus className="h-4 w-4" />
+            Create your first snippet
+          </Button>
+        </div>
+      ) : (
+        <div className={viewMode === 'grid' ? 'grid gap-4 xl:grid-cols-2' : 'space-y-4'}>
+          {filteredSnippets.map((snippet) => (
+            <SnippetCard
+              key={snippet.id}
+              snippet={snippet}
+              viewMode={viewMode}
+              workspaceName={snippet.workspace_id ? workspaceNameById.get(snippet.workspace_id) : null}
+              onCopy={handleCopy}
+              onCopySecondary={handleCopySecondary}
+              onToggleFavorite={handleToggleFavorite}
+              onEdit={(item) => {
+                setEditingSnippet(item);
+                setIsEditorOpen(true);
+              }}
+              onDelete={(item) => deleteMutation.mutate(item.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      <SnippetEditorDialog
+        open={isEditorOpen}
+        onOpenChange={setIsEditorOpen}
+        snippet={editingSnippet}
+        workspaces={workspaces}
+        onSave={handleSave}
+      />
+    </div>
+  );
+}
