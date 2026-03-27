@@ -67,7 +67,46 @@ GOOGLE_CLIENT_SECRET=
 GOOGLE_OAUTH_REDIRECT_URI=
 GOOGLE_OAUTH_STATE_SECRET=
 GOOGLE_TOKEN_ENCRYPTION_KEY=
+INSTAGRAM_DOWNLOADER_BASE_URL=
+INSTAGRAM_DOWNLOADER_SHARED_SECRET=
+INSTAGRAM_DOWNLOADER_TIMEOUT_MS=120000
+INSTAGRAM_DOWNLOADER_STATUS_STALE_MS=90000
 ```
+
+## Instagram Downloader
+
+Local-first Instagram downloading now uses a separate Python service in [`instagram-downloader-service/README.md`](/Users/stefanusferdi/Documents/Data%20Penting/Antigravity%20Projects/LifeOS%20Trifecta/lifeos-new%20architecture/instagram-downloader-service/README.md).
+
+Run it locally:
+
+```bash
+cd "/Users/stefanusferdi/Documents/Data Penting/Antigravity Projects/LifeOS Trifecta/lifeos-new architecture/instagram-downloader-service"
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --host 127.0.0.1 --port 9001
+```
+
+Then point the existing backend at it:
+
+```bash
+INSTAGRAM_DOWNLOADER_BASE_URL=http://127.0.0.1:9001
+INSTAGRAM_DOWNLOADER_SHARED_SECRET=your-shared-secret
+```
+
+App-facing backend route:
+
+```bash
+POST /api/resources/instagram-download
+```
+
+Queue-backed production flow:
+
+- the web app submits Instagram URLs to the Vercel-backed API
+- the API creates a visible pending resource and queue job
+- your self-hosted Python worker polls the queue when it is online
+- on success, media is uploaded to Google Drive and the pending resource is updated
+- successful queue rows are deleted so the queue stays small
 
 Third-party public provider calls are backend-owned now. Stock search, crypto search, CoinGecko FX conversion, and TCG lookups run through `/api`, so Vercel does not need separate frontend env vars for those services.
 
@@ -133,6 +172,23 @@ npm run migrate:verify:domains -- --user-id YOUR_SUPABASE_AUTH_USER_ID
 Beginner-safe deployment guide:
 
 - [Vercel Deployment Guide](/Users/stefanusferdi/Documents/Data Penting/Antigravity Projects/lifeos-new architecture/docs/VERCEL_DEPLOYMENT.md)
+
+## AI Collaboration
+
+If you are working in this repo with Codex or other vibecoders, start with:
+
+- [Agent Contract](/Users/stefanusferdi/Documents/Data Penting/Antigravity Projects/LifeOS Trifecta/lifeos-new architecture/AGENTS.md)
+- [AI Operator Guide](/Users/stefanusferdi/Documents/Data Penting/Antigravity Projects/LifeOS Trifecta/lifeos-new architecture/docs/AI_OPERATOR_GUIDE.md)
+- [AI Task Brief Template](/Users/stefanusferdi/Documents/Data Penting/Antigravity Projects/LifeOS Trifecta/lifeos-new architecture/docs/AI_TASK_BRIEF_TEMPLATE.md)
+- [Change Safety Map](/Users/stefanusferdi/Documents/Data Penting/Antigravity Projects/LifeOS Trifecta/lifeos-new architecture/docs/CHANGE_SAFETY_MAP.md)
+
+Non-trivial tasks in this repo now require an explicit documentation and guidance checkpoint:
+
+- check whether user-facing or developer-facing docs need updates
+- check whether `AGENTS.md` needs updates because workflow expectations changed
+- check whether the operator guide needs updates because coordination guidance changed
+
+If any answer is yes, update the relevant docs in the same task. If all answers are no, record that the check was performed.
 
 ## Current Migration Slice
 
