@@ -123,6 +123,11 @@ def map_download_error(error: Exception) -> InstagramDownloaderError:
     message = str(error)
     lowered = message.lower()
 
+    if "empty media response" in lowered:
+        return InstagramDownloaderError(
+            "Instagram returned an empty media response. This post likely needs a logged-in Instagram session or cookies for yt-dlp.",
+            403,
+        )
     if "private" in lowered or "login" in lowered or "sign in" in lowered:
         return InstagramDownloaderError("Instagram content is private or requires login.", 403)
     if "unsupported url" in lowered:
