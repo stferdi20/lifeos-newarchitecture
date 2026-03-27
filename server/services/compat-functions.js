@@ -164,14 +164,15 @@ const FALLBACK_AUTO_ACCEPT_THRESHOLD = 0.74;
 
 export function inferResourceType(url = '') {
   const value = String(url || '').toLowerCase();
+  if (/github\.com\/[^/]+\/[^/]/.test(value)) return 'github_repo';
   if (value.includes('youtube.com') || value.includes('youtu.be')) return 'youtube';
   if (value.includes('reddit.com')) return 'reddit';
-  if (value.includes('github.com')) return 'github_repo';
-  if (value.includes('instagram.com/reel')) return 'instagram_reel';
-  if (value.includes('instagram.com/p/')) return 'instagram_carousel';
-  if (value.endsWith('.pdf')) return 'pdf';
-  if (value.includes('arxiv.org') || value.includes('scholar.google')) return 'research_paper';
-  return 'article';
+  if (/instagram\.com\/(?:share\/)?(?:reel|tv)\//.test(value)) return 'instagram_reel';
+  if (/instagram\.com\/(?:share\/)?p\//.test(value)) return 'instagram_carousel';
+  if (/\.pdf(?:$|\?)/.test(value)) return 'pdf';
+  if (/arxiv\.org|scholar\.google|doi\.org|pubmed|researchgate|semanticscholar/.test(value)) return 'research_paper';
+  if (/bbc\.|cnn\.|reuters\.|nytimes\.|theguardian\.|techcrunch\.|theverge\.|arstechnica\.|wired\.|bloomberg\.|washingtonpost\.|forbes\.|apnews\.|news\./.test(value)) return 'article';
+  return 'website';
 }
 
 function uniqueNonEmpty(values) {
@@ -560,26 +561,34 @@ Return valid JSON only with:
 }
 
 export function normalizeResourceRecord(url, analysis = {}) {
+  const normalizedUrl = analysis.url || url;
   return {
+    ...analysis,
     title: analysis.title || url,
     author: analysis.author || '',
-    url,
-    source_url: url,
-    resource_type: inferResourceType(url),
+    url: normalizedUrl,
+    source_url: analysis.source_url || normalizedUrl,
+    resource_type: analysis.resource_type || inferResourceType(normalizedUrl),
     thumbnail: analysis.thumbnail || '',
+    published_date: analysis.published_date || '',
     summary: analysis.summary || '',
     why_it_matters: analysis.why_it_matters || '',
     who_its_for: analysis.who_its_for || '',
     explanation_for_newbies: analysis.explanation_for_newbies || '',
     main_topic: analysis.main_topic || '',
-    resource_score: analysis.score || 5,
+    resource_score: analysis.resource_score || analysis.score || 5,
     tags: analysis.tags || [],
     key_points: analysis.key_points || analysis.insights || [],
     actionable_points: analysis.actionable_points || analysis.actions || [],
     use_cases: analysis.use_cases || [],
+    learning_outcomes: analysis.learning_outcomes || [],
+    notable_quotes_or_moments: analysis.notable_quotes_or_moments || [],
     content: analysis.content || '',
     content_source: analysis.content_source || '',
     content_language: analysis.content_language || '',
+    area_id: analysis.area_id || '',
+    area_name: analysis.area_name || '',
+    area_needs_review: Boolean(analysis.area_needs_review),
     analysis_version: analysis.analysis_version || '',
     enrichment_status: analysis.enrichment_status || '',
     is_archived: false,

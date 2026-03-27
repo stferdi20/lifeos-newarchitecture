@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ExternalLink, Star, Trash2, Tag, Zap, Heart, Clock, Github, Archive, ArchiveRestore, Lightbulb, CheckCircle2, Quote, Users, BookOpen, MessageSquareText, ArrowUpCircle, MessagesSquare, Clapperboard, Download, FolderOpen, RefreshCw } from 'lucide-react';
+import { ExternalLink, Star, Trash2, Tag, Zap, Heart, Clock, Github, Archive, ArchiveRestore, Lightbulb, CheckCircle2, Quote, Users, BookOpen, MessageSquareText, ArrowUpCircle, MessagesSquare, Clapperboard, Download, FolderOpen, RefreshCw, AlertTriangle } from 'lucide-react';
 import { LifeArea, Resource } from '@/lib/resources-api';
 import { retryInstagramDownloadForResource } from '@/lib/instagram-downloader-api';
 import ReactMarkdown from 'react-markdown';
@@ -260,6 +260,12 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
                 ))}
               </SelectContent>
             </Select>
+
+            {resource.area_needs_review && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-widest text-amber-300">
+                <AlertTriangle className="h-3 w-3" /> Area needs review
+              </span>
+            )}
             <Button
               variant="outline"
               size="sm"

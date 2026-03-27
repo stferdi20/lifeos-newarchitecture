@@ -5,6 +5,7 @@ import { requireUser } from '../lib/supabase.js';
 import { safeJson } from '../lib/http.js';
 import { invokeCompatFunction } from '../services/compat-functions.js';
 import { submitInstagramDownload } from '../services/instagram-download-queue.js';
+import { reEnrichResourcesForUser } from '../services/resources.js';
 import {
   bulkCreateCompatEntities,
   createCompatEntity,
@@ -27,6 +28,19 @@ const instagramDownloadSchema = z.object({
   drive_folder_id: z.string().optional(),
   include_analysis: z.boolean().optional().default(true),
   project_id: z.string().optional(),
+});
+
+const resourceReenrichSchema = z.object({
+  resource_ids: z.array(z.string()).optional().default([]),
+  filters: z.object({
+    search: z.string().optional().default(''),
+    type: z.string().optional().default('all'),
+    area_id: z.string().optional().default('all'),
+    archived: z.enum(['active', 'archived', 'all']).optional().default('all'),
+    project_id: z.string().optional().default(''),
+    tag: z.string().optional().default(''),
+  }).optional().default({}),
+  batch_size: z.number().int().min(1).max(500).optional().default(100),
 });
 
 const resourceRoutes = new Hono();
@@ -55,6 +69,17 @@ resourceRoutes.post('/instagram-download', zValidator('json', instagramDownloadS
   });
 
   return c.json(result, result.queued ? 202 : 200);
+});
+
+resourceRoutes.post('/re-enrich', zValidator('json', resourceReenrichSchema), async (c) => {
+  const auth = await requireUser(c);
+  const body = c.req.valid('json');
+  const result = await reEnrichResourcesForUser(auth.user.id, {
+    resourceIds: body.resource_ids,
+    filters: body.filters,
+    batchSize: body.batch_size,
+  });
+  return c.json(result);
 });
 
 resourceRoutes.get('/', async (c) => {

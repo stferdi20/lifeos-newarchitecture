@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CheckSquare, Tag, Trash2, X, Archive, ArchiveRestore, MapPinned } from 'lucide-react';
+import { CheckSquare, Tag, Trash2, X, Archive, ArchiveRestore, MapPinned, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -18,6 +18,7 @@ import {
 export default function BulkResourceActionBar({
   selectedIds,
   selectedResources,
+  filteredCount = 0,
   areas,
   onArchive,
   onUnarchive,
@@ -25,6 +26,8 @@ export default function BulkResourceActionBar({
   onAddTag,
   onRemoveTag,
   onDelete,
+  onReenrich,
+  onReenrichFiltered,
   onClear,
   isWorking = false,
 }) {
@@ -62,6 +65,14 @@ export default function BulkResourceActionBar({
 
       <Button size="sm" variant="outline" disabled={isWorking} onClick={onUnarchive} className="border-border text-xs">
         <ArchiveRestore className="w-3.5 h-3.5 mr-1" /> Unarchive
+      </Button>
+
+      <Button size="sm" variant="outline" disabled={isWorking} onClick={onReenrich} className="border-border text-xs">
+        <RefreshCw className="w-3.5 h-3.5 mr-1" /> Re-enrich
+      </Button>
+
+      <Button size="sm" variant="outline" disabled={isWorking || !filteredCount} onClick={onReenrichFiltered} className="border-border text-xs">
+        <RefreshCw className="w-3.5 h-3.5 mr-1" /> Re-enrich {filteredCount} filtered
       </Button>
 
       <div className="flex items-center gap-2 rounded-xl bg-secondary/30 px-2 py-1.5">

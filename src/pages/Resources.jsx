@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { listBoardWorkspaces } from '@/lib/projects-api';
-import { CardResource, LifeArea, ProjectResource, Resource } from '@/lib/resources-api';
+import { CardResource, LifeArea, ProjectResource, Resource, reEnrichResources } from '@/lib/resources-api';
 import ResourceFilters from '../components/resources/ResourceFilters';
 import ResourceCard from '../components/resources/ResourceCard';
 import ResourceDetailModal from '../components/resources/ResourceDetailModal';
@@ -239,6 +239,51 @@ export default function Resources() {
     },
   });
 
+  const bulkReenrichMutation = useMutation({
+    mutationFn: async () => reEnrichResources({
+      resource_ids: selectedResources.map((resource) => resource.id),
+      batch_size: Math.min(selectedResources.length || 100, 500),
+    }),
+    onSuccess: (result) => {
+      invalidateResourceQueries();
+      const updated = Number(result?.updated || 0);
+      const skipped = Number(result?.skipped || 0);
+      const failed = Number(result?.failed || 0);
+      toast.success(
+        `Re-enrichment finished: ${updated} updated${skipped ? `, ${skipped} skipped` : ''}${failed ? `, ${failed} failed` : ''}.`,
+      );
+    },
+    onError: (error) => {
+      toast.error(error?.message || 'Failed to re-enrich selected resources.');
+    },
+  });
+
+  const filteredReenrichMutation = useMutation({
+    mutationFn: async () => reEnrichResources({
+      filters: {
+        search,
+        type: typeFilter,
+        area_id: areaFilter,
+        archived: archivedFilter,
+        project_id: projectFilter || '',
+        tag: tagFilter || '',
+      },
+      batch_size: Math.min(filteredResources.length || 100, 500),
+    }),
+    onSuccess: (result) => {
+      invalidateResourceQueries();
+      const updated = Number(result?.updated || 0);
+      const skipped = Number(result?.skipped || 0);
+      const failed = Number(result?.failed || 0);
+      toast.success(
+        `Filtered re-enrichment finished: ${updated} updated${skipped ? `, ${skipped} skipped` : ''}${failed ? `, ${failed} failed` : ''}.`,
+      );
+    },
+    onError: (error) => {
+      toast.error(error?.message || 'Failed to re-enrich filtered resources.');
+    },
+  });
+
   const deleteDirectMutation = useMutation({
     mutationFn: async (resourceId) => {
       const [projectLinks, cardLinks] = await Promise.all([
@@ -448,7 +493,20 @@ export default function Resources() {
         />
       </div>
 
-      <p className="text-xs text-muted-foreground">{filteredResources.length} resource{filteredResources.length !== 1 ? 's' : ''}</p>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs text-muted-foreground">{filteredResources.length} resource{filteredResources.length !== 1 ? 's' : ''}</p>
+        {filteredResources.length > 0 && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => filteredReenrichMutation.mutate()}
+            disabled={filteredReenrichMutation.isPending}
+            className="border-border text-xs"
+          >
+            <Sparkles className="w-3.5 h-3.5 mr-1" /> Re-enrich filtered
+          </Button>
+        )}
+      </div>
 
       <motion.div layout className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         <AnimatePresence mode="popLayout">
@@ -522,10 +580,13 @@ export default function Resources() {
         <BulkResourceActionBar
           selectedIds={selectedIds}
           selectedResources={selectedResources}
+          filteredCount={filteredResources.length}
           areas={areas}
-          isWorking={bulkUpdateMutation.isPending || bulkDeleteMutation.isPending}
+          isWorking={bulkUpdateMutation.isPending || bulkDeleteMutation.isPending || bulkReenrichMutation.isPending || filteredReenrichMutation.isPending}
           onArchive={() => bulkUpdateMutation.mutate(() => ({ is_archived: true }))}
           onUnarchive={() => bulkUpdateMutation.mutate(() => ({ is_archived: false }))}
+          onReenrich={() => bulkReenrichMutation.mutate()}
+          onReenrichFiltered={() => filteredReenrichMutation.mutate()}
           onAssignArea={(areaId) => bulkUpdateMutation.mutate(() => ({ area_id: areaId }))}
           onAddTag={(tagInput) => {
             const normalizedTag = tagInput.trim().toLowerCase();

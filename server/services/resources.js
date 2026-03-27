@@ -1,21 +1,39 @@
 import { parseHTML } from 'linkedom';
 import { z } from 'zod';
 import { routeStructuredJson } from '../lib/llm-router.js';
+import { listCompatEntities, updateCompatEntity } from './compat-store.js';
+
+const ANALYSIS_VERSION = 'resource-enrichment-v6';
+const USER_AGENT = 'LifeOS/1.0 (+https://lifeos-self-hosted.vercel.app)';
+const MAX_STORED_CONTENT_CHARS = 60000;
+const MAX_PROMPT_CONTENT_CHARS = 16000;
+const MAX_TRANSCRIPTION_BYTES = 24 * 1024 * 1024;
+const DEFAULT_TRANSCRIPTION_MODEL = 'whisper-1';
+const DEFAULT_TRANSCRIPTION_ENDPOINT = 'https://api.openai.com/v1/audio/transcriptions';
+const HAS_SCHEME_RE = /^[a-z][a-z\d+\-.]*:\/\//i;
+const DOMAIN_LIKE_RE = /^(localhost(?::\d+)?|(?:[\p{L}\p{N}-]+\.)+[\p{L}\p{N}-]{2,}|(?:\d{1,3}\.){3}\d{1,3})(?:[/:?#].*)?$/iu;
 
 const resourceSchema = z.object({
   title: z.string().default(''),
   author: z.string().default(''),
+  published_date: z.string().default(''),
   thumbnail: z.string().default(''),
   summary: z.string().default(''),
   why_it_matters: z.string().default(''),
   who_its_for: z.string().default(''),
   explanation_for_newbies: z.string().default(''),
   main_topic: z.string().default(''),
+  area_name: z.string().default(''),
   score: z.number().min(1).max(10).default(5),
   tags: z.array(z.string()).default([]),
   key_points: z.array(z.string()).default([]),
   actionable_points: z.array(z.string()).default([]),
   use_cases: z.array(z.string()).default([]),
+  learning_outcomes: z.array(z.string()).default([]),
+  notable_quotes_or_moments: z.array(z.string()).default([]),
+  reddit_thread_type: z.string().default(''),
+  reddit_top_comment_summaries: z.array(z.string()).default([]),
+  status: z.string().default('unknown'),
 });
 
 function stripText(value) {
@@ -24,8 +42,11 @@ function stripText(value) {
     .trim();
 }
 
-function normalizeLongText(value, limit = 32000) {
+function normalizeLongText(value, limit = MAX_STORED_CONTENT_CHARS) {
   return String(value || '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
     .replace(/\u00a0/g, ' ')
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
@@ -57,6 +78,15 @@ function dedupeStrings(values = [], limit = 8) {
   return result;
 }
 
+function normalizeStringArray(values, limit = 8, itemLimit = 280) {
+  return dedupeStrings(
+    Array.isArray(values)
+      ? values.map((value) => String(value || '').slice(0, itemLimit))
+      : [],
+    limit,
+  );
+}
+
 function summarizeText(value, sentenceCount = 2) {
   return splitSentences(value, sentenceCount).join(' ');
 }
@@ -69,8 +99,7 @@ function pickActionablePoints(value) {
 }
 
 function pickKeyPoints(value) {
-  const candidates = splitSentences(value, 10);
-  return dedupeStrings(candidates, 5);
+  return dedupeStrings(splitSentences(value, 10), 5);
 }
 
 function deriveTags({ title = '', author = '', keywords = [], metaKeywords = '', resourceType = '', text = '' }) {
@@ -199,9 +228,16 @@ function buildHeuristicResourceData({ extracted, title, url }) {
       ? 6
       : 5;
 
+  const redditCommentSummaries = normalizeStringArray(
+    extracted.redditThreadData?.topComments?.map((comment) => comment.body) || [],
+    5,
+    240,
+  );
+
   return {
     title: extracted.title || title || url,
     author: extracted.author || '',
+    published_date: extracted.publishedDate || '',
     thumbnail: extracted.thumbnail || '',
     summary,
     why_it_matters: deriveWhyItMatters({ summary, resourceType: extracted.resourceType }),
@@ -217,17 +253,103 @@ function buildHeuristicResourceData({ extracted, title, url }) {
     key_points: keyPoints,
     actionable_points: actionablePoints,
     use_cases: deriveUseCases({ resourceType: extracted.resourceType, mainTopic, actionablePoints }),
+    learning_outcomes: [],
+    notable_quotes_or_moments: [],
+    reddit_thread_type: extracted.isRedditThread ? 'discussion' : '',
+    reddit_top_comment_summaries: redditCommentSummaries,
+    status: extracted.resourceType === 'github_repo' || extracted.resourceType === 'website' ? 'unknown' : '',
+    area_name: '',
   };
 }
 
-function inferResourceType(url = '') {
-  const value = String(url || '').toLowerCase();
-  if (value.includes('youtube.com') || value.includes('youtu.be')) return 'youtube';
-  if (value.includes('reddit.com')) return 'reddit';
-  if (value.includes('github.com')) return 'github_repo';
-  if (value.endsWith('.pdf')) return 'pdf';
-  if (value.includes('arxiv.org') || value.includes('scholar.google')) return 'research_paper';
-  return 'article';
+function isValidHttpUrl(value) {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function normalizeResourceUrl(input) {
+  const trimmed = String(input || '').trim();
+  if (!trimmed) return '';
+  if (isValidHttpUrl(trimmed)) return trimmed;
+  if (HAS_SCHEME_RE.test(trimmed)) return trimmed;
+  if (!DOMAIN_LIKE_RE.test(trimmed) || /\s/.test(trimmed)) return trimmed;
+  const normalized = `https://${trimmed}`;
+  return isValidHttpUrl(normalized) ? normalized : trimmed;
+}
+
+function isInstagramUrl(url = '') {
+  return /(?:https?:\/\/)?(?:www\.)?instagram\.com\/(?:(?:share\/)?(?:reel|p|tv))\//i.test(url);
+}
+
+function isInstagramShareUrl(url = '') {
+  return /(?:https?:\/\/)?(?:www\.)?instagram\.com\/share\/(?:reel|p)\//i.test(url);
+}
+
+function normalizeInstagramUrl(url = '') {
+  try {
+    const parsed = new URL(url);
+    parsed.search = '';
+    parsed.hash = '';
+    return parsed.toString().replace(/\/$/, '');
+  } catch {
+    return url;
+  }
+}
+
+function extractCanonicalInstagramPostUrl(value = '') {
+  const match = String(value || '').match(/https?:\/\/(?:www\.)?instagram\.com\/(?:reel|p|tv)\/[^/?#]+/i);
+  return match ? normalizeInstagramUrl(match[0]) : '';
+}
+
+function parseInstagramShortcode(url = '') {
+  const match = String(url || '').match(/instagram\.com\/(?:(?:share\/)?(?:reel|p|tv))\/([^/?#]+)/i);
+  return match?.[1] || '';
+}
+
+function detectInstagramPostKind(url = '') {
+  if (/instagram\.com\/(?:share\/)?(?:reel|tv)\//i.test(url)) return 'instagram_reel';
+  if (/instagram\.com\/(?:share\/)?p\//i.test(url)) return 'instagram_carousel';
+  return null;
+}
+
+async function resolveInstagramCanonicalUrl(url) {
+  const normalizedInput = normalizeInstagramUrl(url);
+  if (!isInstagramUrl(normalizedInput)) return normalizedInput;
+  if (!isInstagramShareUrl(normalizedInput)) return normalizedInput;
+
+  try {
+    const res = await fetch(normalizedInput, {
+      headers: { 'User-Agent': USER_AGENT },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(15000),
+    });
+    const redirectedUrl = extractCanonicalInstagramPostUrl(res.url);
+    if (redirectedUrl) return redirectedUrl;
+    const html = await res.text().catch(() => '');
+    return extractCanonicalInstagramPostUrl(html) || normalizedInput;
+  } catch {
+    return normalizedInput;
+  }
+}
+
+export function inferResourceType(url = '') {
+  const normalized = normalizeResourceUrl(url);
+  const lowerUrl = String(normalized || '').toLowerCase();
+  if (/github\.com\/[^/]+\/[^/]/.test(lowerUrl)) return 'github_repo';
+  if (/youtube\.com|youtu\.be/.test(lowerUrl)) return 'youtube';
+  if (/reddit\.com/.test(lowerUrl)) return 'reddit';
+  const instagramType = detectInstagramPostKind(lowerUrl);
+  if (instagramType) return instagramType;
+  if (/arxiv\.org|scholar\.google|doi\.org|pubmed|researchgate|semanticscholar/.test(lowerUrl)) return 'research_paper';
+  if (/\.pdf(?:$|\?)/i.test(lowerUrl)) return 'pdf';
+  if (/bbc\.|cnn\.|reuters\.|nytimes\.|theguardian\.|techcrunch\.|theverge\.|arstechnica\.|wired\.|bloomberg\.|washingtonpost\.|forbes\.|apnews\.|news\./i.test(lowerUrl)) {
+    return 'article';
+  }
+  return 'website';
 }
 
 function extractMeta(document) {
@@ -239,6 +361,52 @@ function extractMeta(document) {
     if (key && value) meta[String(key).toLowerCase()] = value;
   }
   return meta;
+}
+
+function extractJsonLd(document) {
+  const scripts = document.querySelectorAll('script[type="application/ld+json"]');
+  const results = [];
+  for (const script of scripts) {
+    try {
+      const data = JSON.parse(script.textContent);
+      if (Array.isArray(data)) results.push(...data);
+      else results.push(data);
+    } catch {
+      // ignore malformed JSON-LD
+    }
+  }
+  return results;
+}
+
+function summarizeJsonLd(jsonLdItems = []) {
+  if (!jsonLdItems.length) return '';
+  const lines = [];
+  for (const item of jsonLdItems.slice(0, 3)) {
+    const type = item?.['@type'] || 'Unknown';
+    lines.push(`Schema.org Type: ${Array.isArray(type) ? type.join(', ') : type}`);
+    if (item?.name) lines.push(`Name: ${item.name}`);
+    if (item?.headline) lines.push(`Headline: ${item.headline}`);
+    if (item?.description) lines.push(`Description: ${String(item.description).slice(0, 280)}`);
+    if (item?.author) {
+      const author = typeof item.author === 'string' ? item.author : (item.author?.name || '');
+      if (author) lines.push(`Author: ${author}`);
+    }
+    if (item?.publisher?.name) lines.push(`Publisher: ${item.publisher.name}`);
+    if (item?.datePublished) lines.push(`Published: ${item.datePublished}`);
+  }
+  return lines.join('\n');
+}
+
+function extractJsonLdImage(jsonLdItems = []) {
+  for (const item of jsonLdItems) {
+    if (typeof item?.image === 'string') return item.image;
+    if (item?.image?.url) return item.image.url;
+    if (Array.isArray(item?.image) && item.image[0]) {
+      return typeof item.image[0] === 'string' ? item.image[0] : item.image[0]?.url || '';
+    }
+    if (item?.thumbnailUrl) return item.thumbnailUrl;
+  }
+  return '';
 }
 
 function extractMainText(document) {
@@ -257,14 +425,15 @@ function extractMainText(document) {
   ].filter(Boolean);
 
   return candidates
-    .map((candidate) => normalizeLongText(candidate?.textContent || '', 20000))
+    .map((candidate) => normalizeLongText(candidate?.textContent || '', 25000))
     .sort((a, b) => b.length - a.length)[0] || '';
 }
 
 function extractYoutubeVideoId(url) {
   try {
     const parsed = new URL(url);
-    if (parsed.hostname === 'youtu.be') return parsed.pathname.split('/').filter(Boolean)[0] || '';
+    const hostname = parsed.hostname.replace(/^www\./, '');
+    if (hostname === 'youtu.be') return parsed.pathname.split('/').filter(Boolean)[0] || '';
     if (parsed.searchParams.get('v')) return parsed.searchParams.get('v') || '';
     const shorts = parsed.pathname.match(/\/shorts\/([^/?]+)/);
     if (shorts) return shorts[1];
@@ -300,10 +469,10 @@ function extractTranscriptTextFromEvents(payload) {
     const text = segs.map((seg) => String(seg?.utf8 || '')).join('').replace(/\n/g, ' ').trim();
     if (text) parts.push(text);
   }
-  return normalizeLongText(parts.join(' '), 32000);
+  return normalizeLongText(parts.join(' '), MAX_STORED_CONTENT_CHARS);
 }
 
-async function fetchYoutubeTranscript(normalizedUrl, html) {
+async function fetchYoutubeTranscriptFromWatchPage(normalizedUrl, html) {
   const playerResponse = extractPlayerResponseFromHtml(html);
   const tracks = playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
   if (!Array.isArray(tracks) || tracks.length === 0) {
@@ -317,19 +486,37 @@ async function fetchYoutubeTranscript(normalizedUrl, html) {
   })[0];
 
   const baseUrl = String(selectedTrack?.baseUrl || '');
-  if (!baseUrl) {
-    return { transcript: '', language: '' };
-  }
+  if (!baseUrl) return { transcript: '', language: '' };
 
   try {
     const response = await fetch(`${baseUrl}&fmt=json3`, {
-      headers: { 'User-Agent': 'LifeOS/1.0 (+https://lifeos-self-hosted.vercel.app)' },
+      headers: { 'User-Agent': USER_AGENT },
+      signal: AbortSignal.timeout(12000),
     });
     if (!response.ok) return { transcript: '', language: '' };
     const payload = await response.json();
     return {
       transcript: extractTranscriptTextFromEvents(payload),
       language: String(selectedTrack?.languageCode || ''),
+    };
+  } catch {
+    return { transcript: '', language: '' };
+  }
+}
+
+async function fetchYoutubeTranscriptViaSupadata(normalizedUrl) {
+  const apiKey = process.env.SUPADATA_API_KEY || '';
+  if (!apiKey) return { transcript: '', language: '' };
+  try {
+    const response = await fetch(`https://api.supadata.ai/v1/transcript?url=${encodeURIComponent(normalizedUrl)}&text=true&mode=native`, {
+      headers: { 'x-api-key': apiKey },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) return { transcript: '', language: '' };
+    const payload = await response.json();
+    return {
+      transcript: normalizeLongText(payload?.content || '', MAX_STORED_CONTENT_CHARS),
+      language: String(payload?.lang || ''),
     };
   } catch {
     return { transcript: '', language: '' };
@@ -344,7 +531,8 @@ async function fetchYouTubeMetadata(normalizedUrl, html) {
 
   try {
     const response = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(normalizedUrl)}&format=json`, {
-      headers: { 'User-Agent': 'LifeOS/1.0 (+https://lifeos-self-hosted.vercel.app)' },
+      headers: { 'User-Agent': USER_AGENT },
+      signal: AbortSignal.timeout(10000),
     });
     if (response.ok) {
       oembed = await response.json();
@@ -353,7 +541,12 @@ async function fetchYouTubeMetadata(normalizedUrl, html) {
     // ignore
   }
 
-  const transcriptResult = await fetchYoutubeTranscript(normalizedUrl, html);
+  const fromWatchPage = await fetchYoutubeTranscriptFromWatchPage(normalizedUrl, html);
+  const fallbackTranscript = fromWatchPage.transcript
+    ? { transcript: '', language: '' }
+    : await fetchYoutubeTranscriptViaSupadata(normalizedUrl);
+  const transcript = fromWatchPage.transcript || fallbackTranscript.transcript;
+  const language = fromWatchPage.language || fallbackTranscript.language;
 
   return {
     title: stripText(oembed?.title || videoDetails?.title || ''),
@@ -361,117 +554,741 @@ async function fetchYouTubeMetadata(normalizedUrl, html) {
     thumbnail: oembed?.thumbnail_url || (videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : ''),
     description: normalizeLongText(videoDetails?.shortDescription || '', 12000),
     keywords: Array.isArray(videoDetails?.keywords) ? videoDetails.keywords.map((value) => stripText(value)) : [],
-    transcript: transcriptResult.transcript,
-    language: transcriptResult.language,
+    publishedDate: '',
+    transcript,
+    language,
   };
 }
 
-async function fetchPageSummary(url) {
-  const response = await fetch(url, {
-    headers: {
-      'User-Agent': 'LifeOS/1.0 (+https://lifeos-self-hosted.vercel.app)',
-    },
-  });
+function isRedditThreadUrl(url = '') {
+  return /reddit\.com\/r\/[^/]+\/comments\/[^/]+/i.test(url);
+}
 
-  const html = await response.text();
-  const { document } = parseHTML(html);
-  const meta = extractMeta(document);
-  const title = stripText(document.querySelector('title')?.textContent || '');
-  const bodyText = extractMainText(document);
-  const thumbnail = meta['og:image'] || meta['twitter:image'] || '';
-  const author = meta['author'] || meta['article:author'] || '';
-  const description = meta.description || meta['og:description'] || meta['twitter:description'] || '';
-  const keywords = String(meta.keywords || '')
-    .split(',')
-    .map((value) => stripText(value))
-    .filter(Boolean);
+function normalizeRedditText(value, limit = 800) {
+  return String(value || '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, limit);
+}
 
-  const resourceType = inferResourceType(url);
-  if (resourceType === 'youtube') {
-    const youtube = await fetchYouTubeMetadata(url, html);
+function pickRedditThumbnail(post = {}) {
+  const preview = post.preview;
+  const candidate = preview?.images?.[0]?.source?.url;
+  if (candidate) return normalizeRedditText(candidate, 1000);
+  const thumb = String(post.thumbnail || '').trim();
+  return thumb && /^https?:\/\//i.test(thumb) ? thumb : '';
+}
+
+async function fetchRedditThreadData(normalizedUrl) {
+  if (!isRedditThreadUrl(normalizedUrl)) return null;
+  try {
+    const url = new URL(normalizedUrl);
+    const jsonUrl = `${url.origin}${url.pathname.replace(/\/$/, '')}.json?raw_json=1&limit=12&sort=top`;
+    const res = await fetch(jsonUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; LifeOSBot/1.0; +https://reddit.com)',
+        Accept: 'application/json',
+      },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) return null;
+    const payload = await res.json();
+    if (!Array.isArray(payload) || !payload[0]?.data?.children?.[0]?.data) return null;
+    const post = payload[0].data.children[0].data;
+    const comments = Array.isArray(payload[1]?.data?.children) ? payload[1].data.children : [];
+    const topComments = comments
+      .filter((entry) => entry?.kind === 't1' && entry?.data?.body)
+      .slice(0, 8)
+      .map((entry) => ({
+        author: String(entry.data.author || ''),
+        score: typeof entry.data.score === 'number' ? entry.data.score : null,
+        body: normalizeRedditText(entry.data.body, 500),
+      }))
+      .filter((entry) => entry.body);
+
     return {
+      title: normalizeRedditText(post.title, 400),
+      subreddit: String(post.subreddit || ''),
+      author: String(post.author || ''),
+      selfText: normalizeRedditText(post.selftext, 3000),
+      score: typeof post.score === 'number' ? post.score : null,
+      commentCount: typeof post.num_comments === 'number' ? post.num_comments : null,
+      thumbnail: pickRedditThumbnail(post),
+      flair: normalizeRedditText(post.link_flair_text, 120),
+      permalink: String(post.permalink || ''),
+      publishedDate: post.created_utc ? new Date(post.created_utc * 1000).toISOString() : '',
+      topComments,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function buildRedditContent(redditThreadData) {
+  if (!redditThreadData) return '';
+  return normalizeLongText([
+    redditThreadData.title ? `Thread Title: ${redditThreadData.title}` : '',
+    redditThreadData.subreddit ? `Subreddit: r/${redditThreadData.subreddit}` : '',
+    redditThreadData.author ? `Original Poster: u/${redditThreadData.author}` : '',
+    redditThreadData.flair ? `Flair: ${redditThreadData.flair}` : '',
+    redditThreadData.selfText ? `Original Post:\n${redditThreadData.selfText}` : '',
+    redditThreadData.topComments.length > 0
+      ? `Top Comments:\n${redditThreadData.topComments.map((comment, index) => `${index + 1}. u/${comment.author || 'unknown'}${comment.score != null ? ` (${comment.score})` : ''}: ${comment.body}`).join('\n')}`
+      : '',
+  ].filter(Boolean).join('\n\n'), MAX_STORED_CONTENT_CHARS);
+}
+
+async function fetchOfficialInstagramMetadata(url) {
+  const accessToken = process.env.INSTAGRAM_GRAPH_ACCESS_TOKEN || process.env.INSTAGRAM_OEMBED_ACCESS_TOKEN || '';
+  if (!accessToken) return null;
+
+  const version = process.env.INSTAGRAM_GRAPH_API_VERSION || 'v22.0';
+  const endpoint = new URL(`https://graph.facebook.com/${version}/instagram_oembed`);
+  endpoint.searchParams.set('url', url);
+  endpoint.searchParams.set('access_token', accessToken);
+  endpoint.searchParams.set('omitscript', 'true');
+
+  try {
+    const res = await fetch(endpoint, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!res.ok) return null;
+    const payload = await res.json();
+    return {
+      canonicalUrl: stripText(payload?.author_url || url),
+      authorHandle: stripText(payload?.author_name || ''),
+      thumbnailUrl: stripText(payload?.thumbnail_url || ''),
+      title: stripText(payload?.title || ''),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function getString(input, ...keys) {
+  for (const key of keys) {
+    const value = input?.[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return '';
+}
+
+function getNumber(input, ...keys) {
+  for (const key of keys) {
+    const value = input?.[key];
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value))) return Number(value);
+  }
+  return null;
+}
+
+function flattenExtractorMedia(payload) {
+  const directCandidates = [
+    ...(Array.isArray(payload?.mediaItems) ? payload.mediaItems : []),
+    ...(Array.isArray(payload?.media_items) ? payload.media_items : []),
+    ...(Array.isArray(payload?.media) ? payload.media : []),
+    ...(Array.isArray(payload?.items) ? payload.items : []),
+    ...(Array.isArray(payload?.carousel_media) ? payload.carousel_media : []),
+    ...(Array.isArray(payload?.children) ? payload.children : []),
+  ];
+  if (directCandidates.length > 0) return directCandidates;
+
+  const item = payload?.item || payload?.data || payload?.post || payload;
+  const nested = [
+    ...(Array.isArray(item?.mediaItems) ? item.mediaItems : []),
+    ...(Array.isArray(item?.media_items) ? item.media_items : []),
+    ...(Array.isArray(item?.media) ? item.media : []),
+    ...(Array.isArray(item?.carousel_media) ? item.carousel_media : []),
+    ...(Array.isArray(item?.children) ? item.children : []),
+  ];
+  if (nested.length > 0) return nested;
+  return item ? [item] : [];
+}
+
+function guessMediaType(item) {
+  const mediaType = String(item?.media_type || item?.type || item?.mime_type || item?.mimeType || '').toLowerCase();
+  if (mediaType.includes('video') || mediaType === '2') return 'video';
+  const sourceUrl = getString(item, 'video_url', 'videoUrl', 'url', 'src', 'display_url', 'displayUrl', 'image_url', 'imageUrl');
+  return /\.mp4(?:$|\?)/i.test(sourceUrl) ? 'video' : 'image';
+}
+
+function normalizeMediaItems(payload) {
+  return flattenExtractorMedia(payload)
+    .map((item, index) => {
+      const type = guessMediaType(item);
+      const sourceUrl = getString(item, 'video_url', 'videoUrl', 'display_url', 'displayUrl', 'image_url', 'imageUrl', 'url', 'src');
+      const thumbnailUrl = getString(item, 'thumbnail_url', 'thumbnailUrl', 'display_url', 'displayUrl', 'image_url', 'imageUrl', 'cover_url', 'coverUrl');
+      return {
+        type,
+        index: getNumber(item, 'index', 'position', 'order') ?? index,
+        source_url: sourceUrl,
+        thumbnail_url: thumbnailUrl || (type === 'image' ? sourceUrl : ''),
+        duration_seconds: getNumber(item, 'duration', 'duration_seconds', 'video_duration'),
+        width: getNumber(item, 'width', 'original_width'),
+        height: getNumber(item, 'height', 'original_height'),
+      };
+    })
+    .filter((item) => item.source_url);
+}
+
+function normalizeExtractorPayload(url, payload, officialMetadata) {
+  const root = payload?.data || payload?.post || payload?.item || payload;
+  const shortcode = getString(root, 'shortcode', 'code') || parseInstagramShortcode(url);
+  const explicit = getString(root, 'post_kind', 'postKind', 'product_type', 'productType', 'media_type', 'mediaType').toLowerCase();
+  const resourceType = explicit.includes('reel') || explicit === 'clips'
+    ? 'instagram_reel'
+    : explicit.includes('carousel') || explicit.includes('sidecar')
+      ? 'instagram_carousel'
+      : detectInstagramPostKind(url);
+
+  if (!shortcode || !resourceType) return null;
+
+  const mediaItems = normalizeMediaItems(root);
+  const thumbnailUrl = getString(root, 'thumbnail_url', 'thumbnailUrl', 'display_url', 'displayUrl')
+    || officialMetadata?.thumbnailUrl
+    || mediaItems[0]?.thumbnail_url
+    || '';
+  const caption = normalizeLongText(
+    getString(root, 'caption', 'caption_text', 'captionText', 'title', 'description')
+      || getString(root?.caption, 'text')
+      || officialMetadata?.title,
+    12000,
+  );
+  const authorHandle = getString(root, 'author_handle', 'authorHandle', 'username', 'owner_username', 'ownerUsername')
+    || officialMetadata?.authorHandle
+    || '';
+  const publishedAt = getString(root, 'published_at', 'publishedAt', 'taken_at', 'takenAt', 'timestamp');
+  const videoUrl = getString(root, 'video_url', 'videoUrl') || mediaItems.find((item) => item.type === 'video')?.source_url || '';
+
+  return {
+    canonicalUrl: normalizeInstagramUrl(getString(root, 'url', 'canonical_url', 'canonicalUrl', 'permalink') || url),
+    shortcode,
+    resourceType,
+    authorHandle: authorHandle.replace(/^@/, ''),
+    caption,
+    publishedAt,
+    thumbnailUrl,
+    mediaItems,
+    videoUrl,
+    ingestionSource: 'extractor_fallback',
+    transcript: '',
+    transcriptError: '',
+  };
+}
+
+async function fetchExtractorInstagramMetadata(url, officialMetadata) {
+  const extractorUrl = process.env.INSTAGRAM_EXTRACTOR_URL || '';
+  if (!extractorUrl) return null;
+
+  const method = (process.env.INSTAGRAM_EXTRACTOR_METHOD || 'POST').toUpperCase();
+  const apiKey = process.env.INSTAGRAM_EXTRACTOR_API_KEY || '';
+  const headers = { Accept: 'application/json' };
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+  if (method !== 'GET') headers['Content-Type'] = 'application/json';
+
+  try {
+    const requestUrl = method === 'GET'
+      ? `${extractorUrl}${extractorUrl.includes('?') ? '&' : '?'}url=${encodeURIComponent(url)}`
+      : extractorUrl;
+    const res = await fetch(requestUrl, {
+      method,
+      headers,
+      body: method === 'GET' ? undefined : JSON.stringify({ url }),
+      signal: AbortSignal.timeout(20000),
+    });
+    if (res.status === 401 || res.status === 403) throw new Error('Instagram extractor rejected the request.');
+    if (res.status === 404) throw new Error('Instagram post was not found.');
+    if (!res.ok) {
+      const errorBody = await res.text().catch(() => '');
+      throw new Error(errorBody || `Instagram extractor failed (${res.status}).`);
+    }
+    const payload = await res.json();
+    return normalizeExtractorPayload(url, payload, officialMetadata);
+  } catch (error) {
+    throw new Error(error?.message || 'Instagram extractor failed.');
+  }
+}
+
+async function transcribeInstagramVideo(videoUrl) {
+  const apiKey = process.env.OPENAI_API_KEY || '';
+  if (!apiKey || !videoUrl) return { transcript: '', error: '' };
+
+  try {
+    const mediaRes = await fetch(videoUrl, {
+      headers: { 'User-Agent': USER_AGENT },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!mediaRes.ok) {
+      return { transcript: '', error: `Transcript unavailable: media download failed (${mediaRes.status}).` };
+    }
+
+    const contentLength = Number(mediaRes.headers.get('content-length') || '0');
+    if (contentLength && contentLength > MAX_TRANSCRIPTION_BYTES) {
+      return { transcript: '', error: 'Transcript unavailable: reel is too large to transcribe automatically.' };
+    }
+
+    const mimeType = mediaRes.headers.get('content-type') || 'video/mp4';
+    const extension = mimeType.includes('mpeg') ? 'mp3' : mimeType.includes('audio') ? 'm4a' : 'mp4';
+    const bytes = await mediaRes.arrayBuffer();
+    if (bytes.byteLength > MAX_TRANSCRIPTION_BYTES) {
+      return { transcript: '', error: 'Transcript unavailable: reel is too large to transcribe automatically.' };
+    }
+
+    const form = new FormData();
+    form.append('model', process.env.OPENAI_TRANSCRIPTION_MODEL || DEFAULT_TRANSCRIPTION_MODEL);
+    form.append('file', new Blob([bytes], { type: mimeType }), `instagram-reel.${extension}`);
+
+    const endpoint = process.env.OPENAI_TRANSCRIPTION_ENDPOINT || DEFAULT_TRANSCRIPTION_ENDPOINT;
+    const transcriptRes = await fetch(endpoint, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}` },
+      body: form,
+      signal: AbortSignal.timeout(45000),
+    });
+    if (!transcriptRes.ok) {
+      const body = await transcriptRes.text().catch(() => '');
+      return { transcript: '', error: body || `Transcript request failed (${transcriptRes.status}).` };
+    }
+    const payload = await transcriptRes.json();
+    const transcript = normalizeLongText(payload?.text || payload?.transcript || '', 32000);
+    return { transcript, error: transcript ? '' : 'Transcript unavailable: provider returned no text.' };
+  } catch {
+    return { transcript: '', error: 'Transcript unavailable: transcription request failed.' };
+  }
+}
+
+async function fetchInstagramExtraction(url) {
+  if (!isInstagramUrl(url)) throw new Error('Unsupported Instagram URL.');
+
+  const canonicalUrl = await resolveInstagramCanonicalUrl(url);
+  const extractionUrl = canonicalUrl || url;
+  const officialMetadata = await fetchOfficialInstagramMetadata(extractionUrl);
+  let extraction = await fetchExtractorInstagramMetadata(extractionUrl, officialMetadata).catch(() => null);
+
+  if (!extraction) {
+    const shortcode = parseInstagramShortcode(extractionUrl);
+    const resourceType = detectInstagramPostKind(extractionUrl);
+    if (!shortcode || !resourceType) throw new Error('Unsupported Instagram URL.');
+    extraction = {
+      canonicalUrl: normalizeInstagramUrl(extractionUrl),
+      shortcode,
+      resourceType,
+      authorHandle: officialMetadata?.authorHandle || '',
+      caption: officialMetadata?.title || '',
+      publishedAt: '',
+      thumbnailUrl: officialMetadata?.thumbnailUrl || '',
+      mediaItems: [],
+      videoUrl: '',
+      ingestionSource: 'official_api',
+      transcript: '',
+      transcriptError: '',
+    };
+  }
+
+  if (!extraction.mediaItems.length && !extraction.caption) {
+    throw new Error('Instagram post is private, unavailable, or extractor-blocked.');
+  }
+
+  if (extraction.resourceType === 'instagram_reel' && extraction.videoUrl) {
+    const transcriptResult = await transcribeInstagramVideo(extraction.videoUrl);
+    extraction.transcript = transcriptResult.transcript;
+    extraction.transcriptError = transcriptResult.error;
+  }
+
+  return extraction;
+}
+
+async function fetchPageSummary(inputUrl) {
+  const normalizedUrl = normalizeResourceUrl(inputUrl);
+  const canonicalUrl = isInstagramUrl(normalizedUrl)
+    ? await resolveInstagramCanonicalUrl(normalizedUrl)
+    : normalizedUrl;
+  const resourceType = inferResourceType(canonicalUrl);
+  const redditThreadData = resourceType === 'reddit' ? await fetchRedditThreadData(canonicalUrl) : null;
+  const instagramExtraction = (resourceType === 'instagram_reel' || resourceType === 'instagram_carousel')
+    ? await fetchInstagramExtraction(canonicalUrl)
+    : null;
+
+  let html = '';
+  let meta = {};
+  let jsonLdSummary = '';
+  let title = '';
+  let bodyText = '';
+  let thumbnail = '';
+  let author = '';
+  let description = '';
+  let keywords = [];
+  let publishedDate = '';
+
+  try {
+    const response = await fetch(canonicalUrl, {
+      headers: { 'User-Agent': USER_AGENT },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(12000),
+    });
+    html = await response.text();
+    const { document } = parseHTML(html);
+    meta = extractMeta(document);
+    const jsonLdItems = extractJsonLd(document);
+    jsonLdSummary = summarizeJsonLd(jsonLdItems);
+    title = stripText(document.querySelector('title')?.textContent || '');
+    bodyText = extractMainText(document);
+    thumbnail = meta['og:image'] || meta['twitter:image'] || extractJsonLdImage(jsonLdItems) || '';
+    author = meta.author || meta['article:author'] || '';
+    description = meta.description || meta['og:description'] || meta['twitter:description'] || '';
+    keywords = String(meta.keywords || '')
+      .split(',')
+      .map((value) => stripText(value))
+      .filter(Boolean);
+    publishedDate = meta['article:published_time'] || '';
+  } catch {
+    // keep partial metadata flow alive
+  }
+
+  if (resourceType === 'youtube') {
+    const youtube = await fetchYouTubeMetadata(canonicalUrl, html);
+    return {
+      canonicalUrl,
       title: youtube.title || title,
       author: youtube.author || author,
       thumbnail: youtube.thumbnail || thumbnail,
       description: youtube.description || description,
       keywords: youtube.keywords || keywords,
+      publishedDate: youtube.publishedDate || publishedDate,
       content: youtube.transcript || youtube.description || bodyText,
       contentSource: youtube.transcript ? 'youtube_transcript' : (youtube.description ? 'youtube_description' : 'metadata_only'),
       contentLanguage: youtube.language || '',
       resourceType,
       meta,
+      jsonLdSummary,
+      redditThreadData: null,
+      instagramExtraction: null,
+      isRedditThread: false,
+    };
+  }
+
+  if (resourceType === 'reddit') {
+    const redditContent = buildRedditContent(redditThreadData);
+    return {
+      canonicalUrl,
+      title: redditThreadData?.title || title,
+      author: redditThreadData?.author ? `u/${redditThreadData.author}` : author,
+      thumbnail: redditThreadData?.thumbnail || thumbnail,
+      description: redditThreadData?.selfText || description,
+      keywords,
+      publishedDate: redditThreadData?.publishedDate || publishedDate,
+      content: redditContent || bodyText,
+      contentSource: redditContent ? 'reddit_thread' : (bodyText ? 'html_text' : 'metadata_only'),
+      contentLanguage: redditContent ? 'en' : '',
+      resourceType,
+      meta,
+      jsonLdSummary,
+      redditThreadData,
+      instagramExtraction: null,
+      isRedditThread: Boolean(redditThreadData),
+    };
+  }
+
+  if (resourceType === 'instagram_reel' || resourceType === 'instagram_carousel') {
+    const instagramContent = normalizeLongText([
+      instagramExtraction?.authorHandle ? `Author: @${instagramExtraction.authorHandle}` : '',
+      instagramExtraction?.caption ? `Caption:\n${instagramExtraction.caption}` : '',
+      instagramExtraction?.transcript ? `Transcript:\n${instagramExtraction.transcript}` : '',
+      Array.isArray(instagramExtraction?.mediaItems) && instagramExtraction.mediaItems.length > 0
+        ? `Media Items: ${instagramExtraction.mediaItems.map((item, index) => {
+          const parts = [
+            `${index + 1}. ${item.type}`,
+            item.duration_seconds != null ? `${item.duration_seconds}s` : '',
+            item.width && item.height ? `${item.width}x${item.height}` : '',
+          ].filter(Boolean);
+          return parts.join(' ');
+        }).join(' | ')}`
+        : '',
+    ].filter(Boolean).join('\n\n'));
+
+    return {
+      canonicalUrl: instagramExtraction?.canonicalUrl || canonicalUrl,
+      title: instagramExtraction?.caption?.slice(0, 120) || title,
+      author: instagramExtraction?.authorHandle ? `@${instagramExtraction.authorHandle}` : author,
+      thumbnail: instagramExtraction?.thumbnailUrl || thumbnail,
+      description: instagramExtraction?.caption || description,
+      keywords,
+      publishedDate: instagramExtraction?.publishedAt || publishedDate,
+      content: instagramContent,
+      contentSource: instagramExtraction?.transcript
+        ? 'instagram_caption_transcript'
+        : instagramExtraction?.caption
+          ? 'instagram_caption'
+          : 'metadata_only',
+      contentLanguage: '',
+      resourceType,
+      meta,
+      jsonLdSummary,
+      redditThreadData: null,
+      instagramExtraction,
+      isRedditThread: false,
     };
   }
 
   return {
+    canonicalUrl,
     title,
     author,
     thumbnail,
     description,
     keywords,
+    publishedDate,
     content: bodyText,
     contentSource: bodyText ? 'html_text' : 'metadata_only',
     contentLanguage: '',
     resourceType,
     meta,
+    jsonLdSummary,
+    redditThreadData: null,
+    instagramExtraction: null,
+    isRedditThread: false,
   };
 }
 
-function buildPrompt({ url, extracted, pageTitle }) {
+function buildMetadataContext(extracted) {
+  return [
+    extracted.meta?.['og:title'] ? `Page Title: ${extracted.meta['og:title']}` : '',
+    extracted.meta?.['og:site_name'] ? `Site Name: ${extracted.meta['og:site_name']}` : '',
+    extracted.meta?.description ? `Meta Description: ${extracted.meta.description}` : '',
+    extracted.meta?.['og:description'] ? `OG Description: ${extracted.meta['og:description']}` : '',
+    extracted.meta?.['og:type'] ? `OG Type: ${extracted.meta['og:type']}` : '',
+    extracted.publishedDate ? `Published: ${extracted.publishedDate}` : '',
+    extracted.meta?.['article:author'] ? `Article Author: ${extracted.meta['article:author']}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+function buildRedditContext(redditThreadData) {
+  if (!redditThreadData) return '';
+  return [
+    `Thread Title: ${redditThreadData.title || ''}`,
+    redditThreadData.subreddit ? `Subreddit: r/${redditThreadData.subreddit}` : '',
+    redditThreadData.author ? `Original Poster: u/${redditThreadData.author}` : '',
+    redditThreadData.flair ? `Thread Flair: ${redditThreadData.flair}` : '',
+    redditThreadData.score != null ? `Post Score: ${redditThreadData.score}` : '',
+    redditThreadData.commentCount != null ? `Comment Count: ${redditThreadData.commentCount}` : '',
+    redditThreadData.selfText ? `Original Post Body: ${redditThreadData.selfText}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+function buildInstagramContext(instagramExtraction) {
+  if (!instagramExtraction) return '';
+  return [
+    instagramExtraction.resourceType ? `Post Kind: ${instagramExtraction.resourceType}` : '',
+    instagramExtraction.authorHandle ? `Author Handle: @${instagramExtraction.authorHandle}` : '',
+    instagramExtraction.publishedAt ? `Published At: ${instagramExtraction.publishedAt}` : '',
+    instagramExtraction.mediaItems.length > 0 ? `Media Count: ${instagramExtraction.mediaItems.length}` : '',
+    instagramExtraction.transcript ? 'Transcript Available: yes' : '',
+    !instagramExtraction.transcript && instagramExtraction.transcriptError ? `Transcript Status: ${instagramExtraction.transcriptError}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+function buildPrompt({ url, extracted, heuristic, areaNames = [] }) {
+  const isReddit = extracted.resourceType === 'reddit';
+  const isInstagram = extracted.resourceType === 'instagram_reel' || extracted.resourceType === 'instagram_carousel';
+  const isToolLike = extracted.resourceType === 'github_repo' || extracted.resourceType === 'website';
+
   return [
     'Analyze this saved resource and return structured JSON for a personal knowledge base.',
     `URL: ${url}`,
     `Detected resource type: ${extracted.resourceType}`,
     `Extracted content source: ${extracted.contentSource}`,
     extracted.contentLanguage ? `Extracted language: ${extracted.contentLanguage}` : '',
-    `Title: ${extracted.title || pageTitle || 'Unknown'}`,
+    `Title: ${extracted.title || url}`,
     extracted.author ? `Author/Creator: ${extracted.author}` : '',
-    extracted.meta?.description ? `Meta description: ${extracted.meta.description}` : '',
     extracted.description ? `Extracted description: ${extracted.description.slice(0, 1500)}` : '',
     extracted.keywords?.length ? `Extracted keywords: ${extracted.keywords.join(', ')}` : '',
-    extracted.meta?.['og:site_name'] ? `Site name: ${extracted.meta['og:site_name']}` : '',
+    buildMetadataContext(extracted) ? `Metadata:\n${buildMetadataContext(extracted)}` : '',
+    extracted.jsonLdSummary ? `Structured data:\n${extracted.jsonLdSummary}` : '',
+    buildRedditContext(extracted.redditThreadData) ? `Reddit context:\n${buildRedditContext(extracted.redditThreadData)}` : '',
+    buildInstagramContext(extracted.instagramExtraction) ? `Instagram context:\n${buildInstagramContext(extracted.instagramExtraction)}` : '',
     '',
-    extracted.content ? `Primary extracted content:\n${extracted.content.slice(0, 16000)}` : 'Primary extracted content: none',
+    extracted.content ? `Primary extracted content:\n${extracted.content.slice(0, MAX_PROMPT_CONTENT_CHARS)}` : 'Primary extracted content: none',
     '',
+    areaNames.length ? `Assign exactly one life area from: ${areaNames.join(', ')}` : '',
     'Return JSON with:',
     '- title',
     '- author',
+    '- published_date',
     '- thumbnail',
     '- summary (2-3 sentences)',
     '- why_it_matters (1-2 sentences)',
     '- who_its_for (short audience description)',
-    '- explanation_for_newbies (simple explanation when useful, otherwise empty)',
+    '- explanation_for_newbies',
     '- main_topic',
+    areaNames.length ? `- area_name (exactly one of: ${areaNames.join(', ')})` : '',
     '- score (1-10)',
     '- tags (3-8 short lowercase tags)',
-    '- key_points (3-6 concise takeaways)',
-    '- actionable_points (2-5 practical next steps)',
-    '- use_cases (2-4 concrete revisit scenarios)',
+    '- key_points (3-6 concise takeaways when content exists)',
+    '- actionable_points (2-5 practical next steps when content exists)',
+    '- use_cases (2-4 concrete revisit scenarios when content exists)',
+    '- learning_outcomes',
+    '- notable_quotes_or_moments',
+    isReddit ? '- reddit_thread_type' : '',
+    isReddit ? '- reddit_top_comment_summaries (2-5 concise takeaways from top comments when comments exist)' : '',
+    isToolLike ? '- status: one of "active", "beta", "deprecated", "unknown"' : '',
     'Return valid JSON only. Do not wrap the JSON in markdown fences.',
     extracted.resourceType === 'youtube'
       ? 'For YouTube, use transcript/content as the primary source and keep the creator/channel plus thumbnail if available.'
       : 'Use extracted content as the main source of truth and stay conservative.',
+    extracted.content
+      ? 'If meaningful content exists, do not return only a summary. Populate key_points, actionable_points, and use_cases whenever reasonably supported.'
+      : '',
+    `Heuristic fallback summary: ${JSON.stringify(heuristic).slice(0, 1600)}`,
   ].filter(Boolean).join('\n');
 }
 
+function getStructuredSectionCount(result) {
+  return [
+    normalizeStringArray(result.key_points, 6).length > 0,
+    normalizeStringArray(result.actionable_points, 5).length > 0,
+    normalizeStringArray(result.use_cases, 5).length > 0,
+  ].filter(Boolean).length;
+}
+
+function hasCoreFraming(result) {
+  return Boolean(stripText(result.why_it_matters)) && Boolean(stripText(result.who_its_for));
+}
+
+function getEnrichmentStatus(result, extracted) {
+  const contentLength = String(extracted.content || '').length;
+  const structuredSections = getStructuredSectionCount(result);
+  const hasCommentTakeaways = normalizeStringArray(result.reddit_top_comment_summaries, 5).length > 0;
+  if (!contentLength) return 'metadata_only';
+  if (structuredSections >= 2 && hasCoreFraming(result)) return 'rich';
+  if (structuredSections >= 1 || hasCoreFraming(result) || hasCommentTakeaways) return 'partial';
+  return 'sparse';
+}
+
+function resolveAreaAssignment(resultAreaName, areas, mergedData, extracted) {
+  const normalizedAreaName = stripText(resultAreaName).toLowerCase();
+  const areaMap = new Map((areas || []).map((area) => [String(area.name || '').toLowerCase(), area]));
+  let matchedArea = areaMap.get(normalizedAreaName) || null;
+  let matchedByFallback = false;
+
+  if (!matchedArea && normalizedAreaName) {
+    for (const area of areas || []) {
+      const candidate = String(area.name || '').toLowerCase();
+      if (!candidate) continue;
+      if (normalizedAreaName.includes(candidate) || candidate.includes(normalizedAreaName)) {
+        matchedArea = area;
+        matchedByFallback = true;
+        break;
+      }
+    }
+  }
+
+  if (!matchedArea) {
+    matchedArea = areaMap.get('knowledge') || (areas || [])[0] || null;
+    matchedByFallback = true;
+  }
+
+  const lowConfidence = (
+    matchedByFallback
+    || !normalizedAreaName
+    || getEnrichmentStatus(mergedData, extracted) !== 'rich'
+    || String(extracted.content || '').length < (extracted.resourceType === 'reddit' ? 600 : 900)
+  );
+
+  return {
+    area_id: matchedArea?.id || '',
+    area_name: matchedArea?.name || '',
+    area_needs_review: Boolean(matchedArea) && lowConfidence,
+  };
+}
+
+function buildAnalysisPayload({ mergedData, extracted, areaAssignment }) {
+  const isReddit = extracted.resourceType === 'reddit';
+  const isInstagram = extracted.resourceType === 'instagram_reel' || extracted.resourceType === 'instagram_carousel';
+  const instagramExtraction = extracted.instagramExtraction;
+  const redditThreadData = extracted.redditThreadData;
+
+  return {
+    ...mergedData,
+    score: mergedData.score || 5,
+    resource_type: extracted.resourceType,
+    url: extracted.canonicalUrl,
+    area_id: areaAssignment.area_id,
+    area_name: areaAssignment.area_name,
+    area_needs_review: areaAssignment.area_needs_review,
+    enrichment_status: getEnrichmentStatus(mergedData, extracted),
+    analysis_version: ANALYSIS_VERSION,
+    content_source: extracted.contentSource,
+    content_language: extracted.contentLanguage || '',
+    content: extracted.content || '',
+    published_date: mergedData.published_date || extracted.publishedDate || '',
+    reddit_thread_type: mergedData.reddit_thread_type || (isReddit && extracted.isRedditThread ? 'discussion' : ''),
+    reddit_top_comment_summaries: normalizeStringArray(
+      mergedData.reddit_top_comment_summaries?.length
+        ? mergedData.reddit_top_comment_summaries
+        : redditThreadData?.topComments?.slice(0, 3).map((comment) => comment.body) || [],
+      5,
+      240,
+    ),
+    ...(isReddit
+      ? {
+          reddit_subreddit: redditThreadData?.subreddit || '',
+          reddit_author: redditThreadData?.author || '',
+          reddit_post_score: redditThreadData?.score ?? null,
+          reddit_comment_count: redditThreadData?.commentCount ?? null,
+        }
+      : {}),
+    ...(isInstagram && instagramExtraction
+      ? {
+          instagram_author_handle: instagramExtraction.authorHandle || '',
+          instagram_caption: instagramExtraction.caption || '',
+          instagram_transcript: instagramExtraction.transcript || '',
+          instagram_media_items: instagramExtraction.mediaItems || [],
+          ingestion_source: instagramExtraction.ingestionSource || '',
+          ingestion_error: instagramExtraction.transcriptError || '',
+        }
+      : {}),
+  };
+}
+
 export async function analyzeResource({ url, title = '', content = '', userId = null }) {
+  const normalizedInputUrl = normalizeResourceUrl(url);
   const extracted = content
     ? {
-      title,
-      author: '',
-      thumbnail: '',
-      content: normalizeLongText(content, 20000),
-      contentSource: 'manual_text',
-      contentLanguage: '',
-      resourceType: inferResourceType(url),
-      meta: {},
-    }
-    : await fetchPageSummary(url);
-  const heuristic = buildHeuristicResourceData({ extracted, title, url });
+        canonicalUrl: normalizedInputUrl,
+        title,
+        author: '',
+        thumbnail: '',
+        description: '',
+        keywords: [],
+        publishedDate: '',
+        content: normalizeLongText(content, 20000),
+        contentSource: 'manual_text',
+        contentLanguage: '',
+        resourceType: inferResourceType(normalizedInputUrl),
+        meta: {},
+        jsonLdSummary: '',
+        redditThreadData: null,
+        instagramExtraction: null,
+        isRedditThread: false,
+      }
+    : await fetchPageSummary(normalizedInputUrl);
 
-  const prompt = buildPrompt({ url, extracted, pageTitle: title });
+  const areas = userId ? await listCompatEntities(userId, 'LifeArea', { sort: 'name', limit: 500 }) : [];
+  const heuristic = buildHeuristicResourceData({ extracted, title, url: extracted.canonicalUrl || normalizedInputUrl });
+  const prompt = buildPrompt({
+    url: extracted.canonicalUrl || normalizedInputUrl,
+    extracted,
+    heuristic,
+    areaNames: areas.map((area) => area.name).filter(Boolean),
+  });
+
   let result = null;
-
   try {
     result = await routeStructuredJson({
       taskType: 'resource.analyze',
@@ -479,7 +1296,7 @@ export async function analyzeResource({ url, title = '', content = '', userId = 
       schema: resourceSchema,
       userId,
       metadata: {
-        requestSummary: `resource:${url}`,
+        requestSummary: `resource:${normalizedInputUrl}`,
       },
     });
   } catch {
@@ -495,6 +1312,7 @@ export async function analyzeResource({ url, title = '', content = '', userId = 
     ...result.data,
     title: result.data.title || heuristic.title,
     author: result.data.author || heuristic.author,
+    published_date: result.data.published_date || heuristic.published_date,
     thumbnail: result.data.thumbnail || heuristic.thumbnail,
     summary: result.data.summary || heuristic.summary,
     why_it_matters: result.data.why_it_matters || heuristic.why_it_matters,
@@ -506,19 +1324,125 @@ export async function analyzeResource({ url, title = '', content = '', userId = 
     key_points: dedupeStrings([...(result.data.key_points || []), ...heuristic.key_points], 6),
     actionable_points: dedupeStrings([...(result.data.actionable_points || []), ...heuristic.actionable_points], 5),
     use_cases: dedupeStrings([...(result.data.use_cases || []), ...heuristic.use_cases], 4),
+    learning_outcomes: dedupeStrings([...(result.data.learning_outcomes || []), ...heuristic.learning_outcomes], 4),
+    notable_quotes_or_moments: dedupeStrings([...(result.data.notable_quotes_or_moments || []), ...heuristic.notable_quotes_or_moments], 3),
+    reddit_thread_type: result.data.reddit_thread_type || heuristic.reddit_thread_type,
+    reddit_top_comment_summaries: normalizeStringArray(
+      [...(result.data.reddit_top_comment_summaries || []), ...(heuristic.reddit_top_comment_summaries || [])],
+      5,
+      240,
+    ),
+    status: result.data.status || heuristic.status || 'unknown',
   };
+
+  const areaAssignment = resolveAreaAssignment(result.data.area_name || heuristic.area_name, areas, mergedData, extracted);
+  const data = buildAnalysisPayload({ mergedData, extracted, areaAssignment });
 
   return {
     ...result,
-    data: {
-      ...mergedData,
-      content_source: extracted.contentSource,
-      content_language: extracted.contentLanguage,
-      content: extracted.content || '',
-      enrichment_status: extracted.content
-        ? (result.provider === 'heuristic' ? 'partial' : 'rich')
-        : 'metadata_only',
-      analysis_version: result.provider === 'heuristic' ? 'resource-enrichment-v5-heuristic' : 'resource-enrichment-v5',
-    },
+    data,
+  };
+}
+
+function matchesReenrichSearch(resource, search = '') {
+  const searchTerms = String(search || '').toLowerCase().trim().split(/\s+/).filter(Boolean);
+  if (!searchTerms.length) return true;
+  const searchable = [
+    resource.title,
+    resource.summary,
+    resource.why_it_matters,
+    resource.who_its_for,
+    resource.content,
+    resource.main_topic,
+    resource.author,
+    ...(Array.isArray(resource.tags) ? resource.tags : []),
+    ...(Array.isArray(resource.key_points) ? resource.key_points : []),
+    ...(Array.isArray(resource.actionable_points) ? resource.actionable_points : []),
+    ...(Array.isArray(resource.use_cases) ? resource.use_cases : []),
+    ...(Array.isArray(resource.learning_outcomes) ? resource.learning_outcomes : []),
+    ...(Array.isArray(resource.notable_quotes_or_moments) ? resource.notable_quotes_or_moments : []),
+  ].filter(Boolean).join(' ').toLowerCase();
+  return searchTerms.every((term) => searchable.includes(term));
+}
+
+function matchesReenrichFilters(resource, filters = {}, projectResourceIds = null) {
+  const typeFilter = String(filters.type || 'all');
+  const areaFilter = String(filters.area_id || 'all');
+  const archivedFilter = String(filters.archived || 'all');
+  const tagFilter = String(filters.tag || '').trim();
+
+  if (typeFilter !== 'all' && resource.resource_type !== typeFilter) return false;
+  if (areaFilter !== 'all' && resource.area_id !== areaFilter) return false;
+  if (archivedFilter === 'active' && resource.is_archived) return false;
+  if (archivedFilter === 'archived' && !resource.is_archived) return false;
+  if (projectResourceIds && !projectResourceIds.has(resource.id)) return false;
+  if (tagFilter && !(Array.isArray(resource.tags) ? resource.tags : []).includes(tagFilter)) return false;
+  return matchesReenrichSearch(resource, filters.search || '');
+}
+
+export async function reEnrichResourcesForUser(userId, { resourceIds = [], filters = {}, batchSize = 25 } = {}) {
+  const resources = await listCompatEntities(userId, 'Resource', { sort: '-created_date', limit: 5000 });
+  const selectedIds = new Set((resourceIds || []).filter(Boolean));
+  const projectId = String(filters.project_id || '').trim();
+  let projectResourceIds = null;
+
+  if (!selectedIds.size && projectId) {
+    const projectResources = await listCompatEntities(userId, 'ProjectResource', { sort: '-created_date', limit: 5000 });
+    projectResourceIds = new Set(
+      projectResources
+        .filter((entry) => entry.project_id === projectId)
+        .map((entry) => entry.resource_id || entry.note_id)
+        .filter(Boolean),
+    );
+  }
+
+  const targets = resources
+    .filter((resource) => (
+      selectedIds.size
+        ? selectedIds.has(resource.id)
+        : matchesReenrichFilters(resource, filters, projectResourceIds)
+    ))
+    .slice(0, Math.max(Number(batchSize) || 25, 1));
+
+  let updated = 0;
+  let skipped = 0;
+  let failed = 0;
+  const items = [];
+
+  for (const resource of targets) {
+    const resourceUrl = normalizeResourceUrl(resource.source_url || resource.url || '');
+    if (!resourceUrl || !isValidHttpUrl(resourceUrl) || resource.resource_type === 'note') {
+      skipped += 1;
+      items.push({ id: resource.id, status: 'skipped', reason: 'Resource does not have a re-enrichable URL.' });
+      continue;
+    }
+
+    try {
+      const analyzed = await analyzeResource({
+        url: resourceUrl,
+        title: resource.title || '',
+        content: '',
+        userId,
+      });
+      await updateCompatEntity(userId, 'Resource', resource.id, {
+        ...resource,
+        ...analyzed.data,
+        id: resource.id,
+        created_date: resource.created_date,
+      });
+      updated += 1;
+      items.push({ id: resource.id, status: 'updated' });
+    } catch (error) {
+      failed += 1;
+      items.push({ id: resource.id, status: 'failed', reason: error?.message || 'Re-enrichment failed.' });
+    }
+  }
+
+  return {
+    total: targets.length,
+    updated,
+    skipped,
+    failed,
+    items,
   };
 }

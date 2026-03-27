@@ -60,3 +60,7 @@ export async function createResourceFromUrl(payload = {}) {
     success: true,
   };
 }
+
+export async function reEnrichResources(payload = {}) {
+  return apiPost('/resources/re-enrich', payload);
+}
