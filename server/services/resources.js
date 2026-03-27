@@ -36,6 +36,10 @@ const resourceSchema = z.object({
   status: z.string().default('unknown'),
 });
 
+const areaClassificationSchema = z.object({
+  area_name: z.string().default(''),
+});
+
 function stripText(value) {
   return String(value || '')
     .replace(/\s+/g, ' ')
@@ -461,6 +465,46 @@ function extractPlayerResponseFromHtml(html) {
   return null;
 }
 
+function extractInitialDataFromHtml(html) {
+  const patterns = [
+    /var\s+ytInitialData\s*=\s*(\{.*?\})\s*;/s,
+    /"ytInitialData"\s*:\s*(\{.*?\})\s*,\s*"(?:responseContext|trackingParams)"/s,
+  ];
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (!match?.[1]) continue;
+    try {
+      return JSON.parse(match[1]);
+    } catch {
+      // continue
+    }
+  }
+  return null;
+}
+
+function findObjectsDeep(value, predicate, results = []) {
+  if (!value || typeof value !== 'object') return results;
+  if (predicate(value)) results.push(value);
+  if (Array.isArray(value)) {
+    for (const item of value) findObjectsDeep(item, predicate, results);
+    return results;
+  }
+  for (const nested of Object.values(value)) {
+    findObjectsDeep(nested, predicate, results);
+  }
+  return results;
+}
+
+function extractTextRuns(value) {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value?.runs)) {
+    return value.runs.map((run) => String(run?.text || '')).join('').trim();
+  }
+  if (typeof value?.simpleText === 'string') return value.simpleText.trim();
+  return '';
+}
+
 function extractTranscriptTextFromEvents(payload) {
   const events = Array.isArray(payload?.events) ? payload.events : [];
   const parts = [];
@@ -504,6 +548,69 @@ async function fetchYoutubeTranscriptFromWatchPage(normalizedUrl, html) {
   }
 }
 
+async function fetchYoutubeTranscriptFromInnertube(videoId, html) {
+  if (!videoId) return { transcript: '', language: '', playerResponse: null };
+
+  const apiKey = html.match(/"INNERTUBE_API_KEY":"([^"]+)"/)?.[1]
+    || html.match(/innertubeApiKey["']?\s*:\s*["']([^"']+)["']/i)?.[1]
+    || '';
+  const clientVersion = html.match(/"INNERTUBE_CLIENT_VERSION":"([^"]+)"/)?.[1] || '2.20250101.00.00';
+  if (!apiKey) return { transcript: '', language: '', playerResponse: null };
+
+  try {
+    const response = await fetch(`https://www.youtube.com/youtubei/v1/player?key=${encodeURIComponent(apiKey)}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': USER_AGENT,
+      },
+      body: JSON.stringify({
+        videoId,
+        context: {
+          client: {
+            clientName: 'WEB',
+            clientVersion,
+            hl: 'en',
+            gl: 'US',
+          },
+        },
+      }),
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!response.ok) return { transcript: '', language: '', playerResponse: null };
+    const playerResponse = await response.json();
+    const tracks = playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    if (!Array.isArray(tracks) || tracks.length === 0) {
+      return { transcript: '', language: '', playerResponse };
+    }
+
+    const selectedTrack = [...tracks].sort((a, b) => {
+      const aGenerated = a?.kind === 'asr' ? 1 : 0;
+      const bGenerated = b?.kind === 'asr' ? 1 : 0;
+      return aGenerated - bGenerated;
+    })[0];
+
+    const baseUrl = String(selectedTrack?.baseUrl || '');
+    if (!baseUrl) return { transcript: '', language: '', playerResponse };
+
+    const transcriptResponse = await fetch(`${baseUrl}&fmt=json3`, {
+      headers: { 'User-Agent': USER_AGENT },
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!transcriptResponse.ok) {
+      return { transcript: '', language: '', playerResponse };
+    }
+    const transcriptPayload = await transcriptResponse.json();
+    return {
+      transcript: extractTranscriptTextFromEvents(transcriptPayload),
+      language: String(selectedTrack?.languageCode || ''),
+      playerResponse,
+    };
+  } catch {
+    return { transcript: '', language: '', playerResponse: null };
+  }
+}
+
 async function fetchYoutubeTranscriptViaSupadata(normalizedUrl) {
   const apiKey = process.env.SUPADATA_API_KEY || '';
   if (!apiKey) return { transcript: '', language: '' };
@@ -525,8 +632,11 @@ async function fetchYoutubeTranscriptViaSupadata(normalizedUrl) {
 
 async function fetchYouTubeMetadata(normalizedUrl, html) {
   const videoId = extractYoutubeVideoId(normalizedUrl);
-  const playerResponse = extractPlayerResponseFromHtml(html);
+  const initialPlayerResponse = extractPlayerResponseFromHtml(html);
+  const innertubeResult = await fetchYoutubeTranscriptFromInnertube(videoId, html);
+  const playerResponse = innertubeResult.playerResponse || initialPlayerResponse || {};
   const videoDetails = playerResponse?.videoDetails || {};
+  const initialData = extractInitialDataFromHtml(html);
   let oembed = null;
 
   try {
@@ -542,11 +652,26 @@ async function fetchYouTubeMetadata(normalizedUrl, html) {
   }
 
   const fromWatchPage = await fetchYoutubeTranscriptFromWatchPage(normalizedUrl, html);
-  const fallbackTranscript = fromWatchPage.transcript
+  const transcriptCandidates = [
+    { transcript: fromWatchPage.transcript, language: fromWatchPage.language },
+    { transcript: innertubeResult.transcript, language: innertubeResult.language },
+  ];
+  const bestDirectTranscript = transcriptCandidates.find((entry) => stripText(entry.transcript)) || { transcript: '', language: '' };
+  const fallbackTranscript = bestDirectTranscript.transcript
     ? { transcript: '', language: '' }
     : await fetchYoutubeTranscriptViaSupadata(normalizedUrl);
-  const transcript = fromWatchPage.transcript || fallbackTranscript.transcript;
-  const language = fromWatchPage.language || fallbackTranscript.language;
+  const transcript = bestDirectTranscript.transcript || fallbackTranscript.transcript;
+  const language = bestDirectTranscript.language || fallbackTranscript.language;
+  const aiSummaryCandidates = findObjectsDeep(initialData, (entry) => (
+    Boolean(entry?.content)
+    && /summary/i.test(extractTextRuns(entry?.title) || extractTextRuns(entry?.header))
+  ));
+  const youtubeAiSummary = normalizeLongText(
+    aiSummaryCandidates
+      .map((entry) => extractTextRuns(entry?.content) || extractTextRuns(entry?.description))
+      .find((value) => stripText(value) && !/aboutpresscopyright|termsprivacy|test new features/i.test(value)) || '',
+    4000,
+  );
 
   return {
     title: stripText(oembed?.title || videoDetails?.title || ''),
@@ -557,6 +682,7 @@ async function fetchYouTubeMetadata(normalizedUrl, html) {
     publishedDate: '',
     transcript,
     language,
+    youtubeAiSummary,
   };
 }
 
@@ -961,12 +1087,13 @@ async function fetchPageSummary(inputUrl) {
       description: youtube.description || description,
       keywords: youtube.keywords || keywords,
       publishedDate: youtube.publishedDate || publishedDate,
-      content: youtube.transcript || youtube.description || bodyText,
+      content: youtube.transcript || youtube.description || '',
       contentSource: youtube.transcript ? 'youtube_transcript' : (youtube.description ? 'youtube_description' : 'metadata_only'),
       contentLanguage: youtube.language || '',
       resourceType,
       meta,
       jsonLdSummary,
+      youtubeAiSummary: youtube.youtubeAiSummary || '',
       redditThreadData: null,
       instagramExtraction: null,
       isRedditThread: false,
@@ -1050,6 +1177,7 @@ async function fetchPageSummary(inputUrl) {
     resourceType,
     meta,
     jsonLdSummary,
+    youtubeAiSummary: '',
     redditThreadData: null,
     instagramExtraction: null,
     isRedditThread: false,
@@ -1107,6 +1235,7 @@ function buildPrompt({ url, extracted, heuristic, areaNames = [] }) {
     `Title: ${extracted.title || url}`,
     extracted.author ? `Author/Creator: ${extracted.author}` : '',
     extracted.description ? `Extracted description: ${extracted.description.slice(0, 1500)}` : '',
+    extracted.youtubeAiSummary ? `Supplemental YouTube AI summary: ${extracted.youtubeAiSummary.slice(0, 1500)}` : '',
     extracted.keywords?.length ? `Extracted keywords: ${extracted.keywords.join(', ')}` : '',
     buildMetadataContext(extracted) ? `Metadata:\n${buildMetadataContext(extracted)}` : '',
     extracted.jsonLdSummary ? `Structured data:\n${extracted.jsonLdSummary}` : '',
@@ -1146,6 +1275,40 @@ function buildPrompt({ url, extracted, heuristic, areaNames = [] }) {
       : '',
     `Heuristic fallback summary: ${JSON.stringify(heuristic).slice(0, 1600)}`,
   ].filter(Boolean).join('\n');
+}
+
+async function classifyAreaFromContent({ extracted, mergedData, areas, userId }) {
+  if (!areas.length) return '';
+  const prompt = [
+    'Choose exactly one life area for this resource.',
+    `Allowed life areas: ${areas.map((area) => area.name).join(', ')}`,
+    `Title: ${mergedData.title || extracted.title || ''}`,
+    `Author: ${mergedData.author || extracted.author || ''}`,
+    `Main topic: ${mergedData.main_topic || ''}`,
+    `Summary: ${mergedData.summary || ''}`,
+    mergedData.tags?.length ? `Tags: ${mergedData.tags.join(', ')}` : '',
+    extracted.resourceType ? `Resource type: ${extracted.resourceType}` : '',
+    extracted.youtubeAiSummary ? `Supplemental YouTube AI summary: ${extracted.youtubeAiSummary.slice(0, 1200)}` : '',
+    extracted.content ? `Content excerpt:\n${String(extracted.content).slice(0, 4000)}` : '',
+    'Return JSON with only area_name, using exactly one of the allowed life area names. If uncertain, still choose the closest fit.',
+  ].filter(Boolean).join('\n');
+
+  try {
+    const result = await routeStructuredJson({
+      taskType: 'generic.structured',
+      prompt,
+      schema: areaClassificationSchema,
+      userId,
+      policy: { tier: 'cheap', temperature: 0.1, maxTokens: 120 },
+      metadata: {
+        requestSummary: `resource-area:${extracted.canonicalUrl || extracted.title || 'resource'}`,
+      },
+      groundWithGoogleSearch: false,
+    });
+    return stripText(result.data.area_name);
+  } catch {
+    return '';
+  }
 }
 
 function getStructuredSectionCount(result) {
@@ -1273,6 +1436,7 @@ export async function analyzeResource({ url, title = '', content = '', userId = 
         resourceType: inferResourceType(normalizedInputUrl),
         meta: {},
         jsonLdSummary: '',
+        youtubeAiSummary: '',
         redditThreadData: null,
         instagramExtraction: null,
         isRedditThread: false,
@@ -1295,6 +1459,7 @@ export async function analyzeResource({ url, title = '', content = '', userId = 
       prompt,
       schema: resourceSchema,
       userId,
+      groundWithGoogleSearch: true,
       metadata: {
         requestSummary: `resource:${normalizedInputUrl}`,
       },
@@ -1335,8 +1500,24 @@ export async function analyzeResource({ url, title = '', content = '', userId = 
     status: result.data.status || heuristic.status || 'unknown',
   };
 
-  const areaAssignment = resolveAreaAssignment(result.data.area_name || heuristic.area_name, areas, mergedData, extracted);
+  let resolvedAreaName = stripText(result.data.area_name || heuristic.area_name);
+  let areaAssignment = resolveAreaAssignment(resolvedAreaName, areas, mergedData, extracted);
+  if ((!resolvedAreaName || !areaAssignment.area_id || areaAssignment.area_name === 'Knowledge') && areas.length) {
+    const secondPassAreaName = await classifyAreaFromContent({
+      extracted,
+      mergedData,
+      areas,
+      userId,
+    });
+    if (secondPassAreaName) {
+      resolvedAreaName = secondPassAreaName;
+      areaAssignment = resolveAreaAssignment(secondPassAreaName, areas, mergedData, extracted);
+    }
+  }
   const data = buildAnalysisPayload({ mergedData, extracted, areaAssignment });
+  if (extracted.youtubeAiSummary) {
+    data.youtube_ai_summary = extracted.youtubeAiSummary;
+  }
 
   return {
     ...result,
