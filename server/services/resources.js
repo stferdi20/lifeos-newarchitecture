@@ -1579,6 +1579,29 @@ function matchesReenrichFilters(resource, filters = {}, projectResourceIds = nul
   return matchesReenrichSearch(resource, filters.search || '');
 }
 
+function isKnowledgeAreaName(value = '') {
+  return stripText(value).toLowerCase() === 'knowledge';
+}
+
+function preserveStrongerExistingArea(resource, analyzedData) {
+  const existingHasArea = Boolean(stripText(resource.area_id) || stripText(resource.area_name));
+  const existingIsKnowledge = isKnowledgeAreaName(resource.area_name);
+  const nextHasArea = Boolean(stripText(analyzedData.area_id) || stripText(analyzedData.area_name));
+  const nextIsKnowledge = isKnowledgeAreaName(analyzedData.area_name);
+  const nextIsWeak = !nextHasArea || nextIsKnowledge || Boolean(analyzedData.area_needs_review);
+
+  if (existingHasArea && !existingIsKnowledge && nextIsWeak) {
+    return {
+      ...analyzedData,
+      area_id: resource.area_id || '',
+      area_name: resource.area_name || '',
+      area_needs_review: Boolean(resource.area_needs_review),
+    };
+  }
+
+  return analyzedData;
+}
+
 export async function reEnrichResourcesForUser(userId, { resourceIds = [], filters = {}, batchSize = 25 } = {}) {
   const resources = await listCompatEntities(userId, 'Resource', { sort: '-created_date', limit: 5000 });
   const selectedIds = new Set((resourceIds || []).filter(Boolean));
@@ -1623,9 +1646,10 @@ export async function reEnrichResourcesForUser(userId, { resourceIds = [], filte
         content: '',
         userId,
       });
+      const nextData = preserveStrongerExistingArea(resource, analyzed.data);
       await updateCompatEntity(userId, 'Resource', resource.id, {
         ...resource,
-        ...analyzed.data,
+        ...nextData,
         id: resource.id,
         created_date: resource.created_date,
       });
