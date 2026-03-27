@@ -41,6 +41,7 @@ async function fetchResourceLinks(entityApi, resourceId) {
 }
 
 export default function Resources() {
+  const REENRICH_BATCH_SIZE = 25;
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const location = useLocation();
@@ -62,6 +63,13 @@ export default function Resources() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [visibleCount, setVisibleCount] = useState(24);
+  const [reenrichProgress, setReenrichProgress] = useState({
+    scope: null,
+    total: 0,
+    processed: 0,
+    updated: 0,
+    failed: 0,
+  });
   const loadMoreRef = useRef(null);
 
   const { data: resources = [], isLoading: resourcesLoading } = useQuery({
@@ -174,6 +182,84 @@ export default function Resources() {
     queryClient.invalidateQueries({ queryKey: ['card-resource-links'] });
   };
 
+  const buildReenrichLabel = (scopeLabel) => {
+    if (!reenrichProgress.total || !reenrichProgress.scope) return `Re-enriching ${scopeLabel}...`;
+    return `Processing 25 at a time (${Math.min(reenrichProgress.processed, reenrichProgress.total)}/${reenrichProgress.total})`;
+  };
+
+  const runReenrichInBatches = async ({ resourceIds, toastId, scope, scopeLabel }) => {
+    const ids = [...new Set((resourceIds || []).filter(Boolean))];
+    if (!ids.length) {
+      return {
+        total: 0,
+        updated: 0,
+        skipped: 0,
+        failed: 0,
+      };
+    }
+
+    let processed = 0;
+    let updated = 0;
+    let skipped = 0;
+    let failed = 0;
+
+    setReenrichProgress({
+      scope,
+      total: ids.length,
+      processed: 0,
+      updated: 0,
+      failed: 0,
+    });
+
+    toast.loading(`Processing 25 at a time (0/${ids.length})`, {
+      id: toastId,
+      description: `${scopeLabel} re-enrichment is running in batches.`,
+    });
+
+    for (let index = 0; index < ids.length; index += REENRICH_BATCH_SIZE) {
+      const batchIds = ids.slice(index, index + REENRICH_BATCH_SIZE);
+      const result = await reEnrichResources({
+        resource_ids: batchIds,
+        batch_size: REENRICH_BATCH_SIZE,
+      });
+
+      processed += batchIds.length;
+      updated += Number(result?.updated || 0);
+      skipped += Number(result?.skipped || 0);
+      failed += Number(result?.failed || 0);
+
+      setReenrichProgress({
+        scope,
+        total: ids.length,
+        processed,
+        updated,
+        failed,
+      });
+
+      invalidateResourceQueries();
+
+      toast.loading(`Processing 25 at a time (${Math.min(processed, ids.length)}/${ids.length})`, {
+        id: toastId,
+        description: `${updated} updated${skipped ? `, ${skipped} skipped` : ''}${failed ? `, ${failed} failed` : ''}.`,
+      });
+    }
+
+    setReenrichProgress({
+      scope: null,
+      total: 0,
+      processed: 0,
+      updated: 0,
+      failed: 0,
+    });
+
+    return {
+      total: ids.length,
+      updated,
+      skipped,
+      failed,
+    };
+  };
+
   const clearSelection = () => {
     setSelectedIds(new Set());
     setSelectMode(false);
@@ -240,17 +326,13 @@ export default function Resources() {
   });
 
   const bulkReenrichMutation = useMutation({
-    mutationFn: async () => reEnrichResources({
-      resource_ids: selectedResources.map((resource) => resource.id),
-      batch_size: Math.min(selectedResources.length || 100, 500),
+    mutationFn: async () => runReenrichInBatches({
+      resourceIds: selectedResources.map((resource) => resource.id),
+      toastId: 'resource-reenrich-selected',
+      scope: 'selected',
+      scopeLabel: `${selectedResources.length} selected resource${selectedResources.length === 1 ? '' : 's'}`,
     }),
-    onMutate: () => {
-      toast.loading(`Re-enriching ${selectedResources.length} selected resource${selectedResources.length === 1 ? '' : 's'}...`, {
-        id: 'resource-reenrich-selected',
-      });
-    },
     onSuccess: (result) => {
-      invalidateResourceQueries();
       const updated = Number(result?.updated || 0);
       const skipped = Number(result?.skipped || 0);
       const failed = Number(result?.failed || 0);
@@ -262,6 +344,13 @@ export default function Resources() {
       );
     },
     onError: (error) => {
+      setReenrichProgress({
+        scope: null,
+        total: 0,
+        processed: 0,
+        updated: 0,
+        failed: 0,
+      });
       toast.error(error?.message || 'Failed to re-enrich selected resources.', {
         id: 'resource-reenrich-selected',
       });
@@ -269,24 +358,13 @@ export default function Resources() {
   });
 
   const filteredReenrichMutation = useMutation({
-    mutationFn: async () => reEnrichResources({
-      filters: {
-        search,
-        type: typeFilter,
-        area_id: areaFilter,
-        archived: archivedFilter,
-        project_id: projectFilter || '',
-        tag: tagFilter || '',
-      },
-      batch_size: Math.min(filteredResources.length || 100, 500),
+    mutationFn: async () => runReenrichInBatches({
+      resourceIds: filteredResources.map((resource) => resource.id),
+      toastId: 'resource-reenrich-filtered',
+      scope: 'filtered',
+      scopeLabel: `${filteredResources.length} filtered resource${filteredResources.length === 1 ? '' : 's'}`,
     }),
-    onMutate: () => {
-      toast.loading(`Re-enriching ${filteredResources.length} filtered resource${filteredResources.length === 1 ? '' : 's'}...`, {
-        id: 'resource-reenrich-filtered',
-      });
-    },
     onSuccess: (result) => {
-      invalidateResourceQueries();
       const updated = Number(result?.updated || 0);
       const skipped = Number(result?.skipped || 0);
       const failed = Number(result?.failed || 0);
@@ -298,6 +376,13 @@ export default function Resources() {
       );
     },
     onError: (error) => {
+      setReenrichProgress({
+        scope: null,
+        total: 0,
+        processed: 0,
+        updated: 0,
+        failed: 0,
+      });
       toast.error(error?.message || 'Failed to re-enrich filtered resources.', {
         id: 'resource-reenrich-filtered',
       });
@@ -526,7 +611,7 @@ export default function Resources() {
             {filteredReenrichMutation.isPending
               ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
               : <Sparkles className="w-3.5 h-3.5 mr-1" />}
-            {filteredReenrichMutation.isPending ? 'Re-enriching filtered...' : 'Re-enrich filtered'}
+            {filteredReenrichMutation.isPending ? buildReenrichLabel('filtered') : 'Re-enrich filtered'}
           </Button>
         )}
       </div>
@@ -608,6 +693,8 @@ export default function Resources() {
           isWorking={bulkUpdateMutation.isPending || bulkDeleteMutation.isPending || bulkReenrichMutation.isPending || filteredReenrichMutation.isPending}
           isReenrichingSelected={bulkReenrichMutation.isPending}
           isReenrichingFiltered={filteredReenrichMutation.isPending}
+          reenrichSelectedLabel={buildReenrichLabel('selected')}
+          reenrichFilteredLabel={buildReenrichLabel('filtered')}
           onArchive={() => bulkUpdateMutation.mutate(() => ({ is_archived: true }))}
           onUnarchive={() => bulkUpdateMutation.mutate(() => ({ is_archived: false }))}
           onReenrich={() => bulkReenrichMutation.mutate()}
