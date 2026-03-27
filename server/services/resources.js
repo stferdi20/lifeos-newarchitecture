@@ -46,6 +46,10 @@ function stripText(value) {
     .trim();
 }
 
+function toArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
 function normalizeLongText(value, limit = MAX_STORED_CONTENT_CHARS) {
   return String(value || '')
     .replace(/&amp;/g, '&')
@@ -87,6 +91,16 @@ function normalizeStringArray(values, limit = 8, itemLimit = 280) {
     Array.isArray(values)
       ? values.map((value) => String(value || '').slice(0, itemLimit))
       : [],
+    limit,
+  );
+}
+
+function normalizeKeywordValues(values, limit = 12) {
+  return dedupeStrings(
+    toArray(values)
+      .flatMap((value) => String(value || '').split(','))
+      .map((value) => stripText(value))
+      .filter(Boolean),
     limit,
   );
 }
@@ -162,6 +176,20 @@ function deriveMainTopic({ title = '', keywords = [], metaKeywords = '' }) {
     .replace(/\s*[-|:]\s*.*/g, '')
     .trim();
   return cleanedTitle.split(/\s+/).slice(0, 5).join(' ');
+}
+
+function normalizeTitleCandidate(title = '', siteName = '') {
+  let cleaned = stripText(title);
+  const site = stripText(siteName);
+  if (!cleaned) return '';
+  if (site) {
+    const escapedSite = site.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    cleaned = cleaned
+      .replace(new RegExp(`\\s*[|:-]\\s*${escapedSite}$`, 'i'), '')
+      .replace(new RegExp(`^${escapedSite}\\s*[|:-]\\s*`, 'i'), '')
+      .trim();
+  }
+  return stripText(cleaned);
 }
 
 function deriveAudience({ resourceType = '', text = '' }) {
@@ -398,6 +426,60 @@ function extractJsonLd(document) {
   return results;
 }
 
+function getJsonLdAuthorName(author) {
+  if (!author) return '';
+  if (typeof author === 'string') return stripText(author);
+  if (Array.isArray(author)) {
+    return dedupeStrings(author.map((entry) => (
+      typeof entry === 'string' ? entry : entry?.name || ''
+    )), 1)[0] || '';
+  }
+  return stripText(author?.name || author?.author?.name || '');
+}
+
+function extractJsonLdMetadata(jsonLdItems = []) {
+  const titles = [];
+  const descriptions = [];
+  const articleBodies = [];
+  const authors = [];
+  const keywords = [];
+  const publishedDates = [];
+  const thumbnails = [];
+  const siteNames = [];
+
+  for (const item of jsonLdItems) {
+    const graphItems = Array.isArray(item?.['@graph']) ? item['@graph'] : [item];
+    for (const entry of graphItems.filter(Boolean)) {
+      titles.push(
+        entry?.headline,
+        entry?.name,
+        entry?.alternativeHeadline,
+      );
+      descriptions.push(entry?.description, entry?.abstract);
+      articleBodies.push(entry?.articleBody, entry?.text);
+      authors.push(getJsonLdAuthorName(entry?.author), getJsonLdAuthorName(entry?.creator));
+      keywords.push(entry?.keywords, entry?.about?.name, entry?.publisher?.name);
+      publishedDates.push(entry?.datePublished, entry?.dateCreated, entry?.dateModified);
+      thumbnails.push(
+        typeof entry?.image === 'string' ? entry.image : entry?.image?.url,
+        entry?.thumbnailUrl,
+      );
+      siteNames.push(entry?.publisher?.name, entry?.isPartOf?.name);
+    }
+  }
+
+  return {
+    title: dedupeStrings(titles, 1)[0] || '',
+    description: dedupeStrings(descriptions, 1)[0] || '',
+    articleBody: normalizeLongText(dedupeStrings(articleBodies, 1)[0] || '', 20000),
+    author: dedupeStrings(authors, 1)[0] || '',
+    keywords: normalizeKeywordValues(keywords, 12),
+    publishedDate: dedupeStrings(publishedDates, 1)[0] || '',
+    thumbnail: dedupeStrings(thumbnails, 1)[0] || '',
+    siteName: dedupeStrings(siteNames, 1)[0] || '',
+  };
+}
+
 function summarizeJsonLd(jsonLdItems = []) {
   if (!jsonLdItems.length) return '';
   const lines = [];
@@ -429,8 +511,41 @@ function extractJsonLdImage(jsonLdItems = []) {
   return '';
 }
 
+function extractCandidateText(candidate) {
+  if (!candidate) return '';
+  const blockSelectors = ['h1', 'h2', 'h3', 'p', 'blockquote', 'pre', 'figcaption', 'li'];
+  const pieces = blockSelectors
+    .flatMap((selector) => [...candidate.querySelectorAll(selector)])
+    .map((node) => normalizeLongText(node?.textContent || '', 1200))
+    .filter((text) => text.length >= 40)
+    .slice(0, 160);
+
+  if (pieces.length >= 4) {
+    return normalizeLongText(dedupeStrings(pieces, 160).join('\n\n'), 25000);
+  }
+
+  return normalizeLongText(candidate.textContent || '', 25000);
+}
+
+function scoreTextCandidate(text = '') {
+  const normalized = stripText(text);
+  if (!normalized) return -Infinity;
+  const paragraphishSegments = normalized
+    .split(/\n{2,}|(?<=[.!?])\s+/)
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length >= 60);
+  const sentenceCount = countMatches(normalized, /[.!?](?:\s|$)/g);
+  const linkyNoise = countMatches(normalized, /\b(?:home|about|pricing|login|signup|contact|privacy|terms|cookie|download|share)\b/gi);
+  return (
+    Math.min(normalized.length, 12000)
+    + (paragraphishSegments.length * 220)
+    + (sentenceCount * 30)
+    - (linkyNoise * 180)
+  );
+}
+
 function extractMainText(document) {
-  const removable = ['script', 'style', 'nav', 'footer', 'header', 'aside', 'noscript', 'iframe', 'svg'];
+  const removable = ['script', 'style', 'nav', 'footer', 'header', 'aside', 'noscript', 'iframe', 'svg', 'form', 'button'];
   for (const tag of removable) {
     const els = document.querySelectorAll(tag);
     for (const el of els) el.remove();
@@ -441,12 +556,13 @@ function extractMainText(document) {
     document.querySelector('article'),
     document.querySelector('main'),
     document.querySelector('[role="main"]'),
+    ...document.querySelectorAll('[itemprop="articleBody"], .post-content, .entry-content, .article-content, .content, .markdown-body'),
     document.querySelector('body'),
   ].filter(Boolean);
 
   return candidates
-    .map((candidate) => normalizeLongText(candidate?.textContent || '', 25000))
-    .sort((a, b) => b.length - a.length)[0] || '';
+    .map((candidate) => extractCandidateText(candidate))
+    .sort((a, b) => scoreTextCandidate(b) - scoreTextCandidate(a))[0] || '';
 }
 
 function buildMetadataFallbackContent({ title = '', description = '', jsonLdSummary = '' }) {
@@ -458,6 +574,24 @@ function buildMetadataFallbackContent({ title = '', description = '', jsonLdSumm
     ].filter(Boolean).join('\n\n'),
     12000,
   );
+}
+
+function buildWebsiteStructuredContent({
+  title = '',
+  description = '',
+  author = '',
+  publishedDate = '',
+  jsonLdSummary = '',
+  articleBody = '',
+}) {
+  return normalizeLongText([
+    title ? `Title: ${title}` : '',
+    description ? `Description: ${description}` : '',
+    author ? `Author: ${author}` : '',
+    publishedDate ? `Published: ${publishedDate}` : '',
+    articleBody ? `Article body:\n${articleBody}` : '',
+    jsonLdSummary ? `Structured data:\n${jsonLdSummary}` : '',
+  ].filter(Boolean).join('\n\n'), 20000);
 }
 
 function looksLikeLowQualityHtmlText(text = '') {
@@ -1109,6 +1243,7 @@ async function fetchPageSummary(inputUrl) {
   let html = '';
   let meta = {};
   let jsonLdSummary = '';
+  let jsonLdMetadata = {};
   let title = '';
   let bodyText = '';
   let thumbnail = '';
@@ -1128,22 +1263,39 @@ async function fetchPageSummary(inputUrl) {
     meta = extractMeta(document);
     const jsonLdItems = extractJsonLd(document);
     jsonLdSummary = summarizeJsonLd(jsonLdItems);
-    title = stripText(document.querySelector('title')?.textContent || '');
+    jsonLdMetadata = extractJsonLdMetadata(jsonLdItems);
+    title = normalizeTitleCandidate(
+      meta['og:title']
+      || meta['twitter:title']
+      || jsonLdMetadata.title
+      || document.querySelector('title')?.textContent
+      || '',
+      meta['og:site_name'] || jsonLdMetadata.siteName || '',
+    );
     bodyText = extractMainText(document);
-    thumbnail = meta['og:image'] || meta['twitter:image'] || extractJsonLdImage(jsonLdItems) || '';
-    author = meta.author || meta['article:author'] || '';
-    description = meta.description || meta['og:description'] || meta['twitter:description'] || '';
-    keywords = String(meta.keywords || '')
-      .split(',')
-      .map((value) => stripText(value))
-      .filter(Boolean);
-    publishedDate = meta['article:published_time'] || '';
+    thumbnail = meta['og:image'] || meta['twitter:image'] || jsonLdMetadata.thumbnail || extractJsonLdImage(jsonLdItems) || '';
+    author = meta.author || meta['article:author'] || jsonLdMetadata.author || '';
+    description = stripText(meta.description || meta['og:description'] || meta['twitter:description'] || jsonLdMetadata.description || '');
+    keywords = normalizeKeywordValues([
+      meta.keywords || '',
+      meta['article:tag'] || '',
+      ...(jsonLdMetadata.keywords || []),
+    ], 12);
+    publishedDate = meta['article:published_time'] || jsonLdMetadata.publishedDate || '';
   } catch {
     // keep partial metadata flow alive
   }
 
-  const metadataFallbackContent = buildMetadataFallbackContent({ title, description, jsonLdSummary });
   const cleanedBodyText = looksLikeLowQualityHtmlText(bodyText) ? '' : bodyText;
+  const structuredWebsiteContent = buildWebsiteStructuredContent({
+    title,
+    description,
+    author,
+    publishedDate,
+    jsonLdSummary,
+    articleBody: jsonLdMetadata.articleBody || '',
+  });
+  const metadataFallbackContent = buildMetadataFallbackContent({ title, description, jsonLdSummary });
 
   if (resourceType === 'youtube') {
     const youtube = await fetchYouTubeMetadata(canonicalUrl, html);
@@ -1178,8 +1330,8 @@ async function fetchPageSummary(inputUrl) {
       description: redditThreadData?.selfText || description,
       keywords,
       publishedDate: redditThreadData?.publishedDate || publishedDate,
-      content: redditContent || bodyText,
-      contentSource: redditContent ? 'reddit_thread' : (bodyText ? 'html_text' : 'metadata_only'),
+      content: redditContent || cleanedBodyText || metadataFallbackContent,
+      contentSource: redditContent ? 'reddit_thread' : (cleanedBodyText ? 'html_text' : (metadataFallbackContent ? 'metadata_description' : 'metadata_only')),
       contentLanguage: redditContent ? 'en' : '',
       resourceType,
       meta,
@@ -1239,8 +1391,8 @@ async function fetchPageSummary(inputUrl) {
     description,
     keywords,
     publishedDate,
-    content: cleanedBodyText || metadataFallbackContent,
-    contentSource: cleanedBodyText ? 'html_text' : (metadataFallbackContent ? 'metadata_description' : 'metadata_only'),
+    content: cleanedBodyText || structuredWebsiteContent || metadataFallbackContent,
+    contentSource: cleanedBodyText ? 'html_text' : (structuredWebsiteContent ? 'structured_content' : (metadataFallbackContent ? 'metadata_description' : 'metadata_only')),
     contentLanguage: '',
     resourceType,
     meta,
