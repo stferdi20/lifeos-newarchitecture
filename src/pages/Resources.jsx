@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { BookOpen, Search, FileText, Sparkles, CheckSquare } from 'lucide-react';
+import { BookOpen, Search, FileText, Sparkles, CheckSquare, Loader2 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -244,6 +244,11 @@ export default function Resources() {
       resource_ids: selectedResources.map((resource) => resource.id),
       batch_size: Math.min(selectedResources.length || 100, 500),
     }),
+    onMutate: () => {
+      toast.loading(`Re-enriching ${selectedResources.length} selected resource${selectedResources.length === 1 ? '' : 's'}...`, {
+        id: 'resource-reenrich-selected',
+      });
+    },
     onSuccess: (result) => {
       invalidateResourceQueries();
       const updated = Number(result?.updated || 0);
@@ -251,10 +256,15 @@ export default function Resources() {
       const failed = Number(result?.failed || 0);
       toast.success(
         `Re-enrichment finished: ${updated} updated${skipped ? `, ${skipped} skipped` : ''}${failed ? `, ${failed} failed` : ''}.`,
+        {
+          id: 'resource-reenrich-selected',
+        },
       );
     },
     onError: (error) => {
-      toast.error(error?.message || 'Failed to re-enrich selected resources.');
+      toast.error(error?.message || 'Failed to re-enrich selected resources.', {
+        id: 'resource-reenrich-selected',
+      });
     },
   });
 
@@ -270,6 +280,11 @@ export default function Resources() {
       },
       batch_size: Math.min(filteredResources.length || 100, 500),
     }),
+    onMutate: () => {
+      toast.loading(`Re-enriching ${filteredResources.length} filtered resource${filteredResources.length === 1 ? '' : 's'}...`, {
+        id: 'resource-reenrich-filtered',
+      });
+    },
     onSuccess: (result) => {
       invalidateResourceQueries();
       const updated = Number(result?.updated || 0);
@@ -277,10 +292,15 @@ export default function Resources() {
       const failed = Number(result?.failed || 0);
       toast.success(
         `Filtered re-enrichment finished: ${updated} updated${skipped ? `, ${skipped} skipped` : ''}${failed ? `, ${failed} failed` : ''}.`,
+        {
+          id: 'resource-reenrich-filtered',
+        },
       );
     },
     onError: (error) => {
-      toast.error(error?.message || 'Failed to re-enrich filtered resources.');
+      toast.error(error?.message || 'Failed to re-enrich filtered resources.', {
+        id: 'resource-reenrich-filtered',
+      });
     },
   });
 
@@ -503,7 +523,10 @@ export default function Resources() {
             disabled={filteredReenrichMutation.isPending}
             className="border-border text-xs"
           >
-            <Sparkles className="w-3.5 h-3.5 mr-1" /> Re-enrich filtered
+            {filteredReenrichMutation.isPending
+              ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+              : <Sparkles className="w-3.5 h-3.5 mr-1" />}
+            {filteredReenrichMutation.isPending ? 'Re-enriching filtered...' : 'Re-enrich filtered'}
           </Button>
         )}
       </div>
@@ -583,6 +606,8 @@ export default function Resources() {
           filteredCount={filteredResources.length}
           areas={areas}
           isWorking={bulkUpdateMutation.isPending || bulkDeleteMutation.isPending || bulkReenrichMutation.isPending || filteredReenrichMutation.isPending}
+          isReenrichingSelected={bulkReenrichMutation.isPending}
+          isReenrichingFiltered={filteredReenrichMutation.isPending}
           onArchive={() => bulkUpdateMutation.mutate(() => ({ is_archived: true }))}
           onUnarchive={() => bulkUpdateMutation.mutate(() => ({ is_archived: false }))}
           onReenrich={() => bulkReenrichMutation.mutate()}

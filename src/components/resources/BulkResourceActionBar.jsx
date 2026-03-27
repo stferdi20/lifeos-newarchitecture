@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CheckSquare, Tag, Trash2, X, Archive, ArchiveRestore, MapPinned, RefreshCw } from 'lucide-react';
+import { CheckSquare, Tag, Trash2, X, Archive, ArchiveRestore, MapPinned, RefreshCw, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -30,6 +30,8 @@ export default function BulkResourceActionBar({
   onReenrichFiltered,
   onClear,
   isWorking = false,
+  isReenrichingSelected = false,
+  isReenrichingFiltered = false,
 }) {
   const [areaId, setAreaId] = useState('__none__');
   const [addTagInput, setAddTagInput] = useState('');
@@ -68,11 +70,13 @@ export default function BulkResourceActionBar({
       </Button>
 
       <Button size="sm" variant="outline" disabled={isWorking} onClick={onReenrich} className="border-border text-xs">
-        <RefreshCw className="w-3.5 h-3.5 mr-1" /> Re-enrich
+        {isReenrichingSelected ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5 mr-1" />}
+        {isReenrichingSelected ? 'Re-enriching...' : 'Re-enrich'}
       </Button>
 
       <Button size="sm" variant="outline" disabled={isWorking || !filteredCount} onClick={onReenrichFiltered} className="border-border text-xs">
-        <RefreshCw className="w-3.5 h-3.5 mr-1" /> Re-enrich {filteredCount} filtered
+        {isReenrichingFiltered ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5 mr-1" />}
+        {isReenrichingFiltered ? 'Re-enriching filtered...' : `Re-enrich ${filteredCount} filtered`}
       </Button>
 
       <div className="flex items-center gap-2 rounded-xl bg-secondary/30 px-2 py-1.5">
