@@ -98,8 +98,10 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
     refetchInterval: (query) => {
       const current = query.state.data || resource;
       const isInstagramResource = current?.resource_type === 'instagram_reel' || current?.resource_type === 'instagram_carousel';
-      if (!isInstagramResource) return false;
-      return ['queued', 'processing'].includes(current?.download_status) ? 3000 : false;
+      const isQueuedInstagram = isInstagramResource && ['queued', 'processing'].includes(current?.download_status);
+      const isQueuedYouTubeTranscript = current?.resource_type === 'youtube'
+        && ['queued', 'processing'].includes(current?.youtube_transcript_status);
+      return isQueuedInstagram || isQueuedYouTubeTranscript ? 3000 : false;
     },
   });
 

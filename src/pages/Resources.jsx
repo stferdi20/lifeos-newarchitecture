@@ -75,6 +75,16 @@ export default function Resources() {
   const { data: resources = [], isLoading: resourcesLoading } = useQuery({
     queryKey: ['resources'],
     queryFn: () => Resource.list('-created_date', 200),
+    refetchInterval: (query) => {
+      const currentResources = Array.isArray(query.state.data) ? query.state.data : [];
+      const hasPendingBackgroundWork = currentResources.some((resource) => {
+        const isQueuedInstagram = ['queued', 'processing'].includes(resource?.download_status);
+        const isQueuedYouTubeTranscript = resource?.resource_type === 'youtube'
+          && ['queued', 'processing'].includes(resource?.youtube_transcript_status);
+        return isQueuedInstagram || isQueuedYouTubeTranscript;
+      });
+      return hasPendingBackgroundWork ? 3000 : false;
+    },
   });
 
   const { data: projects = [], isLoading: projectsLoading } = useQuery({
