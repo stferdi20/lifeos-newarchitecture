@@ -1583,23 +1583,62 @@ function isKnowledgeAreaName(value = '') {
   return stripText(value).toLowerCase() === 'knowledge';
 }
 
-function preserveStrongerExistingArea(resource, analyzedData) {
+function getEnrichmentRank(status = '') {
+  switch (String(status || '').toLowerCase()) {
+    case 'rich':
+      return 4;
+    case 'partial':
+      return 3;
+    case 'sparse':
+      return 2;
+    case 'metadata_only':
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+function preserveStrongerExistingData(resource, analyzedData) {
+  const existingRank = getEnrichmentRank(resource.enrichment_status);
+  const nextRank = getEnrichmentRank(analyzedData.enrichment_status);
+  const shouldPreserveExistingEnrichment = existingRank > nextRank;
   const existingHasArea = Boolean(stripText(resource.area_id) || stripText(resource.area_name));
   const existingIsKnowledge = isKnowledgeAreaName(resource.area_name);
   const nextHasArea = Boolean(stripText(analyzedData.area_id) || stripText(analyzedData.area_name));
   const nextIsKnowledge = isKnowledgeAreaName(analyzedData.area_name);
   const nextIsWeak = !nextHasArea || nextIsKnowledge || Boolean(analyzedData.area_needs_review);
+  const nextData = { ...analyzedData };
+
+  if (shouldPreserveExistingEnrichment) {
+    nextData.summary = resource.summary || nextData.summary || '';
+    nextData.why_it_matters = resource.why_it_matters || nextData.why_it_matters || '';
+    nextData.who_its_for = resource.who_its_for || nextData.who_its_for || '';
+    nextData.explanation_for_newbies = resource.explanation_for_newbies || nextData.explanation_for_newbies || '';
+    nextData.main_topic = resource.main_topic || nextData.main_topic || '';
+    nextData.tags = Array.isArray(resource.tags) && resource.tags.length ? resource.tags : nextData.tags;
+    nextData.key_points = Array.isArray(resource.key_points) && resource.key_points.length ? resource.key_points : nextData.key_points;
+    nextData.actionable_points = Array.isArray(resource.actionable_points) && resource.actionable_points.length ? resource.actionable_points : nextData.actionable_points;
+    nextData.use_cases = Array.isArray(resource.use_cases) && resource.use_cases.length ? resource.use_cases : nextData.use_cases;
+    nextData.learning_outcomes = Array.isArray(resource.learning_outcomes) && resource.learning_outcomes.length ? resource.learning_outcomes : nextData.learning_outcomes;
+    nextData.notable_quotes_or_moments = Array.isArray(resource.notable_quotes_or_moments) && resource.notable_quotes_or_moments.length
+      ? resource.notable_quotes_or_moments
+      : nextData.notable_quotes_or_moments;
+    nextData.content = resource.content || nextData.content || '';
+    nextData.content_source = resource.content_source || nextData.content_source || '';
+    nextData.content_language = resource.content_language || nextData.content_language || '';
+    nextData.enrichment_status = resource.enrichment_status || nextData.enrichment_status || '';
+  }
 
   if (existingHasArea && !existingIsKnowledge && nextIsWeak) {
     return {
-      ...analyzedData,
+      ...nextData,
       area_id: resource.area_id || '',
       area_name: resource.area_name || '',
       area_needs_review: Boolean(resource.area_needs_review),
     };
   }
 
-  return analyzedData;
+  return nextData;
 }
 
 export async function reEnrichResourcesForUser(userId, { resourceIds = [], filters = {}, batchSize = 25 } = {}) {
@@ -1646,7 +1685,7 @@ export async function reEnrichResourcesForUser(userId, { resourceIds = [], filte
         content: '',
         userId,
       });
-      const nextData = preserveStrongerExistingArea(resource, analyzed.data);
+      const nextData = preserveStrongerExistingData(resource, analyzed.data);
       await updateCompatEntity(userId, 'Resource', resource.id, {
         ...resource,
         ...nextData,
