@@ -43,10 +43,15 @@ class DownloadResponse(BaseModel):
     success: bool
     input_url: str | None = None
     media_type: MediaType | None = "unknown"
+    media_type_label: str | None = None
     download_dir: str | None = None
     files: list[DownloadedFile] = Field(default_factory=list)
     drive_folder: GoogleDriveFolder | None = None
     drive_files: list[GoogleDriveFile] = Field(default_factory=list)
+    normalized_title: str | None = None
+    creator_handle: str | None = None
+    caption: str | None = None
+    published_at: str | None = None
     error: str | None = None
 
 

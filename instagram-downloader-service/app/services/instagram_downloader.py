@@ -3,6 +3,7 @@ import mimetypes
 import os
 import re
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,12 @@ DEFAULT_ROOT_FOLDER = "Life OS"
 DEFAULT_RESOURCES_FOLDER = "Resources"
 DEFAULT_INSTAGRAM_FOLDER = "Instagram Imports"
 DEFAULT_MAX_TRANSCRIPT_CHARS = 60000
+MEDIA_TYPE_FOLDER_NAMES = {
+    "reel": "Reels",
+    "post": "Posts",
+    "carousel": "Carousels",
+    "unknown": "Posts",
+}
 
 
 class InstagramDownloaderError(Exception):
@@ -54,6 +61,122 @@ def sanitize_filename(name: str) -> str:
     cleaned = re.sub(r"[^\w.\- ]+", "_", str(name or "").strip(), flags=re.ASCII)
     cleaned = re.sub(r"\s+", "_", cleaned).strip("._")
     return cleaned[:180] or "download"
+
+
+def normalize_whitespace(value: str) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def strip_extended_emoji(value: str) -> str:
+    return re.sub(r"[\U00010000-\U0010ffff]", " ", str(value or ""))
+
+
+def clean_caption_for_title(value: str) -> str:
+    text = str(value or "").replace("\r", "\n")
+    lines: list[str] = []
+    for raw_line in text.split("\n"):
+        line = normalize_whitespace(strip_extended_emoji(raw_line))
+        if not line:
+            continue
+        if re.fullmatch(r"[#@][\w.]+(?:\s+[#@][\w.]+)*", line):
+            continue
+        line = re.sub(r"https?://\S+", " ", line)
+        line = re.sub(r"(?:^|\s)[#@][\w.]+", " ", line)
+        line = re.sub(r"\b(?:comment|dm)\s+the\s+word\s+\w+\b.*$", " ", line, flags=re.IGNORECASE)
+        line = normalize_whitespace(line)
+        if not line:
+            continue
+        lines.append(line)
+        if len(lines) >= 2:
+            break
+
+    text = normalize_whitespace(" ".join(lines))
+    if not text:
+        return ""
+
+    text = re.sub(r"^(?:video|post|reel|carousel)\s+by\s+[\w.]+\s*[:-]?\s*", "", text, flags=re.IGNORECASE)
+    text = re.split(r"(?<=[.!?])\s+", text, maxsplit=1)[0]
+    text = normalize_whitespace(text)
+
+    words = text.split()
+    if len(words) > 9:
+        text = " ".join(words[:9])
+    return text[:80].strip(" .,-_:;")
+
+
+def normalize_creator_handle(info: dict[str, Any]) -> str:
+    for key in ("channel", "uploader_id", "uploader"):
+        value = normalize_whitespace(info.get(key) or "")
+        if value:
+            break
+    else:
+        value = ""
+
+    title = normalize_whitespace(info.get("title") or "")
+    if not value:
+        match = re.search(r"\b(?:Video|Post|Reel|Carousel)\s+by\s+([\w.]+)\b", title, re.IGNORECASE)
+        if match:
+            value = match.group(1)
+
+    value = value.lstrip("@")
+    value = re.sub(r"[^\w.]+", "", value)
+    return value[:40]
+
+
+def normalize_published_at(info: dict[str, Any]) -> str:
+    timestamp = info.get("timestamp")
+    if timestamp in (None, ""):
+        return ""
+    try:
+        return datetime.fromtimestamp(int(timestamp), tz=timezone.utc).isoformat()
+    except (TypeError, ValueError, OSError):
+        return ""
+
+
+def get_media_type_label(media_type: str) -> str:
+    return {
+        "reel": "Reel",
+        "post": "Post",
+        "carousel": "Carousel",
+        "unknown": "Instagram Post",
+    }.get(str(media_type or "unknown"), "Instagram Post")
+
+
+def build_display_title(*, media_type: str, creator_handle: str = "", caption: str = "", transcript: str = "", published_at: str = "") -> str:
+    topic = clean_caption_for_title(caption) or clean_caption_for_title(transcript)
+    creator_label = f"@{creator_handle}" if creator_handle else ""
+    media_label = get_media_type_label(media_type)
+    date_label = published_at[:10] if published_at else ""
+
+    if creator_label and topic:
+        return f"{creator_label} - {topic}"
+    if creator_label:
+        return f"{creator_label} - {media_label}"
+    if date_label:
+        return f"Instagram {media_label} - {date_label}"
+    return f"Instagram {media_label}"
+
+
+def build_download_metadata(url: str, info: dict[str, Any]) -> dict[str, str]:
+    media_type = infer_media_type(url, info)
+    creator_handle = normalize_creator_handle(info)
+    caption = normalize_whitespace(info.get("description") or "")
+    published_at = normalize_published_at(info)
+    normalized_title = build_display_title(
+        media_type=media_type,
+        creator_handle=creator_handle,
+        caption=caption,
+        transcript="",
+        published_at=published_at,
+    )
+    return {
+        "media_type": media_type,
+        "media_type_label": get_media_type_label(media_type),
+        "creator_handle": creator_handle,
+        "caption": caption,
+        "published_at": published_at,
+        "normalized_title": normalized_title,
+    }
 
 
 def build_request_download_dir(url: str, base_dir: str | None = None) -> Path:
@@ -158,14 +281,23 @@ def map_download_error(error: Exception) -> InstagramDownloaderError:
     return InstagramDownloaderError("yt-dlp extraction failed.", 502)
 
 
-def collect_downloaded_files(download_dir: Path) -> list[DownloadedFile]:
+def collect_downloaded_files(download_dir: Path, base_title: str = "") -> list[DownloadedFile]:
+    raw_paths = [path for path in sorted(download_dir.iterdir()) if path.is_file()]
+    total_files = len(raw_paths)
     files = []
-    for path in sorted(download_dir.iterdir()):
-        if not path.is_file():
-            continue
-        sanitized_name = sanitize_filename(path.name)
+    safe_base_title = sanitize_filename(base_title or "Instagram_Post")
+    for index, path in enumerate(raw_paths, start=1):
+        extension = path.suffix or ""
+        normalized_name = (
+            f"{safe_base_title}{extension}"
+            if total_files == 1
+            else f"{safe_base_title}_{index:02d}{extension}"
+        )
+        sanitized_name = sanitize_filename(normalized_name)
         if sanitized_name != path.name:
             target = path.with_name(sanitized_name)
+            if target.exists():
+                target = path.with_name(sanitize_filename(f"{target.stem}_{index:02d}{target.suffix}"))
             path.rename(target)
             path = target
         files.append(
@@ -274,10 +406,12 @@ async def upload_file_to_drive(
     access_token: str,
     folder_id: str,
     file_path: Path,
+    upload_name: str | None = None,
 ) -> GoogleDriveFile:
     mime_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
     boundary = f"boundary-{hashlib.sha1(file_path.name.encode('utf-8')).hexdigest()[:12]}"
-    metadata = f'--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{{"name":"{file_path.name}","parents":["{folder_id}"]}}\r\n'
+    target_name = sanitize_filename(upload_name or file_path.name)
+    metadata = f'--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{{"name":"{target_name}","parents":["{folder_id}"]}}\r\n'
     media_header = f"--{boundary}\r\nContent-Type: {mime_type}\r\n\r\n".encode("utf-8")
     footer = f"\r\n--{boundary}--".encode("utf-8")
     body = metadata.encode("utf-8") + media_header + file_path.read_bytes() + footer
@@ -307,19 +441,26 @@ async def upload_file_to_drive(
     )
 
 
-async def maybe_upload_to_drive(request: DownloadRequest, download_dir: Path, files: list[DownloadedFile]) -> tuple[GoogleDriveFolder | None, list[GoogleDriveFile]]:
+async def maybe_upload_to_drive(
+    request: DownloadRequest,
+    download_dir: Path,
+    files: list[DownloadedFile],
+    media_type: str,
+) -> tuple[GoogleDriveFolder | None, list[GoogleDriveFile]]:
     if not request.google_drive:
         return None, []
 
     async with httpx.AsyncClient() as client:
         parent_id = request.google_drive.parent_folder_id
+        folder_name = MEDIA_TYPE_FOLDER_NAMES.get(media_type, MEDIA_TYPE_FOLDER_NAMES["unknown"])
+
         if not parent_id:
             root = await ensure_drive_folder(client, request.google_drive.access_token, DEFAULT_ROOT_FOLDER)
             resources = await ensure_drive_folder(client, request.google_drive.access_token, DEFAULT_RESOURCES_FOLDER, root["id"])
             instagram = await ensure_drive_folder(client, request.google_drive.access_token, DEFAULT_INSTAGRAM_FOLDER, resources["id"])
             parent_id = instagram["id"]
 
-        folder = await ensure_drive_folder(client, request.google_drive.access_token, download_dir.name, parent_id)
+        folder = await ensure_drive_folder(client, request.google_drive.access_token, folder_name, parent_id)
         drive_folder = GoogleDriveFolder(
             id=folder["id"],
             name=folder["name"],
@@ -334,6 +475,7 @@ async def maybe_upload_to_drive(request: DownloadRequest, download_dir: Path, fi
                     request.google_drive.access_token,
                     drive_folder.id,
                     Path(item.filepath),
+                    item.filename,
                 )
             )
 
@@ -352,6 +494,7 @@ async def download_instagram_media(request: DownloadRequest) -> DownloadResponse
     except Exception as error:
         raise InstagramDownloaderError(f"Failed to inspect Instagram URL: {error}", 502) from error
 
+    metadata = build_download_metadata(request.url, info if isinstance(info, dict) else {})
     download_dir = build_request_download_dir(request.url, request.download_base_dir)
     try:
         with YoutubeDL(build_ydl_options(download_dir)) as ydl:
@@ -361,20 +504,26 @@ async def download_instagram_media(request: DownloadRequest) -> DownloadResponse
     except Exception as error:
         raise InstagramDownloaderError(f"Download failed: {error}", 502) from error
 
-    files = collect_downloaded_files(download_dir)
+    files = collect_downloaded_files(download_dir, metadata["normalized_title"])
     if not files:
         raise InstagramDownloaderError("Download completed but no files were found.", 500)
 
-    drive_folder, drive_files = await maybe_upload_to_drive(request, download_dir, files)
+    request_media_type = metadata["media_type"]
+    drive_folder, drive_files = await maybe_upload_to_drive(request, download_dir, files, request_media_type)
 
     return DownloadResponse(
         success=True,
         input_url=request.url,
-        media_type=infer_media_type(request.url, info if isinstance(info, dict) else {}),
+        media_type=request_media_type,
+        media_type_label=metadata["media_type_label"],
         download_dir=str(download_dir),
         files=files,
         drive_folder=drive_folder,
         drive_files=drive_files,
+        normalized_title=metadata["normalized_title"],
+        creator_handle=metadata["creator_handle"],
+        caption=metadata["caption"],
+        published_at=metadata["published_at"],
         error=None,
     )
 
@@ -407,20 +556,60 @@ def normalize_long_text(value: str, limit: int = DEFAULT_MAX_TRANSCRIPT_CHARS) -
     return re.sub(r"\s+", " ", str(value or "")).strip()[:limit]
 
 
+def normalize_transcript_text(value: str, limit: int = DEFAULT_MAX_TRANSCRIPT_CHARS) -> str:
+    text = str(value or "")
+    text = text.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("\u00a0", " ")
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = [re.sub(r"[ \t]+", " ", line).strip() for line in text.split("\n")]
+    normalized = "\n".join(lines)
+    normalized = re.sub(r"\n{3,}", "\n\n", normalized).strip()
+    return normalized[:limit]
+
+
+def push_transcript_cue(cues: list[str], cue_lines: list[str]) -> None:
+    unique_lines: list[str] = []
+    previous_key = ""
+
+    for line in cue_lines:
+        cleaned = normalize_long_text(line, 1000)
+        if not cleaned:
+            continue
+        key = cleaned.lower()
+        if key == previous_key:
+            continue
+        previous_key = key
+        unique_lines.append(cleaned)
+
+    if not unique_lines:
+        return
+
+    cue = normalize_transcript_text("\n".join(unique_lines), 2000)
+    if not cue:
+        return
+
+    if cues and cues[-1].lower() == cue.lower():
+        return
+    cues.append(cue)
+
+
 def parse_vtt_transcript(text: str) -> str:
     lines = str(text or "").replace("\ufeff", "").splitlines()
-    parts: list[str] = []
-    seen: set[str] = set()
+    cues: list[str] = []
+    cue_lines: list[str] = []
     skip_block = False
 
     for raw_line in lines:
         line = raw_line.strip()
         if not line:
+            push_transcript_cue(cues, cue_lines)
+            cue_lines = []
             skip_block = False
             continue
         if line.upper().startswith("WEBVTT"):
             continue
         if re.match(r"^(NOTE|STYLE|REGION)\b", line, re.IGNORECASE):
+            push_transcript_cue(cues, cue_lines)
+            cue_lines = []
             skip_block = True
             continue
         if skip_block:
@@ -428,6 +617,8 @@ def parse_vtt_transcript(text: str) -> str:
         if re.fullmatch(r"\d+", line):
             continue
         if re.match(r"^\d{2}:\d{2}(?::\d{2})?\.\d{3}\s+-->\s+\d{2}:\d{2}(?::\d{2})?\.\d{3}", line):
+            push_transcript_cue(cues, cue_lines)
+            cue_lines = []
             continue
 
         cleaned = re.sub(r"<[^>]+>", " ", line)
@@ -435,13 +626,11 @@ def parse_vtt_transcript(text: str) -> str:
         cleaned = normalize_long_text(cleaned, 1000)
         if not cleaned:
             continue
-        key = cleaned.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        parts.append(cleaned)
+        cue_lines.append(cleaned)
 
-    return normalize_long_text(" ".join(parts))
+    push_transcript_cue(cues, cue_lines)
+
+    return normalize_transcript_text("\n\n".join(cues))
 
 
 def map_youtube_subtitle_error(error: Exception) -> tuple[str, str]:

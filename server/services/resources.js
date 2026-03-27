@@ -70,6 +70,25 @@ function normalizeLongText(value, limit = MAX_STORED_CONTENT_CHARS) {
     .slice(0, limit);
 }
 
+function normalizeTranscriptText(value, limit = MAX_STORED_CONTENT_CHARS) {
+  return String(value || '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\u00a0/g, ' ')
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((line) => line.replace(/[ \t]+/g, ' ').trim())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+    .slice(0, limit);
+}
+
+function normalizeContentForPrompt(value, limit = MAX_PROMPT_CONTENT_CHARS) {
+  return normalizeLongText(value, limit);
+}
+
 function splitSentences(value, limit = 10) {
   return String(value || '')
     .replace(/\s+/g, ' ')
@@ -197,6 +216,72 @@ function normalizeTitleCandidate(title = '', siteName = '') {
       .trim();
   }
   return stripText(cleaned);
+}
+
+function normalizeInstagramHandle(value = '') {
+  return stripText(value).replace(/^@+/, '').replace(/[^\w.]+/g, '').slice(0, 40);
+}
+
+function stripInstagramEmoji(value = '') {
+  return String(value || '').replace(/[\p{Extended_Pictographic}\p{Emoji_Presentation}]/gu, ' ');
+}
+
+function cleanInstagramTitleSource(value = '') {
+  const lines = String(value || '')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .map((line) => stripText(stripInstagramEmoji(line)))
+    .filter(Boolean);
+
+  const kept = [];
+  for (const line of lines) {
+    if (/^(?:[#@][\w.]+(?:\s+[#@][\w.]+)*)$/i.test(line)) continue;
+    let cleaned = line
+      .replace(/https?:\/\/\S+/gi, ' ')
+      .replace(/(?:^|\s)[#@][\w.]+/g, ' ')
+      .replace(/\b(?:comment|dm)\s+the\s+word\s+\w+\b.*$/i, ' ')
+      .replace(/^(?:video|post|reel|carousel)\s+by\s+[\w.]+\s*[:-]?\s*/i, ' ');
+    cleaned = stripText(cleaned);
+    if (!cleaned) continue;
+    kept.push(cleaned);
+    if (kept.length >= 2) break;
+  }
+
+  const sentence = kept.join(' ').split(/(?<=[.!?])\s+/)[0] || '';
+  const words = stripText(sentence).split(/\s+/).filter(Boolean);
+  return words.slice(0, 9).join(' ').slice(0, 80).trim().replace(/[.,:;!?\-]+$/g, '');
+}
+
+function getInstagramMediaTypeLabel(resourceType = '') {
+  switch (resourceType) {
+    case 'instagram_reel':
+      return 'Reel';
+    case 'instagram_carousel':
+      return 'Carousel';
+    case 'instagram_post':
+      return 'Post';
+    default:
+      return 'Post';
+  }
+}
+
+export function buildInstagramDisplayTitleFromData({
+  resourceType = '',
+  authorHandle = '',
+  caption = '',
+  transcript = '',
+  publishedAt = '',
+} = {}) {
+  const handle = normalizeInstagramHandle(authorHandle);
+  const creatorLabel = handle ? `@${handle}` : '';
+  const topic = cleanInstagramTitleSource(caption) || cleanInstagramTitleSource(transcript);
+  const mediaLabel = getInstagramMediaTypeLabel(resourceType);
+  const dateLabel = stripText(publishedAt).slice(0, 10);
+
+  if (creatorLabel && topic) return `${creatorLabel} - ${topic}`;
+  if (creatorLabel) return `${creatorLabel} - ${mediaLabel}`;
+  if (dateLabel) return `Instagram ${mediaLabel} - ${dateLabel}`;
+  return `Instagram ${mediaLabel}`;
 }
 
 function normalizeMaybeNumber(value) {
@@ -1074,28 +1159,59 @@ function chooseBestSubtitleLanguage(subtitles = {}, automaticCaptions = {}) {
   return null;
 }
 
+function pushTranscriptCue(cues, cueLines = []) {
+  const uniqueLines = [];
+  let previousLineKey = '';
+
+  for (const line of cueLines) {
+    const cleaned = stripText(line);
+    if (!cleaned) continue;
+    const key = cleaned.toLowerCase();
+    if (key === previousLineKey) continue;
+    previousLineKey = key;
+    uniqueLines.push(cleaned);
+  }
+
+  if (!uniqueLines.length) return;
+
+  const cue = normalizeTranscriptText(uniqueLines.join('\n'), 2000);
+  if (!cue) return;
+
+  const lastCue = cues[cues.length - 1];
+  if (lastCue && lastCue.toLowerCase() === cue.toLowerCase()) return;
+  cues.push(cue);
+}
+
 function parseVttTranscript(text = '') {
   const lines = String(text || '')
     .replace(/^\uFEFF/, '')
     .split(/\r?\n/);
-  const parts = [];
-  const seen = new Set();
+  const cues = [];
+  let cueLines = [];
   let skipBlock = false;
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
     if (!line) {
+      pushTranscriptCue(cues, cueLines);
+      cueLines = [];
       skipBlock = false;
       continue;
     }
     if (/^WEBVTT/i.test(line)) continue;
     if (/^(NOTE|STYLE|REGION)\b/i.test(line)) {
+      pushTranscriptCue(cues, cueLines);
+      cueLines = [];
       skipBlock = true;
       continue;
     }
     if (skipBlock) continue;
     if (/^\d+$/.test(line)) continue;
-    if (/^\d{2}:\d{2}(?::\d{2})?\.\d{3}\s+-->\s+\d{2}:\d{2}(?::\d{2})?\.\d{3}/.test(line)) continue;
+    if (/^\d{2}:\d{2}(?::\d{2})?\.\d{3}\s+-->\s+\d{2}:\d{2}(?::\d{2})?\.\d{3}/.test(line)) {
+      pushTranscriptCue(cues, cueLines);
+      cueLines = [];
+      continue;
+    }
 
     const cleaned = stripText(
       decodeHtmlEntities(
@@ -1105,13 +1221,12 @@ function parseVttTranscript(text = '') {
       ),
     );
     if (!cleaned) continue;
-    const key = cleaned.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    parts.push(cleaned);
+    cueLines.push(cleaned);
   }
 
-  return normalizeLongText(parts.join(' '), MAX_STORED_CONTENT_CHARS);
+  pushTranscriptCue(cues, cueLines);
+
+  return normalizeTranscriptText(cues.join('\n\n'), MAX_STORED_CONTENT_CHARS);
 }
 
 async function fetchYoutubeTranscriptViaYtDlp(normalizedUrl) {
@@ -1897,6 +2012,13 @@ async function fetchPageSummary(inputUrl) {
   }
 
   if (resourceType === 'instagram_reel' || resourceType === 'instagram_carousel') {
+    const instagramDisplayTitle = buildInstagramDisplayTitleFromData({
+      resourceType: instagramExtraction?.resourceType || resourceType,
+      authorHandle: instagramExtraction?.authorHandle || '',
+      caption: instagramExtraction?.caption || '',
+      transcript: instagramExtraction?.transcript || '',
+      publishedAt: instagramExtraction?.publishedAt || '',
+    });
     const instagramContent = normalizeLongText([
       instagramExtraction?.authorHandle ? `Author: @${instagramExtraction.authorHandle}` : '',
       instagramExtraction?.caption ? `Caption:\n${instagramExtraction.caption}` : '',
@@ -1915,7 +2037,7 @@ async function fetchPageSummary(inputUrl) {
 
     return {
       canonicalUrl: instagramExtraction?.canonicalUrl || canonicalUrl,
-      title: instagramExtraction?.caption?.slice(0, 120) || title,
+      title: instagramDisplayTitle || title,
       author: instagramExtraction?.authorHandle ? `@${instagramExtraction.authorHandle}` : author,
       thumbnail: instagramExtraction?.thumbnailUrl || thumbnail,
       description: instagramExtraction?.caption || description,
@@ -2076,7 +2198,12 @@ function buildInstagramContext(instagramExtraction) {
     instagramExtraction.authorHandle ? `Author Handle: @${instagramExtraction.authorHandle}` : '',
     instagramExtraction.publishedAt ? `Published At: ${instagramExtraction.publishedAt}` : '',
     instagramExtraction.mediaItems.length > 0 ? `Media Count: ${instagramExtraction.mediaItems.length}` : '',
+    instagramExtraction.audioTitle ? `Audio Title: ${instagramExtraction.audioTitle}` : '',
+    instagramExtraction.likeCount != null ? `Like Count: ${instagramExtraction.likeCount}` : '',
+    instagramExtraction.commentCount != null ? `Comment Count: ${instagramExtraction.commentCount}` : '',
+    instagramExtraction.caption ? `Caption Excerpt: ${instagramExtraction.caption.slice(0, 500)}` : '',
     instagramExtraction.transcript ? 'Transcript Available: yes' : '',
+    instagramExtraction.transcript ? `Transcript Excerpt: ${instagramExtraction.transcript.slice(0, 500)}` : '',
     !instagramExtraction.transcript && instagramExtraction.transcriptError ? `Transcript Status: ${instagramExtraction.transcriptError}` : '',
   ].filter(Boolean).join('\n');
 }
@@ -2167,7 +2294,7 @@ function buildPrompt({ url, extracted, heuristic, areaNames = [] }) {
     buildPdfContext(extracted.pdfData) ? `PDF context:\n${buildPdfContext(extracted.pdfData)}` : '',
     buildWebsiteTypeContext(extracted) ? `Type-specific context:\n${buildWebsiteTypeContext(extracted)}` : '',
     '',
-    extracted.content ? `Primary extracted content:\n${extracted.content.slice(0, MAX_PROMPT_CONTENT_CHARS)}` : 'Primary extracted content: none',
+    extracted.content ? `Primary extracted content:\n${normalizeContentForPrompt(extracted.content, MAX_PROMPT_CONTENT_CHARS)}` : 'Primary extracted content: none',
     '',
     areaNames.length ? `Assign exactly one life area from: ${areaNames.join(', ')}` : '',
     'Return JSON with:',
@@ -2214,7 +2341,7 @@ async function classifyAreaFromContent({ extracted, mergedData, areas, userId })
     mergedData.tags?.length ? `Tags: ${mergedData.tags.join(', ')}` : '',
     extracted.resourceType ? `Resource type: ${extracted.resourceType}` : '',
     extracted.youtubeAiSummary ? `Supplemental YouTube AI summary: ${extracted.youtubeAiSummary.slice(0, 1200)}` : '',
-    extracted.content ? `Content excerpt:\n${String(extracted.content).slice(0, 4000)}` : '',
+    extracted.content ? `Content excerpt:\n${normalizeContentForPrompt(extracted.content, 4000)}` : '',
     'Pick the most specific life area supported by the source.',
     'Use Knowledge only if the resource is truly broad, generic, or lacks a stronger fit.',
     'Return JSON with only area_name, using exactly one of the allowed life area names. If uncertain, still choose the closest fit.',
@@ -2558,6 +2685,14 @@ function buildAnalysisPayload({ mergedData, extracted, areaAssignment }) {
       : {}),
     ...(isInstagram && instagramExtraction
       ? {
+          instagram_display_title: buildInstagramDisplayTitleFromData({
+            resourceType: instagramExtraction.resourceType,
+            authorHandle: instagramExtraction.authorHandle,
+            caption: instagramExtraction.caption,
+            transcript: instagramExtraction.transcript,
+            publishedAt: instagramExtraction.publishedAt,
+          }),
+          instagram_media_type_label: getInstagramMediaTypeLabel(instagramExtraction.resourceType),
           instagram_author_handle: instagramExtraction.authorHandle || '',
           instagram_caption: instagramExtraction.caption || '',
           instagram_transcript: instagramExtraction.transcript || '',

@@ -38,6 +38,32 @@ const ENRICHMENT_STATUS_COLORS = {
   metadata_only: 'border-border/60 bg-secondary/50 text-muted-foreground',
 };
 
+const INSTAGRAM_STATUS_COLORS = {
+  queued: 'border-secondary/60 bg-secondary/50 text-muted-foreground',
+  processing: 'border-sky-500/20 bg-sky-500/10 text-sky-200',
+  downloaded: 'border-cyan-500/20 bg-cyan-500/10 text-cyan-200',
+  uploaded: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200',
+  failed: 'border-red-500/20 bg-red-500/10 text-red-200',
+  blocked: 'border-amber-500/20 bg-amber-500/10 text-amber-200',
+};
+
+function formatInstagramStatus(status = '') {
+  return String(status || '').replace(/_/g, ' ').trim();
+}
+
+const USEFUL_EXTRACTED_TEXT_SOURCES = new Set([
+  'html_text',
+  'structured_content',
+  'pdf_text',
+  'github_readme',
+  'reddit_thread',
+]);
+
+function shouldShowExtractedText(resource) {
+  if (!resource?.content || resource?.resource_type === 'note') return false;
+  return USEFUL_EXTRACTED_TEXT_SOURCES.has(String(resource.content_source || ''));
+}
+
 function ResourceListSection({ title, icon: Icon, items = [], accentClass = 'text-violet-400', bulletClass = 'bg-violet-400/70' }) {
   if (!items.length) return null;
 
@@ -140,12 +166,15 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
   const instagramMediaItems = Array.isArray(resource.instagram_media_items)
     ? resource.instagram_media_items.filter(Boolean)
     : [];
+  const instagramMediaTypeLabel = resource.instagram_media_type_label
+    || (resource.resource_type === 'instagram_reel' ? 'Reel' : resource.resource_type === 'instagram_carousel' ? 'Carousel' : 'Post');
   const derivedSubreddit = (() => {
     if (resource.reddit_subreddit) return resource.reddit_subreddit;
     const author = String(resource.author || '');
     const match = author.match(/r\/([A-Za-z0-9_]+)/);
     return match?.[1] || '';
   })();
+  const showExtractedText = shouldShowExtractedText(resource);
 
   const handleAreaChange = async (value) => {
     setAreaId(value);
@@ -269,8 +298,11 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
               </span>
             )}
             {isInstagram && resource.download_status && (
-              <span className="text-[10px] uppercase tracking-widest font-semibold px-2 py-0.5 rounded-full border border-fuchsia-500/20 bg-fuchsia-500/10 text-fuchsia-200">
-                download {resource.download_status}
+              <span className={cn(
+                'text-[10px] uppercase tracking-widest font-semibold px-2 py-0.5 rounded-full border',
+                INSTAGRAM_STATUS_COLORS[resource.download_status] || 'border-fuchsia-500/20 bg-fuchsia-500/10 text-fuchsia-200',
+              )}>
+                {instagramMediaTypeLabel} {formatInstagramStatus(resource.download_status)}
               </span>
             )}
             {resource.url && (
@@ -361,6 +393,7 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
                 {resource.instagram_author_handle && (
                   <span className="text-xs text-muted-foreground">@{resource.instagram_author_handle}</span>
                 )}
+                <span className="text-xs text-fuchsia-100">{instagramMediaTypeLabel}</span>
                 {instagramMediaItems.length > 0 && (
                   <span className="text-xs text-muted-foreground">{instagramMediaItems.length} media item{instagramMediaItems.length === 1 ? '' : 's'}</span>
                 )}
@@ -391,11 +424,17 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
                     {instagramMediaItems.map((item, index) => (
                       <div key={`${item.source_url || item.thumbnail_url || index}-${index}`} className="rounded-lg border border-border/50 bg-secondary/20 px-3 py-2 text-xs text-foreground/75">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-medium text-foreground/85">#{(item.index ?? index) + 1}</span>
+                          <span className="font-medium text-foreground/85">{item.label || `#${(item.index ?? index) + 1}`}</span>
                           <span className="uppercase tracking-widest text-[10px] text-muted-foreground">{item.type}</span>
                           {item.width && item.height && <span>{item.width}x{item.height}</span>}
                           {item.duration_seconds && <span>{item.duration_seconds}s</span>}
+                          {item.drive_url && (
+                            <a href={item.drive_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+                              <FolderOpen className="h-3 w-3" /> Drive File
+                            </a>
+                          )}
                         </div>
+                        {item.filename && <p className="mt-1 break-all text-[11px] text-muted-foreground">{item.filename}</p>}
                       </div>
                     ))}
                   </div>
@@ -423,7 +462,7 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
                 )}
                 {resource.download_status && resource.download_status !== 'skipped' && (
                   <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                    <Download className="h-3.5 w-3.5" /> {resource.download_status}
+                    <Download className="h-3.5 w-3.5" /> {formatInstagramStatus(resource.download_status)}
                   </span>
                 )}
               </div>
@@ -539,7 +578,7 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
             />
           )}
 
-          {resource.content && resource.resource_type !== 'note' && (
+          {showExtractedText && (
             <div className="rounded-xl border border-border/50 bg-secondary/20 p-4">
               <div className="mb-2 flex items-center justify-between gap-3">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Extracted Source Text</p>
@@ -547,9 +586,11 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
                   <span className="text-[10px] uppercase tracking-widest text-amber-300">trimmed</span>
                 ) : null}
               </div>
-              <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/75">
-                {String(resource.content).slice(0, 4000)}
-              </p>
+              <div className="max-h-56 overflow-y-auto rounded-lg border border-border/40 bg-background/30 px-3 py-2">
+                <p className="whitespace-pre-wrap break-words text-xs leading-relaxed text-foreground/75">
+                  {String(resource.content)}
+                </p>
+              </div>
             </div>
           )}
 

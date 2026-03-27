@@ -3,7 +3,7 @@ import { getServiceRoleClient } from '../lib/supabase.js';
 import { getServerEnv } from '../config/env.js';
 import { createCompatEntity, getCompatEntity, updateCompatEntity } from './compat-store.js';
 import { inferResourceType, normalizeResourceRecord } from './compat-functions.js';
-import { analyzeResource, preserveStrongerExistingData } from './resources.js';
+import { analyzeResource, buildInstagramDisplayTitleFromData, preserveStrongerExistingData } from './resources.js';
 import { getGoogleAccessToken } from './google.js';
 import { requestInstagramDownload } from './instagram-downloader.js';
 
@@ -39,6 +39,63 @@ function buildProcessingSummary() {
 
 function buildFailedSummary(message = '') {
   return message ? `Instagram download failed: ${message}` : 'Instagram download failed.';
+}
+
+function getInstagramFailureStatus(message = '') {
+  const lowered = String(message || '').toLowerCase();
+  if (
+    lowered.includes('empty media response')
+    || lowered.includes('extractor-blocked')
+    || lowered.includes('blocked by instagram')
+  ) {
+    return 'blocked';
+  }
+  return 'failed';
+}
+
+function getInstagramMediaTypeLabel(mediaType = '') {
+  switch (String(mediaType || '').toLowerCase()) {
+    case 'reel':
+      return 'Reel';
+    case 'carousel':
+      return 'Carousel';
+    case 'post':
+      return 'Post';
+    default:
+      return 'Post';
+  }
+}
+
+function normalizeCreatorHandle(value = '') {
+  return String(value || '').replace(/^@+/, '').trim();
+}
+
+function chooseInstagramDisplayTitle({
+  sourceUrl = '',
+  normalized = {},
+  download = {},
+  current = {},
+}) {
+  const fallback = buildPendingTitle(sourceUrl);
+  const metadataTitle = buildInstagramDisplayTitleFromData({
+    resourceType: normalized.resource_type || current.resource_type || inferResourceType(sourceUrl),
+    authorHandle: download.creator_handle || normalized.instagram_author_handle || current.instagram_author_handle || '',
+    caption: download.caption || normalized.instagram_caption || current.instagram_caption || '',
+    transcript: normalized.instagram_transcript || current.instagram_transcript || '',
+    publishedAt: download.published_at || normalized.instagram_posted_at || current.instagram_posted_at || '',
+  });
+
+  const analysisTitle = String(normalized.title || '').trim();
+  if (
+    analysisTitle
+    && analysisTitle !== fallback
+    && !/^instagram\s+(reel|post|carousel)\b/i.test(analysisTitle)
+    && !/^[A-Za-z0-9_-]{8,}$/.test(analysisTitle)
+  ) {
+    return analysisTitle;
+  }
+
+  return metadataTitle || analysisTitle || current.title || fallback;
 }
 
 function buildQueuedTranscriptSummary() {
@@ -140,14 +197,18 @@ export async function updateInstagramDownloaderSettingsForUser(userId, updates =
   return normalizeSettings(result.data);
 }
 
-function toInstagramMediaItems(download = {}) {
+function toInstagramMediaItems(download = {}, existingItems = []) {
   return (download.files || []).map((file, index) => {
     const driveFile = (download.drive_files || []).find((entry) => entry.name === file.filename) || null;
+    const baseItem = Array.isArray(existingItems) ? existingItems[index] || {} : {};
     return {
+      ...baseItem,
       index,
-      type: file.type || 'unknown',
+      label: `#${index + 1}`,
+      type: file.type || baseItem.type || 'unknown',
       filename: file.filename,
       filepath: file.filepath,
+      drive_name: driveFile?.name || file.filename,
       drive_file_id: driveFile?.id || null,
       drive_url: driveFile?.url || null,
     };
@@ -248,7 +309,7 @@ export async function updateYouTubeTranscriptProcessing(userId, resourceId, work
 
 export async function updateInstagramResourceFailed(userId, resourceId, errorMessage) {
   return updateCompatEntity(userId, 'Resource', resourceId, {
-    download_status: 'failed',
+    download_status: getInstagramFailureStatus(errorMessage),
     summary: buildFailedSummary(errorMessage),
     ingestion_error: errorMessage || '',
     downloader_updated_at: new Date().toISOString(),
@@ -269,20 +330,41 @@ export async function applySuccessfulInstagramDownload(userId, resourceId, sourc
   const current = await getCompatEntity(userId, 'Resource', resourceId);
   const analysis = includeAnalysis ? await analyzeInstagramResource(userId, sourceUrl) : {};
   const normalized = normalizeResourceRecord(sourceUrl, analysis);
+  const creatorHandle = normalizeCreatorHandle(download.creator_handle || normalized.instagram_author_handle || current.instagram_author_handle || '');
   const driveFolder = download.drive_folder || null;
   const driveFiles = Array.isArray(download.drive_files) ? download.drive_files : [];
+  const displayTitle = chooseInstagramDisplayTitle({
+    sourceUrl,
+    normalized,
+    download,
+    current,
+  });
+  const merged = preserveStrongerExistingData(current, {
+    ...current,
+    ...normalized,
+    title: displayTitle,
+    author: normalized.author || (creatorHandle ? `@${creatorHandle}` : current.author || ''),
+    instagram_display_title: displayTitle,
+    instagram_author_handle: creatorHandle || normalized.instagram_author_handle || current.instagram_author_handle || '',
+    instagram_media_type_label: download.media_type_label || normalized.instagram_media_type_label || current.instagram_media_type_label || getInstagramMediaTypeLabel(download.media_type),
+    instagram_caption: download.caption || normalized.instagram_caption || current.instagram_caption || '',
+    instagram_posted_at: download.published_at || normalized.instagram_posted_at || current.instagram_posted_at || '',
+  });
 
   return updateCompatEntity(userId, 'Resource', resourceId, {
     ...current,
-    ...normalized,
-    title: normalized.title || current.title || buildPendingTitle(sourceUrl),
-    summary: normalized.summary || current.summary || 'Instagram media downloaded successfully.',
+    ...merged,
+    title: displayTitle,
+    summary: merged.summary || normalized.summary || current.summary || 'Instagram media downloaded successfully.',
     download_status: driveFiles.length > 0 ? 'uploaded' : 'downloaded',
     ingestion_error: '',
     downloader_job_id: '',
     downloader_updated_at: new Date().toISOString(),
     downloader_completed_at: new Date().toISOString(),
-    instagram_media_items: toInstagramMediaItems(download),
+    instagram_media_items: toInstagramMediaItems(download, normalized.instagram_media_items || current.instagram_media_items || []),
+    instagram_display_title: displayTitle,
+    instagram_author_handle: creatorHandle || merged.instagram_author_handle || '',
+    instagram_media_type_label: download.media_type_label || merged.instagram_media_type_label || getInstagramMediaTypeLabel(download.media_type),
     drive_folder_id: driveFolder?.id || '',
     drive_folder_url: driveFolder?.url || '',
     drive_folder_name: driveFolder?.name || INSTAGRAM_IMPORTS_FOLDER_NAME,

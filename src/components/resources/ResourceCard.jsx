@@ -36,6 +36,20 @@ const STATUS_COLORS = {
   unknown: '',
 };
 
+const INSTAGRAM_STATUS_STYLES = {
+  queued: 'bg-secondary text-muted-foreground',
+  processing: 'bg-sky-500/10 text-sky-300',
+  downloaded: 'bg-cyan-500/10 text-cyan-200',
+  uploaded: 'bg-emerald-500/10 text-emerald-300',
+  failed: 'bg-red-500/10 text-red-300',
+  blocked: 'bg-amber-500/10 text-amber-200',
+};
+
+function formatInstagramStatus(status = '') {
+  const normalized = String(status || '').trim().toLowerCase();
+  return normalized ? normalized.replace(/_/g, ' ') : '';
+}
+
 function hashStr(s) {
   let h = 0;
   for (let i = 0; i < s.length; i++) h = ((h << 5) - h) + s.charCodeAt(i);
@@ -135,17 +149,13 @@ export default function ResourceCard({
   const archiveLabel = resource.is_archived ? 'Restore resource' : 'Archive resource';
   const safeTitle = asText(resource.title, 'Untitled');
   const safeAuthor = asText(resource.author);
+  const instagramAuthorHandle = asText(resource.instagram_author_handle);
+  const instagramMediaTypeLabel = asText(resource.instagram_media_type_label || (resource.resource_type === 'instagram_reel' ? 'Reel' : resource.resource_type === 'instagram_carousel' ? 'Carousel' : 'Post'));
   const safeMainTopic = asText(resource.main_topic);
   const safeTags = Array.isArray(resource.tags) ? resource.tags.filter((tag) => typeof tag === 'string' && tag.trim()) : [];
   const safeThumbnail = typeof resource.thumbnail === 'string' && resource.thumbnail.trim() ? resource.thumbnail : '';
   const driveUrl = resource.drive_folder_url || resource.drive_files?.[0]?.url || '';
-  const downloadStatusClass = resource.download_status === 'failed'
-    ? 'bg-red-500/10 text-red-300'
-    : resource.download_status === 'processing'
-      ? 'bg-sky-500/10 text-sky-300'
-      : resource.download_status === 'uploaded'
-        ? 'bg-emerald-500/10 text-emerald-300'
-        : 'bg-secondary text-muted-foreground';
+  const downloadStatusClass = INSTAGRAM_STATUS_STYLES[resource.download_status] || 'bg-secondary text-muted-foreground';
 
   return (
     <div
@@ -216,7 +226,7 @@ export default function ResourceCard({
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent pointer-events-none" />
         <div className={cn('absolute top-2 left-2 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium', cfg.bg, cfg.color)}>
-          <Icon className="w-3 h-3" /> {cfg.label}
+          <Icon className="w-3 h-3" /> {isInstagram ? `IG ${instagramMediaTypeLabel}` : cfg.label}
         </div>
         {resource.resource_score > 0 && (
           <div className={cn(
@@ -241,12 +251,17 @@ export default function ResourceCard({
           {safeTitle}
         </h3>
 
-        {safeAuthor && (
-          <p className="text-[10px] text-muted-foreground mt-1">by {safeAuthor}</p>
+        {(safeAuthor || instagramAuthorHandle) && (
+          <p className="text-[10px] text-muted-foreground mt-1">
+            {instagramAuthorHandle ? `@${instagramAuthorHandle}` : `by ${safeAuthor}`}
+          </p>
         )}
 
         {isInstagram && (
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] rounded-full bg-fuchsia-500/10 px-1.5 py-0.5 text-fuchsia-100">
+              {instagramMediaTypeLabel}
+            </span>
             {resource.instagram_media_items?.length > 0 && (
               <span className="text-[10px] rounded-full bg-pink-500/10 px-1.5 py-0.5 text-pink-200">
                 {resource.instagram_media_items.length} media
@@ -254,7 +269,7 @@ export default function ResourceCard({
             )}
             {resource.download_status && resource.download_status !== 'skipped' && (
               <span className={cn('text-[10px] rounded-full px-1.5 py-0.5', downloadStatusClass)}>
-                {resource.download_status}
+                {formatInstagramStatus(resource.download_status)}
               </span>
             )}
             {driveUrl && (
