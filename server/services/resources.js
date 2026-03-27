@@ -205,11 +205,23 @@ function deriveUseCases({ resourceType = '', mainTopic = '', actionablePoints = 
   return dedupeStrings(base, 4);
 }
 
+function isGenericYoutubePlaceholder(value = '') {
+  const normalized = stripText(value).toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized.includes('enjoy the videos and music you love')
+    || normalized.includes('share it all with friends, family, and the world on youtube')
+    || normalized.includes('aboutpresscopyrightcontact uscreatorsadvertisedeveloperstermsprivacy')
+    || normalized === 'youtube'
+  );
+}
+
 function buildHeuristicResourceData({ extracted, title, url }) {
   const combinedText = normalizeLongText([
     extracted.description || '',
     extracted.content || '',
   ].filter(Boolean).join('\n\n'), 16000);
+  const isYoutubeMetadataOnly = extracted.resourceType === 'youtube' && extracted.contentSource === 'metadata_only';
   const summary = summarizeText(combinedText, 2) || extracted.description || '';
   const keyPoints = pickKeyPoints(combinedText || extracted.description || '');
   const actionablePoints = pickActionablePoints(combinedText || extracted.description || '');
@@ -243,7 +255,7 @@ function buildHeuristicResourceData({ extracted, title, url }) {
     author: extracted.author || '',
     published_date: extracted.publishedDate || '',
     thumbnail: extracted.thumbnail || '',
-    summary,
+    summary: isYoutubeMetadataOnly ? '' : summary,
     why_it_matters: deriveWhyItMatters({ summary, resourceType: extracted.resourceType }),
     who_its_for: deriveAudience({ resourceType: extracted.resourceType, text: combinedText || extracted.description || '' }),
     explanation_for_newbies: deriveNewbieExplanation({
@@ -254,9 +266,9 @@ function buildHeuristicResourceData({ extracted, title, url }) {
     main_topic: mainTopic,
     score,
     tags,
-    key_points: keyPoints,
-    actionable_points: actionablePoints,
-    use_cases: deriveUseCases({ resourceType: extracted.resourceType, mainTopic, actionablePoints }),
+    key_points: isYoutubeMetadataOnly ? [] : keyPoints,
+    actionable_points: isYoutubeMetadataOnly ? [] : actionablePoints,
+    use_cases: isYoutubeMetadataOnly ? [] : deriveUseCases({ resourceType: extracted.resourceType, mainTopic, actionablePoints }),
     learning_outcomes: [],
     notable_quotes_or_moments: [],
     reddit_thread_type: extracted.isRedditThread ? 'discussion' : '',
@@ -672,13 +684,19 @@ async function fetchYouTubeMetadata(normalizedUrl, html) {
       .find((value) => stripText(value) && !/aboutpresscopyright|termsprivacy|test new features/i.test(value)) || '',
     4000,
   );
+  const description = normalizeLongText(videoDetails?.shortDescription || '', 12000);
+  const cleanedDescription = isGenericYoutubePlaceholder(description) ? '' : description;
+  const cleanedTitle = isGenericYoutubePlaceholder(oembed?.title || videoDetails?.title || '') ? '' : stripText(oembed?.title || videoDetails?.title || '');
+  const cleanedKeywords = Array.isArray(videoDetails?.keywords)
+    ? videoDetails.keywords.map((value) => stripText(value)).filter((value) => !isGenericYoutubePlaceholder(value))
+    : [];
 
   return {
-    title: stripText(oembed?.title || videoDetails?.title || ''),
+    title: cleanedTitle,
     author: stripText(oembed?.author_name || videoDetails?.author || ''),
     thumbnail: oembed?.thumbnail_url || (videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : ''),
-    description: normalizeLongText(videoDetails?.shortDescription || '', 12000),
-    keywords: Array.isArray(videoDetails?.keywords) ? videoDetails.keywords.map((value) => stripText(value)) : [],
+    description: cleanedDescription,
+    keywords: cleanedKeywords,
     publishedDate: '',
     transcript,
     language,
