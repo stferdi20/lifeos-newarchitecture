@@ -2,8 +2,8 @@ import os
 
 from fastapi import APIRouter, Header, Response, status
 
-from app.schemas.download import DownloadRequest, DownloadResponse
-from app.services.instagram_downloader import InstagramDownloaderError, download_instagram_media
+from app.schemas.download import DownloadRequest, DownloadResponse, YouTubeTranscriptRequest, YouTubeTranscriptResponse
+from app.services.instagram_downloader import InstagramDownloaderError, download_instagram_media, fetch_youtube_transcript
 
 
 router = APIRouter()
@@ -40,3 +40,19 @@ async def download_instagram(
             drive_files=[],
             error=error.message,
         )
+
+
+@router.post("/youtube-transcript", response_model=YouTubeTranscriptResponse)
+async def youtube_transcript(
+    payload: YouTubeTranscriptRequest,
+    response: Response,
+    x_downloader_secret: str | None = Header(default=None),
+):
+    if not is_authorized(x_downloader_secret):
+        response.status_code = status.HTTP_401_UNAUTHORIZED
+        return YouTubeTranscriptResponse(success=False, input_url=payload.url, status="unauthorized", error="Unauthorized downloader request.")
+
+    result = await fetch_youtube_transcript(payload)
+    if not result.success:
+        response.status_code = status.HTTP_502_BAD_GATEWAY
+    return result

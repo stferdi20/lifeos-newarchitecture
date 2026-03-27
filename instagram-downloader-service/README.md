@@ -1,6 +1,9 @@
 # Instagram Downloader Service
 
-Local-first Python backend for downloading Instagram reels, posts, and carousels with `yt-dlp`.
+Local-first Python backend for:
+
+- downloading Instagram reels, posts, and carousels with `yt-dlp`
+- extracting YouTube transcripts with `yt-dlp` for the main LifeOS backend
 
 ## What It Does
 
@@ -9,6 +12,8 @@ Local-first Python backend for downloading Instagram reels, posts, and carousels
 - downloads media to a unique local folder
 - optionally uploads downloaded files to Google Drive
 - returns structured JSON for the downloaded files
+- accepts `POST /youtube-transcript` with a YouTube URL
+- inspects subtitle tracks, downloads the best subtitle file, and returns normalized transcript text
 
 ## Files
 
@@ -47,6 +52,7 @@ INSTAGRAM_DOWNLOADER_WORKER_LABEL=
 ```
 
 `INSTAGRAM_COOKIEFILE` is useful when public extraction is blocked and you need a logged-in browser-exported cookie file for Instagram.
+`YOUTUBE_COOKIEFILE` or `YTDLP_COOKIEFILE` can help when YouTube subtitle extraction needs a valid cookie file in the worker runtime.
 
 ## Sample curl
 
@@ -55,6 +61,14 @@ curl -X POST http://127.0.0.1:9001/download \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://www.instagram.com/reel/abc123/"
+  }'
+```
+
+```bash
+curl -X POST http://127.0.0.1:9001/youtube-transcript \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
   }'
 ```
 
@@ -93,4 +107,5 @@ curl -X POST http://127.0.0.1:9001/download \
 - The actual `yt-dlp` extraction and download logic lives in `app/services/instagram_downloader.py`.
 - If you want to change where files are stored, edit `build_request_download_dir()` in `app/services/instagram_downloader.py`.
 - Your existing web app should call the current Node backend route, not this service directly. The app-facing route is `POST /api/resources/instagram-download`.
+- The main backend also uses this worker for YouTube transcript extraction before it falls back to local `yt-dlp` or metadata-only enrichment.
 - If `LIFEOS_API_BASE_URL` and `INSTAGRAM_DOWNLOADER_SHARED_SECRET` are set, the worker also polls the backend queue and processes jobs automatically.

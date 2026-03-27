@@ -47,6 +47,8 @@ GOOGLE_CLIENT_SECRET=
 GOOGLE_OAUTH_REDIRECT_URI=
 GOOGLE_OAUTH_STATE_SECRET=
 GOOGLE_TOKEN_ENCRYPTION_KEY=
+INSTAGRAM_DOWNLOADER_BASE_URL=
+INSTAGRAM_DOWNLOADER_SHARED_SECRET=
 YTDLP_BIN=yt-dlp
 YTDLP_TIMEOUT_MS=20000
 ```
@@ -76,11 +78,20 @@ These integrations are already proxied through your backend, so the browser stil
 - CoinGecko crypto search and FX helper calls
 - Pokemon TCG, YGOProDeck, Scryfall, and OptCG lookups
 - OpenRouter, Gemini, Google Calendar, Google Docs, and Google Tasks
-- `yt-dlp` if you want transcript-first YouTube enrichment
+- the Python downloader worker if you want transcript-first YouTube enrichment and Instagram downloads
 
 ## YouTube Transcript Note
 
-The backend now prefers `yt-dlp` for YouTube transcript extraction. If your runtime cannot execute `yt-dlp` directly, YouTube resources will gracefully fall back to description and metadata, which is less reliable for rich enrichment.
+Vercel functions do not reliably provide a `yt-dlp` binary. Production YouTube transcript extraction should therefore go through the Python downloader worker configured by `INSTAGRAM_DOWNLOADER_BASE_URL`.
+
+Current production order:
+
+1. Python worker at `INSTAGRAM_DOWNLOADER_BASE_URL`
+2. local `yt-dlp` if the current runtime has it
+3. legacy direct transcript extraction
+4. description or metadata fallback
+
+If the worker is not configured, YouTube resources may still save, but they can drop to description or metadata-only enrichment much more often.
 
 ## Google OAuth Setup
 
@@ -118,6 +129,7 @@ After deploy, check these in order:
 - Keep all LLM calls on the backend
 - Keep OpenRouter as the primary provider for resource enrichment, with Gemini as fallback
 - Keep Supabase as the only database/auth source
+- Keep the Python downloader worker online for production Instagram downloads and YouTube transcript extraction
 
 ## If Something Fails
 

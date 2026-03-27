@@ -2,6 +2,7 @@ import hashlib
 import mimetypes
 import os
 import re
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,8 @@ from app.schemas.download import (
     DownloadedFile,
     GoogleDriveFile,
     GoogleDriveFolder,
+    YouTubeTranscriptRequest,
+    YouTubeTranscriptResponse,
 )
 from app.utils.validators import is_valid_instagram_url
 
@@ -25,6 +28,7 @@ FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 DEFAULT_ROOT_FOLDER = "Life OS"
 DEFAULT_RESOURCES_FOLDER = "Resources"
 DEFAULT_INSTAGRAM_FOLDER = "Instagram Imports"
+DEFAULT_MAX_TRANSCRIPT_CHARS = 60000
 
 
 class InstagramDownloaderError(Exception):
@@ -90,6 +94,25 @@ def build_ydl_options(download_dir: Path) -> dict[str, Any]:
     }
 
     cookiefile = os.getenv("INSTAGRAM_COOKIEFILE", "").strip()
+    if cookiefile:
+        options["cookiefile"] = cookiefile
+
+    return options
+
+
+def build_generic_ydl_options() -> dict[str, Any]:
+    options: dict[str, Any] = {
+        "quiet": True,
+        "no_warnings": True,
+        "windowsfilenames": True,
+        "restrictfilenames": False,
+    }
+
+    cookiefile = (
+        os.getenv("YOUTUBE_COOKIEFILE", "").strip()
+        or os.getenv("YTDLP_COOKIEFILE", "").strip()
+        or os.getenv("INSTAGRAM_COOKIEFILE", "").strip()
+    )
     if cookiefile:
         options["cookiefile"] = cookiefile
 
@@ -328,3 +351,182 @@ async def download_instagram_media(request: DownloadRequest) -> DownloadResponse
         drive_files=drive_files,
         error=None,
     )
+
+
+def rank_subtitle_language(language: str) -> int:
+    normalized = str(language or "").lower()
+    if normalized == "en":
+        return 100
+    if normalized.startswith("en-") or normalized.startswith("en_"):
+        return 90
+    if "orig" in normalized:
+        return 40
+    if "auto" in normalized:
+        return 10
+    return 20
+
+
+def choose_best_subtitle_track(subtitles: dict[str, Any] | None, automatic_captions: dict[str, Any] | None) -> tuple[str, str] | None:
+    manual_entries = sorted((subtitles or {}).keys(), key=rank_subtitle_language, reverse=True)
+    auto_entries = sorted((automatic_captions or {}).keys(), key=rank_subtitle_language, reverse=True)
+
+    if manual_entries:
+        return ("manual", manual_entries[0])
+    if auto_entries:
+        return ("auto", auto_entries[0])
+    return None
+
+
+def normalize_long_text(value: str, limit: int = DEFAULT_MAX_TRANSCRIPT_CHARS) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip()[:limit]
+
+
+def parse_vtt_transcript(text: str) -> str:
+    lines = str(text or "").replace("\ufeff", "").splitlines()
+    parts: list[str] = []
+    seen: set[str] = set()
+    skip_block = False
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line:
+            skip_block = False
+            continue
+        if line.upper().startswith("WEBVTT"):
+            continue
+        if re.match(r"^(NOTE|STYLE|REGION)\b", line, re.IGNORECASE):
+            skip_block = True
+            continue
+        if skip_block:
+            continue
+        if re.fullmatch(r"\d+", line):
+            continue
+        if re.match(r"^\d{2}:\d{2}(?::\d{2})?\.\d{3}\s+-->\s+\d{2}:\d{2}(?::\d{2})?\.\d{3}", line):
+            continue
+
+        cleaned = re.sub(r"<[^>]+>", " ", line)
+        cleaned = re.sub(r"\{\\an\d+\}", " ", cleaned)
+        cleaned = normalize_long_text(cleaned, 1000)
+        if not cleaned:
+            continue
+        key = cleaned.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        parts.append(cleaned)
+
+    return normalize_long_text(" ".join(parts))
+
+
+def map_youtube_subtitle_error(error: Exception) -> tuple[str, str]:
+    message = str(error).strip()
+    lowered = message.lower()
+
+    if "video unavailable" in lowered:
+        return ("error", "yt-dlp could not access this YouTube video from the worker runtime (video unavailable).")
+    if "sign in" in lowered or "login" in lowered or "cookies" in lowered:
+        return ("error", "yt-dlp needs valid YouTube cookies or account access for this video.")
+    return ("error", message or "yt-dlp transcript extraction failed.")
+
+
+async def fetch_youtube_transcript(request: YouTubeTranscriptRequest) -> YouTubeTranscriptResponse:
+    inspect_options = {
+        **build_generic_ydl_options(),
+        "skip_download": True,
+    }
+
+    try:
+        with YoutubeDL(inspect_options) as ydl:
+            info = ydl.extract_info(request.url, download=False)
+    except DownloadError as error:
+        status, message = map_youtube_subtitle_error(error)
+        return YouTubeTranscriptResponse(
+            success=False,
+            input_url=request.url,
+            status=status,
+            error=message,
+        )
+    except Exception as error:
+        return YouTubeTranscriptResponse(
+            success=False,
+            input_url=request.url,
+            status="error",
+            error=str(error) or "Failed to inspect YouTube subtitles.",
+        )
+
+    selected = choose_best_subtitle_track(info.get("subtitles"), info.get("automatic_captions"))
+    if not selected:
+        return YouTubeTranscriptResponse(
+            success=False,
+            input_url=request.url,
+            status="no_subtitles",
+            error="yt-dlp found no subtitle tracks for this video.",
+        )
+
+    selected_mode, selected_language = selected
+
+    with tempfile.TemporaryDirectory(prefix="lifeos-ytdlp-") as temp_dir:
+        subtitle_options: dict[str, Any] = {
+            **build_generic_ydl_options(),
+            "skip_download": True,
+            "outtmpl": str(Path(temp_dir) / "transcript.%(ext)s"),
+            "subtitleslangs": [selected_language],
+            "subtitlesformat": "vtt",
+            "writesubtitles": selected_mode == "manual",
+            "writeautomaticsub": selected_mode == "auto",
+        }
+
+        try:
+            with YoutubeDL(subtitle_options) as ydl:
+                ydl.extract_info(request.url, download=True)
+        except DownloadError as error:
+            status, message = map_youtube_subtitle_error(error)
+            return YouTubeTranscriptResponse(
+                success=False,
+                input_url=request.url,
+                language=selected_language,
+                status=status,
+                error=message,
+                selected_mode=selected_mode,
+            )
+        except Exception as error:
+            return YouTubeTranscriptResponse(
+                success=False,
+                input_url=request.url,
+                language=selected_language,
+                status="error",
+                error=str(error) or "Failed to download YouTube subtitles.",
+                selected_mode=selected_mode,
+            )
+
+        subtitle_file = next((path for path in Path(temp_dir).iterdir() if path.suffix == ".vtt"), None)
+        if subtitle_file is None:
+            return YouTubeTranscriptResponse(
+                success=False,
+                input_url=request.url,
+                language=selected_language,
+                status="subtitle_download_empty",
+                error=f'yt-dlp selected {selected_mode} subtitles ({selected_language}) but no VTT subtitle file was created.',
+                selected_mode=selected_mode,
+            )
+
+        transcript = parse_vtt_transcript(subtitle_file.read_text(encoding="utf-8", errors="ignore"))
+        if not transcript:
+            return YouTubeTranscriptResponse(
+                success=False,
+                input_url=request.url,
+                language=selected_language,
+                status="subtitle_parse_empty",
+                error=f'yt-dlp downloaded {selected_mode} subtitles ({selected_language}) but the parsed transcript was empty.',
+                selected_mode=selected_mode,
+            )
+
+        return YouTubeTranscriptResponse(
+            success=True,
+            input_url=request.url,
+            transcript=transcript,
+            language=selected_language,
+            status="ok",
+            error=None,
+            selected_mode=selected_mode,
+        )

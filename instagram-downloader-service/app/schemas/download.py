@@ -50,6 +50,21 @@ class DownloadResponse(BaseModel):
     error: str | None = None
 
 
+class YouTubeTranscriptRequest(BaseModel):
+    url: str = Field(min_length=1)
+
+
+class YouTubeTranscriptResponse(BaseModel):
+    success: bool
+    input_url: str | None = None
+    transcript: str = ""
+    language: str = ""
+    status: str = ""
+    error: str | None = None
+    transcript_source: str = "worker_yt_dlp"
+    selected_mode: str = ""
+
+
 class WorkerHeartbeatRequest(BaseModel):
     worker_id: str
     label: str | None = None

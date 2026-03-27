@@ -28,6 +28,19 @@ function toPublicDownloadResult(payload = {}) {
   };
 }
 
+function toPublicYouTubeTranscriptResult(payload = {}) {
+  return {
+    success: Boolean(payload.success),
+    input_url: payload.input_url || '',
+    transcript: payload.transcript || '',
+    language: payload.language || '',
+    status: payload.status || '',
+    error: payload.error || null,
+    transcript_source: payload.transcript_source || 'worker_yt_dlp',
+    selected_mode: payload.selected_mode || '',
+  };
+}
+
 export async function requestInstagramDownload({
   userId,
   url,
@@ -72,4 +85,30 @@ export async function requestInstagramDownload({
   }
 
   return toPublicDownloadResult(payload);
+}
+
+export async function requestYouTubeTranscript({
+  url,
+  fetchImpl = fetch,
+}) {
+  const env = getServerEnv();
+  if (!env.INSTAGRAM_DOWNLOADER_BASE_URL) {
+    throw new HttpError(500, 'Instagram downloader service is not configured.');
+  }
+
+  const response = await fetchImpl(`${env.INSTAGRAM_DOWNLOADER_BASE_URL.replace(/\/+$/, '')}/youtube-transcript`, {
+    method: 'POST',
+    headers: buildDownloaderHeaders(),
+    body: JSON.stringify({ url }),
+    signal: AbortSignal.timeout(Math.max(env.INSTAGRAM_DOWNLOADER_TIMEOUT_MS || 120000, 1000)),
+  }).catch((error) => {
+    throw new HttpError(502, `Instagram downloader service is unavailable: ${error instanceof Error ? error.message : String(error)}`);
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok && !payload) {
+    throw new HttpError(response.status, 'YouTube transcript worker failed.');
+  }
+
+  return toPublicYouTubeTranscriptResult(payload || {});
 }
