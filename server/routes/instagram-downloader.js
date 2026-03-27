@@ -100,7 +100,14 @@ instagramDownloaderRoutes.post('/retry-failed', async (c) => {
 
 instagramDownloaderRoutes.post('/worker/heartbeat', zValidator('json', workerHeartbeatSchema), async (c) => {
   assertWorkerSecret(c);
-  const worker = await registerInstagramWorkerHeartbeat(c.req.valid('json'));
+  const body = c.req.valid('json');
+  const worker = await registerInstagramWorkerHeartbeat({
+    workerId: body.worker_id,
+    label: body.label,
+    version: body.version,
+    metadata: body.metadata,
+    currentJobId: body.current_job_id,
+  });
   return c.json({ success: true, worker });
 });
 
