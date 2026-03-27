@@ -442,8 +442,17 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
                 { label: 'Views', value: resource.youtube_view_count != null ? Number(resource.youtube_view_count).toLocaleString() : '' },
                 { label: 'Published', value: resource.youtube_publish_date ? String(resource.youtube_publish_date).slice(0, 10) : '' },
                 { label: 'Caption Language', value: resource.youtube_caption_language || '' },
+                { label: 'Transcript Source', value: resource.youtube_transcript_source || '' },
+                { label: 'Transcript Status', value: resource.youtube_transcript_status || '' },
               ]}
             />
+          )}
+
+          {isYouTube && resource.youtube_transcript_error && (
+            <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3">
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-amber-300">Transcript Diagnostic</p>
+              <p className="text-sm leading-relaxed text-amber-100">{resource.youtube_transcript_error}</p>
+            </div>
           )}
 
           {isReddit && (

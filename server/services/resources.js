@@ -1039,14 +1039,36 @@ function runExecFile(file, args, { timeoutMs = DEFAULT_YTDLP_TIMEOUT_MS } = {}) 
   });
 }
 
-function chooseBestSubtitleLanguage(subtitles = {}, automaticCaptions = {}) {
-  const manualEntries = Object.entries(subtitles || {});
-  const autoEntries = Object.entries(automaticCaptions || {});
-  const preferredManual = manualEntries.find(([language]) => /^en(?:[-_].+)?$/i.test(language));
-  if (preferredManual) return { mode: 'manual', language: preferredManual[0] };
+function rankSubtitleLanguage(language = '') {
+  const normalized = String(language || '').toLowerCase();
+  if (normalized === 'en') return 100;
+  if (/^en[-_]/.test(normalized)) return 90;
+  if (normalized.includes('orig')) return 40;
+  if (normalized.includes('auto')) return 10;
+  return 20;
+}
 
-  const preferredAuto = autoEntries.find(([language]) => /^en(?:[-_].+)?$/i.test(language));
-  if (preferredAuto) return { mode: 'auto', language: preferredAuto[0] };
+function chooseBestSubtitleLanguage(subtitles = {}, automaticCaptions = {}) {
+  const manualEntries = Object.entries(subtitles || {})
+    .sort((left, right) => rankSubtitleLanguage(right[0]) - rankSubtitleLanguage(left[0]));
+  const autoEntries = Object.entries(automaticCaptions || {})
+    .sort((left, right) => rankSubtitleLanguage(right[0]) - rankSubtitleLanguage(left[0]));
+
+  if (manualEntries.length > 0) {
+    return {
+      mode: 'manual',
+      language: manualEntries[0][0],
+      preferred: /^en(?:[-_].+)?$/i.test(manualEntries[0][0]),
+    };
+  }
+
+  if (autoEntries.length > 0) {
+    return {
+      mode: 'auto',
+      language: autoEntries[0][0],
+      preferred: /^en(?:[-_].+)?$/i.test(autoEntries[0][0]),
+    };
+  }
 
   return null;
 }
@@ -1105,7 +1127,9 @@ async function fetchYoutubeTranscriptViaYtDlp(normalizedUrl) {
     ], { timeoutMs });
     const metadata = JSON.parse(metadataResult.stdout || '{}');
     const selected = chooseBestSubtitleLanguage(metadata.subtitles, metadata.automatic_captions);
-    if (!selected?.language) return { transcript: '', language: '' };
+    if (!selected?.language) {
+      return { transcript: '', language: '', status: 'no_subtitles', error: 'yt-dlp found no subtitle tracks for this video.' };
+    }
 
     tempDir = await mkdtemp(join(tmpdir(), 'lifeos-ytdlp-'));
     const outputTemplate = join(tempDir, 'transcript.%(ext)s');
@@ -1123,15 +1147,34 @@ async function fetchYoutubeTranscriptViaYtDlp(normalizedUrl) {
     await runExecFile(ytdlpBin, subtitleArgs, { timeoutMs });
     const files = await readdir(tempDir);
     const subtitleFile = files.find((file) => file.endsWith('.vtt'));
-    if (!subtitleFile) return { transcript: '', language: selected.language };
+    if (!subtitleFile) {
+      return {
+        transcript: '',
+        language: selected.language,
+        status: 'subtitle_download_empty',
+        error: `yt-dlp selected ${selected.mode} subtitles (${selected.language}) but no VTT subtitle file was created.`,
+      };
+    }
 
     const vtt = await readFile(join(tempDir, subtitleFile), 'utf8');
+    const transcript = parseVttTranscript(vtt);
     return {
-      transcript: parseVttTranscript(vtt),
+      transcript,
       language: selected.language,
+      status: transcript ? 'ok' : 'subtitle_parse_empty',
+      error: transcript ? '' : `yt-dlp downloaded ${selected.mode} subtitles (${selected.language}) but the parsed transcript was empty.`,
+      selectedMode: selected.mode,
+      preferredLanguage: Boolean(selected.preferred),
     };
-  } catch {
-    return { transcript: '', language: '' };
+  } catch (error) {
+    const message = String(error?.message || '');
+    if (/not found/i.test(message) || /enoent/i.test(message)) {
+      return { transcript: '', language: '', status: 'missing_binary', error: `yt-dlp is not installed or not available at "${ytdlpBin}".` };
+    }
+    if (/timed out/i.test(message)) {
+      return { transcript: '', language: '', status: 'timeout', error: `yt-dlp timed out after ${timeoutMs}ms.` };
+    }
+    return { transcript: '', language: '', status: 'error', error: message || 'yt-dlp transcript extraction failed.' };
   } finally {
     if (tempDir) {
       await rm(tempDir, { recursive: true, force: true }).catch(() => {});
@@ -1318,6 +1361,9 @@ async function fetchYouTubeMetadata(normalizedUrl, html) {
     publishedDate: normalizeIsoDate(microformat?.publishDate || microformat?.uploadDate || ''),
     transcript,
     language,
+    transcriptStatus: ytdlpResult.status || '',
+    transcriptError: ytdlpResult.error || '',
+    transcriptSource: ytdlpResult.transcript ? 'yt_dlp' : (bestDirectTranscript.transcript ? 'legacy_direct' : (fallbackTranscript.transcript ? 'supadata' : '')),
     youtubeAiSummary,
     videoId,
     channel: stripText(videoDetails?.author || oembed?.author_name || ''),
@@ -2459,6 +2505,9 @@ function buildAnalysisPayload({ mergedData, extracted, areaAssignment }) {
           youtube_publish_date: youtubeData?.publishedDate || '',
           youtube_description: youtubeData?.description || extracted.description || '',
           youtube_transcript: youtubeData?.transcript || extracted.content || '',
+          youtube_transcript_status: youtubeData?.transcriptStatus || '',
+          youtube_transcript_error: youtubeData?.transcriptError || '',
+          youtube_transcript_source: youtubeData?.transcriptSource || '',
           youtube_ai_summary: extracted.youtubeAiSummary || '',
           youtube_keywords: youtubeData?.keywords || extracted.keywords || [],
           youtube_caption_language: youtubeData?.captionLanguage || extracted.contentLanguage || '',
