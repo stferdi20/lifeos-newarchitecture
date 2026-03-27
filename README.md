@@ -75,9 +75,12 @@ INSTAGRAM_DOWNLOADER_BASE_URL=
 INSTAGRAM_DOWNLOADER_SHARED_SECRET=
 INSTAGRAM_DOWNLOADER_TIMEOUT_MS=120000
 INSTAGRAM_DOWNLOADER_STATUS_STALE_MS=90000
+YTDLP_BIN=yt-dlp
+YTDLP_TIMEOUT_MS=20000
 ```
 
 OpenRouter is the primary backend LLM provider for resource enrichment. Gemini and Hugging Face remain available as fallbacks when their keys are configured.
+YouTube transcript extraction now prefers `yt-dlp` when it is available on `PATH` or configured via `YTDLP_BIN`, then falls back to description and metadata.
 
 ## Instagram Downloader
 

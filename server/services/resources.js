@@ -1,3 +1,7 @@
+import { execFile } from 'node:child_process';
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { parseHTML } from 'linkedom';
 import { z } from 'zod';
 import { routeStructuredJson } from '../lib/llm-router.js';
@@ -10,6 +14,8 @@ const MAX_PROMPT_CONTENT_CHARS = 16000;
 const MAX_TRANSCRIPTION_BYTES = 24 * 1024 * 1024;
 const DEFAULT_TRANSCRIPTION_MODEL = 'whisper-1';
 const DEFAULT_TRANSCRIPTION_ENDPOINT = 'https://api.openai.com/v1/audio/transcriptions';
+const DEFAULT_YTDLP_BIN = 'yt-dlp';
+const DEFAULT_YTDLP_TIMEOUT_MS = 20000;
 const HAS_SCHEME_RE = /^[a-z][a-z\d+\-.]*:\/\//i;
 const DOMAIN_LIKE_RE = /^(localhost(?::\d+)?|(?:[\p{L}\p{N}-]+\.)+[\p{L}\p{N}-]{2,}|(?:\d{1,3}\.){3}\d{1,3})(?:[/:?#].*)?$/iu;
 
@@ -1018,6 +1024,121 @@ function extractTranscriptTextFromEvents(payload) {
   return normalizeLongText(parts.join(' '), MAX_STORED_CONTENT_CHARS);
 }
 
+function runExecFile(file, args, { timeoutMs = DEFAULT_YTDLP_TIMEOUT_MS } = {}) {
+  return new Promise((resolve, reject) => {
+    execFile(file, args, {
+      timeout: timeoutMs,
+      maxBuffer: 10 * 1024 * 1024,
+    }, (error, stdout, stderr) => {
+      if (error) {
+        reject(new Error(String(stderr || error.message || 'Command failed.').trim()));
+        return;
+      }
+      resolve({ stdout: String(stdout || ''), stderr: String(stderr || '') });
+    });
+  });
+}
+
+function chooseBestSubtitleLanguage(subtitles = {}, automaticCaptions = {}) {
+  const manualEntries = Object.entries(subtitles || {});
+  const autoEntries = Object.entries(automaticCaptions || {});
+  const preferredManual = manualEntries.find(([language]) => /^en(?:[-_].+)?$/i.test(language));
+  if (preferredManual) return { mode: 'manual', language: preferredManual[0] };
+
+  const preferredAuto = autoEntries.find(([language]) => /^en(?:[-_].+)?$/i.test(language));
+  if (preferredAuto) return { mode: 'auto', language: preferredAuto[0] };
+
+  return null;
+}
+
+function parseVttTranscript(text = '') {
+  const lines = String(text || '')
+    .replace(/^\uFEFF/, '')
+    .split(/\r?\n/);
+  const parts = [];
+  const seen = new Set();
+  let skipBlock = false;
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) {
+      skipBlock = false;
+      continue;
+    }
+    if (/^WEBVTT/i.test(line)) continue;
+    if (/^(NOTE|STYLE|REGION)\b/i.test(line)) {
+      skipBlock = true;
+      continue;
+    }
+    if (skipBlock) continue;
+    if (/^\d+$/.test(line)) continue;
+    if (/^\d{2}:\d{2}(?::\d{2})?\.\d{3}\s+-->\s+\d{2}:\d{2}(?::\d{2})?\.\d{3}/.test(line)) continue;
+
+    const cleaned = stripText(
+      decodeHtmlEntities(
+        line
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\{\\an\d+\}/g, ' ')
+      ),
+    );
+    if (!cleaned) continue;
+    const key = cleaned.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    parts.push(cleaned);
+  }
+
+  return normalizeLongText(parts.join(' '), MAX_STORED_CONTENT_CHARS);
+}
+
+async function fetchYoutubeTranscriptViaYtDlp(normalizedUrl) {
+  const ytdlpBin = String(process.env.YTDLP_BIN || DEFAULT_YTDLP_BIN).trim() || DEFAULT_YTDLP_BIN;
+  const timeoutMs = Number(process.env.YTDLP_TIMEOUT_MS || DEFAULT_YTDLP_TIMEOUT_MS);
+
+  let tempDir = '';
+  try {
+    const metadataResult = await runExecFile(ytdlpBin, [
+      '--dump-single-json',
+      '--skip-download',
+      '--no-warnings',
+      normalizedUrl,
+    ], { timeoutMs });
+    const metadata = JSON.parse(metadataResult.stdout || '{}');
+    const selected = chooseBestSubtitleLanguage(metadata.subtitles, metadata.automatic_captions);
+    if (!selected?.language) return { transcript: '', language: '' };
+
+    tempDir = await mkdtemp(join(tmpdir(), 'lifeos-ytdlp-'));
+    const outputTemplate = join(tempDir, 'transcript.%(ext)s');
+    const subtitleArgs = [
+      '--skip-download',
+      '--no-warnings',
+      '--output', outputTemplate,
+      '--sub-langs', selected.language,
+      '--sub-format', 'vtt',
+    ];
+    if (selected.mode === 'manual') subtitleArgs.push('--write-subs');
+    else subtitleArgs.push('--write-auto-subs');
+    subtitleArgs.push(normalizedUrl);
+
+    await runExecFile(ytdlpBin, subtitleArgs, { timeoutMs });
+    const files = await readdir(tempDir);
+    const subtitleFile = files.find((file) => file.endsWith('.vtt'));
+    if (!subtitleFile) return { transcript: '', language: selected.language };
+
+    const vtt = await readFile(join(tempDir, subtitleFile), 'utf8');
+    return {
+      transcript: parseVttTranscript(vtt),
+      language: selected.language,
+    };
+  } catch {
+    return { transcript: '', language: '' };
+  } finally {
+    if (tempDir) {
+      await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    }
+  }
+}
+
 async function fetchYoutubeTranscriptFromWatchPage(normalizedUrl, html) {
   const playerResponse = extractPlayerResponseFromHtml(html);
   const tracks = playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
@@ -1135,7 +1256,10 @@ async function fetchYoutubeTranscriptViaSupadata(normalizedUrl) {
 async function fetchYouTubeMetadata(normalizedUrl, html) {
   const videoId = extractYoutubeVideoId(normalizedUrl);
   const initialPlayerResponse = extractPlayerResponseFromHtml(html);
-  const innertubeResult = await fetchYoutubeTranscriptFromInnertube(videoId, html);
+  const ytdlpResult = await fetchYoutubeTranscriptViaYtDlp(normalizedUrl);
+  const innertubeResult = ytdlpResult.transcript
+    ? { transcript: '', language: '', playerResponse: null }
+    : await fetchYoutubeTranscriptFromInnertube(videoId, html);
   const playerResponse = innertubeResult.playerResponse || initialPlayerResponse || {};
   const videoDetails = playerResponse?.videoDetails || {};
   const microformat = playerResponse?.microformat?.playerMicroformatRenderer || {};
@@ -1154,8 +1278,11 @@ async function fetchYouTubeMetadata(normalizedUrl, html) {
     // ignore
   }
 
-  const fromWatchPage = await fetchYoutubeTranscriptFromWatchPage(normalizedUrl, html);
+  const fromWatchPage = ytdlpResult.transcript
+    ? { transcript: '', language: '' }
+    : await fetchYoutubeTranscriptFromWatchPage(normalizedUrl, html);
   const transcriptCandidates = [
+    { transcript: ytdlpResult.transcript, language: ytdlpResult.language },
     { transcript: fromWatchPage.transcript, language: fromWatchPage.language },
     { transcript: innertubeResult.transcript, language: innertubeResult.language },
   ];

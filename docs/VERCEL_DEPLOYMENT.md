@@ -47,6 +47,8 @@ GOOGLE_CLIENT_SECRET=
 GOOGLE_OAUTH_REDIRECT_URI=
 GOOGLE_OAUTH_STATE_SECRET=
 GOOGLE_TOKEN_ENCRYPTION_KEY=
+YTDLP_BIN=yt-dlp
+YTDLP_TIMEOUT_MS=20000
 ```
 
 Recommended production redirect URI:
@@ -74,6 +76,11 @@ These integrations are already proxied through your backend, so the browser stil
 - CoinGecko crypto search and FX helper calls
 - Pokemon TCG, YGOProDeck, Scryfall, and OptCG lookups
 - OpenRouter, Gemini, Google Calendar, Google Docs, and Google Tasks
+- `yt-dlp` if you want transcript-first YouTube enrichment
+
+## YouTube Transcript Note
+
+The backend now prefers `yt-dlp` for YouTube transcript extraction. If your runtime cannot execute `yt-dlp` directly, YouTube resources will gracefully fall back to description and metadata, which is less reliable for rich enrichment.
 
 ## Google OAuth Setup
 
