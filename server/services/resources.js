@@ -1358,6 +1358,8 @@ async function classifyAreaFromContent({ extracted, mergedData, areas, userId })
     extracted.resourceType ? `Resource type: ${extracted.resourceType}` : '',
     extracted.youtubeAiSummary ? `Supplemental YouTube AI summary: ${extracted.youtubeAiSummary.slice(0, 1200)}` : '',
     extracted.content ? `Content excerpt:\n${String(extracted.content).slice(0, 4000)}` : '',
+    'Pick the most specific life area supported by the source.',
+    'Use Knowledge only if the resource is truly broad, generic, or lacks a stronger fit.',
     'Return JSON with only area_name, using exactly one of the allowed life area names. If uncertain, still choose the closest fit.',
   ].filter(Boolean).join('\n');
 
@@ -1389,6 +1391,53 @@ function getStructuredSectionCount(result) {
 
 function hasCoreFraming(result) {
   return Boolean(stripText(result.why_it_matters)) && Boolean(stripText(result.who_its_for));
+}
+
+function isContentRichExtraction(extracted) {
+  const minimumContentLength = extracted.resourceType === 'reddit' ? 600 : 900;
+  return String(extracted.content || '').length >= minimumContentLength;
+}
+
+function isDetailModalReady(result, extracted) {
+  return hasCoreFraming(result) && getStructuredSectionCount(result) >= 2;
+}
+
+function shouldRepairAnalysis(result, extracted) {
+  return isContentRichExtraction(extracted) && !isDetailModalReady(result, extracted);
+}
+
+function classifySpecificAreaHeuristically({ extracted, mergedData, areas }) {
+  const nonKnowledgeAreas = (areas || []).filter((area) => stripText(area.name).toLowerCase() !== 'knowledge');
+  if (!nonKnowledgeAreas.length) return '';
+
+  const haystack = stripText([
+    mergedData.title,
+    mergedData.summary,
+    mergedData.why_it_matters,
+    mergedData.main_topic,
+    mergedData.tags?.join(' '),
+    extracted.description,
+    String(extracted.content || '').slice(0, 3000),
+  ].filter(Boolean).join(' ')).toLowerCase();
+
+  let bestArea = '';
+  let bestScore = 0;
+
+  for (const area of nonKnowledgeAreas) {
+    const words = stripText(area.name)
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((word) => word.length >= 3);
+    if (!words.length) continue;
+
+    const score = words.reduce((total, word) => total + (haystack.includes(word) ? 1 : 0), 0);
+    if (score > bestScore) {
+      bestArea = area.name;
+      bestScore = score;
+    }
+  }
+
+  return bestScore > 0 ? bestArea : '';
 }
 
 function getEnrichmentStatus(result, extracted) {
@@ -1540,6 +1589,36 @@ export async function analyzeResource({ url, title = '', content = '', userId = 
     };
   }
 
+  if (shouldRepairAnalysis(result.data, extracted)) {
+    try {
+      result = await routeStructuredJson({
+        taskType: 'resource.analyze',
+        prompt: [
+          prompt,
+          '',
+          'REPAIR PASS:',
+          'The previous output was too sparse for a content-rich source.',
+          'Rebuild the enrichment so it is detail-modal ready.',
+          'Required minimum:',
+          '- non-empty summary',
+          '- non-empty why_it_matters',
+          '- non-empty who_its_for',
+          '- at least 2 of these 3 populated: key_points, actionable_points, use_cases',
+          'Choose the most specific life area supported by the content. Do not default to Knowledge when a closer fit exists.',
+          `Previous sparse output: ${JSON.stringify(result.data).slice(0, 3000)}`,
+        ].join('\n'),
+        schema: resourceSchema,
+        userId,
+        groundWithGoogleSearch: true,
+        metadata: {
+          requestSummary: `resource-repair:${normalizedInputUrl}`,
+        },
+      });
+    } catch {
+      // keep prior result
+    }
+  }
+
   const mergedData = {
     ...heuristic,
     ...result.data,
@@ -1580,6 +1659,18 @@ export async function analyzeResource({ url, title = '', content = '', userId = 
     if (secondPassAreaName) {
       resolvedAreaName = secondPassAreaName;
       areaAssignment = resolveAreaAssignment(secondPassAreaName, areas, mergedData, extracted);
+    }
+  }
+  if (areaAssignment.area_name === 'Knowledge' && areas.some((area) => stripText(area.name).toLowerCase() !== 'knowledge')) {
+    const heuristicAreaName = classifySpecificAreaHeuristically({ extracted, mergedData, areas });
+    if (heuristicAreaName) {
+      const heuristicAssignment = resolveAreaAssignment(heuristicAreaName, areas, mergedData, extracted);
+      if (heuristicAssignment.area_name && heuristicAssignment.area_name !== 'Knowledge') {
+        areaAssignment = {
+          ...heuristicAssignment,
+          area_needs_review: true,
+        };
+      }
     }
   }
   const data = buildAnalysisPayload({ mergedData, extracted, areaAssignment });

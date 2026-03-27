@@ -218,15 +218,20 @@ export default function Resources() {
 
     for (let index = 0; index < ids.length; index += REENRICH_BATCH_SIZE) {
       const batchIds = ids.slice(index, index + REENRICH_BATCH_SIZE);
-      const result = await reEnrichResources({
-        resource_ids: batchIds,
-        batch_size: REENRICH_BATCH_SIZE,
-      });
+      try {
+        const result = await reEnrichResources({
+          resource_ids: batchIds,
+          batch_size: REENRICH_BATCH_SIZE,
+        });
+
+        updated += Number(result?.updated || 0);
+        skipped += Number(result?.skipped || 0);
+        failed += Number(result?.failed || 0);
+      } catch {
+        failed += batchIds.length;
+      }
 
       processed += batchIds.length;
-      updated += Number(result?.updated || 0);
-      skipped += Number(result?.skipped || 0);
-      failed += Number(result?.failed || 0);
 
       setReenrichProgress({
         scope,
