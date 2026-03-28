@@ -7,7 +7,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import browser_cookie3
 import httpx
+import instaloader
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
@@ -17,6 +19,7 @@ from app.schemas.download import (
     DownloadedFile,
     GoogleDriveFile,
     GoogleDriveFolder,
+    InstagramMediaItem,
     YouTubeTranscriptRequest,
     YouTubeTranscriptResponse,
 )
@@ -35,6 +38,14 @@ MEDIA_TYPE_FOLDER_NAMES = {
     "post": "Posts",
     "carousel": "Carousels",
     "unknown": "Posts",
+}
+BROWSER_COOKIE_LOADERS = {
+    "chrome": browser_cookie3.chrome,
+    "safari": browser_cookie3.safari,
+    "firefox": browser_cookie3.firefox,
+    "edge": browser_cookie3.edge,
+    "opera": browser_cookie3.opera,
+    "brave": browser_cookie3.brave,
 }
 
 
@@ -176,6 +187,56 @@ def build_download_metadata(url: str, info: dict[str, Any]) -> dict[str, str]:
         "caption": caption,
         "published_at": published_at,
         "normalized_title": normalized_title,
+        "extractor": "yt_dlp",
+        "review_state": "none",
+        "review_reason": "",
+        "media_items": [],
+    }
+
+
+def parse_instagram_shortcode(url: str) -> str:
+    match = re.search(r"instagram\.com\/(?:share\/)?(?:reel|p|tv)\/([^/?#]+)/?", str(url or ""), re.IGNORECASE)
+    return match.group(1) if match else ""
+
+
+def should_use_instaloader(url: str) -> bool:
+    value = str(url or "").lower()
+    return "/p/" in value or "/tv/" in value
+
+
+def get_instagram_browser_cookie_target() -> str:
+    return os.getenv("INSTAGRAM_COOKIES_FROM_BROWSER", "").strip().lower() or default_browser_cookies_target()
+
+
+def build_metadata_result(
+    *,
+    media_type: str,
+    creator_handle: str = "",
+    caption: str = "",
+    published_at: str = "",
+    transcript: str = "",
+    extractor: str = "yt_dlp",
+    review_state: str = "none",
+    review_reason: str = "",
+    media_items: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    return {
+        "media_type": media_type,
+        "media_type_label": get_media_type_label(media_type),
+        "creator_handle": creator_handle,
+        "caption": caption,
+        "published_at": published_at,
+        "normalized_title": build_display_title(
+            media_type=media_type,
+            creator_handle=creator_handle,
+            caption=caption,
+            transcript=transcript,
+            published_at=published_at,
+        ),
+        "extractor": extractor,
+        "review_state": review_state,
+        "review_reason": review_reason,
+        "media_items": list(media_items or []),
     }
 
 
@@ -213,7 +274,88 @@ def infer_media_type(url: str, info: dict[str, Any]) -> str:
     return "unknown"
 
 
-def build_ydl_options(download_dir: Path) -> dict[str, Any]:
+def infer_instaloader_media_type(url: str, post: instaloader.Post) -> str:
+    typename = str(getattr(post, "typename", "") or "")
+    if typename == "GraphSidecar":
+        return "carousel"
+    if "/reel/" in str(url or "").lower():
+        return "reel"
+    if typename in {"GraphImage", "GraphVideo"}:
+        return "post"
+    return "unknown"
+
+
+def normalize_duration_seconds(value: Any) -> float | None:
+    try:
+        if value in (None, "", 0):
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def normalize_media_dimension(node: Any, attr: str) -> int | None:
+    value = getattr(node, attr, None)
+    try:
+        if value in (None, ""):
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def build_instaloader_media_items(post: instaloader.Post) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    if str(getattr(post, "typename", "") or "") == "GraphSidecar":
+        nodes = list(post.get_sidecar_nodes())
+        for index, node in enumerate(nodes):
+            items.append({
+                "index": index,
+                "label": f"#{index + 1}",
+                "type": "video" if getattr(node, "is_video", False) else "image",
+                "source_url": getattr(node, "video_url", None) if getattr(node, "is_video", False) else getattr(node, "display_url", None),
+                "width": normalize_media_dimension(node, "display_url_width"),
+                "height": normalize_media_dimension(node, "display_url_height"),
+                "duration_seconds": normalize_duration_seconds(getattr(node, "video_duration", None)),
+            })
+        return items
+
+    items.append({
+        "index": 0,
+        "label": "#1",
+        "type": "video" if getattr(post, "is_video", False) else "image",
+        "source_url": getattr(post, "video_url", None) if getattr(post, "is_video", False) else getattr(post, "url", None),
+        "width": None,
+        "height": None,
+        "duration_seconds": normalize_duration_seconds(getattr(post, "video_duration", None)),
+    })
+    items[0]["width"] = normalize_media_dimension(post, "display_url_width")
+    items[0]["height"] = normalize_media_dimension(post, "display_url_height")
+    return items
+
+
+def build_instaloader_metadata(url: str, post: instaloader.Post, *, extractor: str = "instaloader") -> dict[str, Any]:
+    media_type = infer_instaloader_media_type(url, post)
+    creator_handle = normalize_whitespace(getattr(post, "owner_username", "") or "")
+    caption = normalize_whitespace(getattr(post, "caption", "") or "")
+    published_at = ""
+    date_utc = getattr(post, "date_utc", None)
+    if date_utc is not None:
+        try:
+            published_at = date_utc.replace(tzinfo=timezone.utc).isoformat()
+        except Exception:
+            published_at = ""
+    return build_metadata_result(
+        media_type=media_type,
+        creator_handle=creator_handle,
+        caption=caption,
+        published_at=published_at,
+        extractor=extractor,
+        media_items=build_instaloader_media_items(post),
+    )
+
+
+def build_ydl_options(download_dir: Path, *, force_browser_session: bool = False) -> dict[str, Any]:
     options: dict[str, Any] = {
         "outtmpl": str(download_dir / "%(autonumber)02d_%(title).80B_%(id)s.%(ext)s"),
         "noplaylist": False,
@@ -224,13 +366,16 @@ def build_ydl_options(download_dir: Path) -> dict[str, Any]:
         "merge_output_format": "mp4",
     }
 
-    browser = os.getenv("INSTAGRAM_COOKIES_FROM_BROWSER", "").strip().lower() or default_browser_cookies_target()
+    browser = get_instagram_browser_cookie_target()
     if browser:
         options["cookiesfrombrowser"] = (browser,)
 
     cookiefile = os.getenv("INSTAGRAM_COOKIEFILE", "").strip()
     if cookiefile:
         options["cookiefile"] = cookiefile
+
+    if force_browser_session and not browser and not cookiefile:
+        raise InstagramDownloaderError("No Instagram browser session is configured for the local worker.", 403)
 
     return options
 
@@ -281,13 +426,62 @@ def map_download_error(error: Exception) -> InstagramDownloaderError:
     return InstagramDownloaderError("yt-dlp extraction failed.", 502)
 
 
+def map_instaloader_error(error: Exception) -> InstagramDownloaderError:
+    message = str(error).strip()
+    lowered = message.lower()
+    if "403" in lowered or "forbidden" in lowered or "please wait a few minutes" in lowered:
+        return InstagramDownloaderError("Instagram blocked Instaloader from returning downloadable media for this post.", 403)
+    if "login" in lowered or "private" in lowered or "401" in lowered:
+        return InstagramDownloaderError("Instagram post requires a logged-in browser session.", 403)
+    if "404" in lowered or "not found" in lowered:
+        return InstagramDownloaderError("Instagram post could not be resolved by Instaloader.", 404)
+    return InstagramDownloaderError(message or "Instaloader failed to extract the Instagram post.", 502)
+
+
+def should_attempt_browser_fallback(error: Exception) -> bool:
+    lowered = str(error or "").lower()
+    return any(fragment in lowered for fragment in (
+        "403",
+        "forbidden",
+        "login",
+        "private",
+        "empty media response",
+        "no downloadable",
+        "no files",
+        "blocked",
+        "graphql",
+        "returned no sidecar",
+    ))
+
+
+def load_instaloader_browser_session(loader: instaloader.Instaloader) -> str:
+    browser = get_instagram_browser_cookie_target()
+    cookie_loader = BROWSER_COOKIE_LOADERS.get(browser)
+    if not cookie_loader:
+        raise InstagramDownloaderError("No supported Instagram browser session is configured for Instaloader.", 403)
+
+    cookie_file = os.getenv("INSTAGRAM_BROWSER_COOKIE_FILE", "").strip() or None
+    try:
+        cookies = cookie_loader(cookie_file=cookie_file, domain_name="instagram.com")
+    except Exception as error:
+        raise InstagramDownloaderError(f"Failed to load Instagram browser cookies from {browser}.", 403) from error
+
+    if not cookies:
+        raise InstagramDownloaderError(f"No Instagram browser cookies were found in {browser}.", 403)
+
+    loader.context._session.cookies.update(cookies)
+    return browser
+
+
 def collect_downloaded_files(download_dir: Path, base_title: str = "") -> list[DownloadedFile]:
     raw_paths = [path for path in sorted(download_dir.iterdir()) if path.is_file()]
-    total_files = len(raw_paths)
+    typed_paths = [(path, detect_file_type(path)) for path in raw_paths]
+    media_paths = [(path, file_type) for path, file_type in typed_paths if file_type != "unknown"]
+    total_files = len(media_paths)
     files = []
     safe_base_title = sanitize_filename(base_title or "Instagram_Post")
-    for index, path in enumerate(raw_paths, start=1):
-        extension = path.suffix or ""
+    for index, (path, file_type) in enumerate(media_paths, start=1):
+        extension = path.suffix.lower() or ""
         normalized_name = (
             f"{safe_base_title}{extension}"
             if total_files == 1
@@ -304,10 +498,25 @@ def collect_downloaded_files(download_dir: Path, base_title: str = "") -> list[D
             DownloadedFile(
                 filename=path.name,
                 filepath=str(path.resolve()),
-                type=detect_file_type(path),
+                type=file_type,
             )
         )
     return files
+
+
+def attach_media_filenames(media_items: list[dict[str, Any]], files: list[DownloadedFile]) -> list[dict[str, Any]]:
+    enriched: list[dict[str, Any]] = []
+    for index, item in enumerate(media_items or []):
+        file = files[index] if index < len(files) else None
+        enriched.append({
+            **item,
+            "index": item.get("index", index),
+            "label": item.get("label") or f"#{index + 1}",
+            "type": item.get("type") or (file.type if file else "unknown"),
+            "filename": file.filename if file else item.get("filename"),
+            "filepath": file.filepath if file else item.get("filepath"),
+        })
+    return enriched
 
 
 async def drive_request(
@@ -482,33 +691,118 @@ async def maybe_upload_to_drive(
         return drive_folder, uploaded_files
 
 
-async def download_instagram_media_locally(request: DownloadRequest) -> tuple[dict[str, str], Path, list[DownloadedFile]]:
-    if not is_valid_instagram_url(request.url):
-        raise InstagramDownloaderError("Invalid or unsupported Instagram URL.", 400)
+def build_instaloader_instance(download_dir: Path) -> instaloader.Instaloader:
+    return instaloader.Instaloader(
+        sleep=False,
+        quiet=True,
+        dirname_pattern=str(download_dir),
+        filename_pattern="{shortcode}",
+        download_comments=False,
+        save_metadata=False,
+        compress_json=False,
+        post_metadata_txt_pattern="",
+        storyitem_metadata_txt_pattern="",
+        download_video_thumbnails=False,
+        sanitize_paths=False,
+        max_connection_attempts=1,
+        request_timeout=30.0,
+    )
 
+
+def inspect_with_ytdlp(url: str, *, force_browser_session: bool = False) -> dict[str, Any]:
+    with YoutubeDL(build_ydl_options(Path("."), force_browser_session=force_browser_session)) as ydl:
+        info = ydl.extract_info(url, download=False)
+    return info if isinstance(info, dict) else {}
+
+
+async def download_with_ytdlp(
+    request: DownloadRequest,
+    *,
+    extractor: str = "yt_dlp",
+    force_browser_session: bool = False,
+) -> tuple[dict[str, Any], Path, list[DownloadedFile]]:
     try:
-        with YoutubeDL(build_ydl_options(Path("."))) as ydl:
-            info = ydl.extract_info(request.url, download=False)
+        info = inspect_with_ytdlp(request.url, force_browser_session=force_browser_session)
     except DownloadError as error:
         raise map_download_error(error) from error
+    except InstagramDownloaderError:
+        raise
     except Exception as error:
         raise InstagramDownloaderError(f"Failed to inspect Instagram URL: {error}", 502) from error
 
-    metadata = build_download_metadata(request.url, info if isinstance(info, dict) else {})
+    metadata = build_download_metadata(request.url, info)
+    metadata["extractor"] = extractor
     download_dir = build_request_download_dir(request.url, request.download_base_dir)
     try:
-        with YoutubeDL(build_ydl_options(download_dir)) as ydl:
+        with YoutubeDL(build_ydl_options(download_dir, force_browser_session=force_browser_session)) as ydl:
             ydl.extract_info(request.url, download=True)
     except DownloadError as error:
         raise map_download_error(error) from error
+    except InstagramDownloaderError:
+        raise
     except Exception as error:
         raise InstagramDownloaderError(f"Download failed: {error}", 502) from error
 
     files = collect_downloaded_files(download_dir, metadata["normalized_title"])
+    metadata["media_items"] = attach_media_filenames(metadata.get("media_items", []), files)
     if not files:
         raise InstagramDownloaderError("Download completed but no files were found.", 500)
 
     return metadata, download_dir, files
+
+
+async def download_with_instaloader(request: DownloadRequest) -> tuple[dict[str, Any], Path, list[DownloadedFile]]:
+    shortcode = parse_instagram_shortcode(request.url)
+    if not shortcode:
+        raise InstagramDownloaderError("Unsupported Instagram post URL.", 400)
+
+    download_dir = build_request_download_dir(request.url, request.download_base_dir)
+    try:
+        loader = build_instaloader_instance(download_dir)
+        load_instaloader_browser_session(loader)
+        post = instaloader.Post.from_shortcode(loader.context, shortcode)
+        metadata = build_instaloader_metadata(request.url, post, extractor="instaloader")
+        loader.download_post(post, target="")
+    except InstagramDownloaderError:
+        raise
+    except Exception as error:
+        raise map_instaloader_error(error) from error
+
+    files = collect_downloaded_files(download_dir, metadata["normalized_title"])
+    metadata["media_items"] = attach_media_filenames(metadata.get("media_items", []), files)
+    if not files:
+        raise InstagramDownloaderError("Instaloader completed but no downloadable media files were created.", 502)
+
+    return metadata, download_dir, files
+
+
+async def download_instagram_media_locally(request: DownloadRequest) -> tuple[dict[str, Any], Path, list[DownloadedFile]]:
+    if not is_valid_instagram_url(request.url):
+        raise InstagramDownloaderError("Invalid or unsupported Instagram URL.", 400)
+
+    if not should_use_instaloader(request.url):
+        return await download_with_ytdlp(request, extractor="yt_dlp")
+
+    try:
+        return await download_with_instaloader(request)
+    except InstagramDownloaderError as error:
+        if not should_attempt_browser_fallback(error):
+            raise
+
+    try:
+        metadata, download_dir, files = await download_with_ytdlp(
+            request,
+            extractor="browser_fallback",
+            force_browser_session=True,
+        )
+        metadata["review_state"] = "none"
+        metadata["review_reason"] = ""
+        return metadata, download_dir, files
+    except InstagramDownloaderError as error:
+        raise InstagramDownloaderError(
+            "Instagram media needs review. Instaloader and your local browser session both could not fetch downloadable media for this post.",
+            error.status_code,
+        ) from error
 
 
 async def upload_instagram_files_to_drive(
@@ -532,12 +826,16 @@ async def download_instagram_media(request: DownloadRequest) -> DownloadResponse
         media_type_label=metadata["media_type_label"],
         download_dir=str(download_dir),
         files=files,
+        media_items=[InstagramMediaItem(**item) for item in metadata.get("media_items", [])],
         drive_folder=drive_folder,
         drive_files=drive_files,
         normalized_title=metadata["normalized_title"],
         creator_handle=metadata["creator_handle"],
         caption=metadata["caption"],
         published_at=metadata["published_at"],
+        extractor=metadata.get("extractor"),
+        review_state=metadata.get("review_state"),
+        review_reason=metadata.get("review_reason"),
         error=None,
     )
 

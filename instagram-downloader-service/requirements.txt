@@ -1,5 +1,7 @@
 fastapi==0.116.1
 uvicorn[standard]==0.35.0
 yt-dlp==2026.3.17
+instaloader==4.15.1
+browser-cookie3==0.20.1
 httpx==0.28.1
 pydantic==2.11.3

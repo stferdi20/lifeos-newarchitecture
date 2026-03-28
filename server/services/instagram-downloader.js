@@ -22,8 +22,17 @@ function toPublicDownloadResult(payload = {}) {
     media_type: payload.media_type || 'unknown',
     download_dir: payload.download_dir || '',
     files: Array.isArray(payload.files) ? payload.files : [],
+    media_items: Array.isArray(payload.media_items) ? payload.media_items : [],
     drive_folder: payload.drive_folder || null,
     drive_files: Array.isArray(payload.drive_files) ? payload.drive_files : [],
+    extractor: payload.extractor || '',
+    review_state: payload.review_state || '',
+    review_reason: payload.review_reason || '',
+    media_type_label: payload.media_type_label || '',
+    normalized_title: payload.normalized_title || '',
+    creator_handle: payload.creator_handle || '',
+    caption: payload.caption || '',
+    published_at: payload.published_at || '',
     error: payload.error || null,
   };
 }

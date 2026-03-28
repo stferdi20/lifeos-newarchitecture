@@ -65,6 +65,12 @@ function buildFailedSummary(message = '') {
   return message ? `Instagram download failed: ${message}` : 'Instagram download failed.';
 }
 
+function buildNeedsReviewMessage(message = '') {
+  return message
+    ? `Instagram media needs review: ${message}`
+    : 'Instagram media needs review. LifeOS could not fetch downloadable media for this post automatically.';
+}
+
 function computeInstagramReadyState(resource = {}) {
   const downloadDone = ['uploaded', 'blocked', 'failed'].includes(String(resource.download_status || ''));
   const enrichmentDone = ['completed', 'failed'].includes(String(resource.instagram_enrichment_status || ''));
@@ -93,6 +99,7 @@ function getInstagramFailureStatus(message = '') {
     lowered.includes('empty media response')
     || lowered.includes('extractor-blocked')
     || lowered.includes('blocked by instagram')
+    || lowered.includes('needs review')
   ) {
     return 'blocked';
   }
@@ -244,9 +251,13 @@ export async function updateInstagramDownloaderSettingsForUser(userId, updates =
 }
 
 function toInstagramMediaItems(download = {}, existingItems = []) {
+  const seedItems = Array.isArray(download.media_items) && download.media_items.length
+    ? download.media_items
+    : existingItems;
+
   return (download.files || []).map((file, index) => {
     const driveFile = (download.drive_files || []).find((entry) => entry.name === file.filename) || null;
-    const baseItem = Array.isArray(existingItems) ? existingItems[index] || {} : {};
+    const baseItem = Array.isArray(seedItems) ? seedItems[index] || {} : {};
     return {
       ...baseItem,
       index,
@@ -254,6 +265,10 @@ function toInstagramMediaItems(download = {}, existingItems = []) {
       type: file.type || baseItem.type || 'unknown',
       filename: file.filename,
       filepath: file.filepath,
+      source_url: baseItem.source_url || null,
+      width: baseItem.width ?? null,
+      height: baseItem.height ?? null,
+      duration_seconds: baseItem.duration_seconds ?? null,
       drive_name: driveFile?.name || file.filename,
       drive_file_id: driveFile?.id || null,
       drive_url: driveFile?.url || null,
@@ -309,6 +324,8 @@ export async function createPendingInstagramResource(userId, { url, projectId = 
     instagram_enrichment_message: buildQueuedEnrichmentMessage(),
     downloader_mode: 'queue',
     instagram_media_items: [],
+    instagram_review_state: 'none',
+    instagram_review_reason: '',
     drive_folder_url: '',
     drive_folder_id: '',
     drive_target: GLOBAL_DRIVE_TARGET,
@@ -336,6 +353,8 @@ export async function updateInstagramResourceQueued(userId, resourceId, jobId) {
     instagram_enrichment_message: current.instagram_enrichment_status === 'completed'
       ? buildCompletedEnrichmentMessage()
       : buildQueuedEnrichmentMessage(),
+    instagram_review_state: 'none',
+    instagram_review_reason: '',
     downloader_job_id: jobId,
     downloader_updated_at: new Date().toISOString(),
   }));
@@ -364,6 +383,8 @@ export async function updateInstagramResourceProcessing(userId, resourceId, work
     instagram_enrichment_message: current.instagram_enrichment_status === 'completed'
       ? buildCompletedEnrichmentMessage()
       : buildAnalyzingEnrichmentMessage(),
+    instagram_review_state: 'none',
+    instagram_review_reason: '',
     downloader_worker_id: workerId,
     downloader_updated_at: new Date().toISOString(),
   }));
@@ -391,10 +412,13 @@ export async function updateYouTubeTranscriptProcessing(userId, resourceId, work
 
 export async function updateInstagramResourceFailed(userId, resourceId, errorMessage) {
   const current = await getCompatEntity(userId, 'Resource', resourceId);
+  const failureStatus = getInstagramFailureStatus(errorMessage);
   return updateCompatEntity(userId, 'Resource', resourceId, mergeInstagramResourceState(current, {
-    download_status: getInstagramFailureStatus(errorMessage),
-    download_status_message: buildFailedSummary(errorMessage),
+    download_status: failureStatus,
+    download_status_message: failureStatus === 'blocked' ? buildNeedsReviewMessage(errorMessage) : buildFailedSummary(errorMessage),
     ingestion_error: errorMessage || '',
+    instagram_review_state: failureStatus === 'blocked' ? 'needs_review' : 'none',
+    instagram_review_reason: failureStatus === 'blocked' ? (errorMessage || '') : '',
     downloader_updated_at: new Date().toISOString(),
   }));
 }
@@ -524,6 +548,10 @@ export async function applySuccessfulInstagramDownload(userId, resourceId, sourc
     instagram_display_title: displayTitle,
     instagram_author_handle: creatorHandle || merged.instagram_author_handle || '',
     instagram_media_type_label: download.media_type_label || merged.instagram_media_type_label || getInstagramMediaTypeLabel(download.media_type),
+    instagram_extractor: download.extractor || current.instagram_extractor || '',
+    ingestion_source: download.extractor || current.ingestion_source || '',
+    instagram_review_state: download.review_state || 'none',
+    instagram_review_reason: download.review_reason || '',
     instagram_enrichment_status: enrichmentStatus,
     instagram_enrichment_error: enrichmentError,
     instagram_enrichment_message: enrichmentMessage || (

@@ -192,12 +192,16 @@ class WorkerLoop:
                   media_type_label=metadata["media_type_label"],
                   download_dir=str(download_dir),
                   files=files,
+                  media_items=metadata.get("media_items", []),
                   drive_folder=drive_folder,
                   drive_files=drive_files,
                   normalized_title=metadata["normalized_title"],
                   creator_handle=metadata["creator_handle"],
                   caption=metadata["caption"],
                   published_at=metadata["published_at"],
+                  extractor=metadata.get("extractor"),
+                  review_state=metadata.get("review_state"),
+                  review_reason=metadata.get("review_reason"),
                   error=None,
               )
               await self.complete_job(client, job["id"], download)

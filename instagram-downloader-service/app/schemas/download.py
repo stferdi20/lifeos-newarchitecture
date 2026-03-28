@@ -25,6 +25,18 @@ class DownloadedFile(BaseModel):
     type: FileType
 
 
+class InstagramMediaItem(BaseModel):
+    index: int = 0
+    label: str = ""
+    type: FileType = "unknown"
+    filename: str | None = None
+    filepath: str | None = None
+    source_url: str | None = None
+    width: int | None = None
+    height: int | None = None
+    duration_seconds: float | None = None
+
+
 class GoogleDriveFile(BaseModel):
     id: str
     name: str
@@ -46,12 +58,16 @@ class DownloadResponse(BaseModel):
     media_type_label: str | None = None
     download_dir: str | None = None
     files: list[DownloadedFile] = Field(default_factory=list)
+    media_items: list[InstagramMediaItem] = Field(default_factory=list)
     drive_folder: GoogleDriveFolder | None = None
     drive_files: list[GoogleDriveFile] = Field(default_factory=list)
     normalized_title: str | None = None
     creator_handle: str | None = None
     caption: str | None = None
     published_at: str | None = None
+    extractor: str | None = None
+    review_state: str | None = None
+    review_reason: str | None = None
     error: str | None = None
 
 

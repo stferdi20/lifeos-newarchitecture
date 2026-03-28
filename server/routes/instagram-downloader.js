@@ -50,6 +50,17 @@ const workerCompleteSchema = z.object({
     filepath: z.string(),
     type: z.string(),
   })).default([]).optional(),
+  media_items: z.array(z.object({
+    index: z.number().int().optional(),
+    label: z.string().optional(),
+    type: z.string().optional(),
+    filename: z.string().nullable().optional(),
+    filepath: z.string().nullable().optional(),
+    source_url: z.string().nullable().optional(),
+    width: z.number().nullable().optional(),
+    height: z.number().nullable().optional(),
+    duration_seconds: z.number().nullable().optional(),
+  })).default([]).optional(),
   drive_folder: z.object({
     id: z.string(),
     name: z.string(),
@@ -71,6 +82,9 @@ const workerCompleteSchema = z.object({
   creator_handle: z.string().optional(),
   caption: z.string().optional(),
   published_at: z.string().optional(),
+  extractor: z.string().optional(),
+  review_state: z.string().optional(),
+  review_reason: z.string().optional(),
   error: z.string().nullable().optional(),
 });
 

@@ -16,6 +16,7 @@ const typeConfig = {
   note:           { icon: FileText,      color: 'text-emerald-400',bg: 'bg-emerald-500/10',label: 'Note' },
   github_repo:    { icon: Github,        color: 'text-white',      bg: 'bg-white/10',      label: 'GitHub' },
   instagram_reel: { icon: Clapperboard,  color: 'text-pink-300',   bg: 'bg-pink-500/10',   label: 'IG Reel' },
+  instagram_post: { icon: Clapperboard,  color: 'text-pink-200',   bg: 'bg-pink-500/10',   label: 'IG Post' },
   instagram_carousel: { icon: Clapperboard, color: 'text-fuchsia-300', bg: 'bg-fuchsia-500/10', label: 'IG Carousel' },
 };
 
@@ -129,7 +130,7 @@ export default function ResourceCard({
   const cfg = typeConfig[resource.resource_type] || typeConfig.website;
   const Icon = cfg.icon;
   const isGitHub = resource.resource_type === 'github_repo';
-  const isInstagram = resource.resource_type === 'instagram_reel' || resource.resource_type === 'instagram_carousel';
+  const isInstagram = ['instagram_reel', 'instagram_carousel', 'instagram_post'].includes(resource.resource_type);
   const previewItem = getPreviewItem(resource);
   const ArchiveIcon = resource.is_archived ? ArchiveRestore : Archive;
   const archiveLabel = resource.is_archived ? 'Restore resource' : 'Archive resource';
@@ -137,6 +138,7 @@ export default function ResourceCard({
   const safeAuthor = asText(resource.author);
   const instagramAuthorHandle = asText(resource.instagram_author_handle);
   const instagramMediaTypeLabel = asText(resource.instagram_media_type_label || (resource.resource_type === 'instagram_reel' ? 'Reel' : resource.resource_type === 'instagram_carousel' ? 'Carousel' : 'Post'));
+  const needsReview = resource.instagram_review_state === 'needs_review';
   const safeMainTopic = asText(resource.main_topic);
   const safeTags = Array.isArray(resource.tags) ? resource.tags.filter((tag) => typeof tag === 'string' && tag.trim()) : [];
   const safeThumbnail = typeof resource.thumbnail === 'string' && resource.thumbnail.trim() ? resource.thumbnail : '';
@@ -249,6 +251,11 @@ export default function ResourceCard({
             {resource.instagram_media_items?.length > 0 && (
               <span className="text-[10px] rounded-full bg-pink-500/10 px-1.5 py-0.5 text-pink-200">
                 {resource.instagram_media_items.length} Media
+              </span>
+            )}
+            {needsReview && (
+              <span className="text-[10px] rounded-full bg-amber-500/10 px-1.5 py-0.5 text-amber-200">
+                Needs Review
               </span>
             )}
             {driveUrl && (

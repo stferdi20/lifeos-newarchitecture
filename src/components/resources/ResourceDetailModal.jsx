@@ -135,7 +135,7 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
     enabled: Boolean(open && resource?.id),
     refetchInterval: (query) => {
       const current = query.state.data || resource;
-      const isInstagramResource = current?.resource_type === 'instagram_reel' || current?.resource_type === 'instagram_carousel';
+      const isInstagramResource = ['instagram_reel', 'instagram_carousel', 'instagram_post'].includes(current?.resource_type);
       const isQueuedInstagram = isInstagramResource && (isInstagramDownloadActive(current) || isInstagramEnrichmentActive(current));
       const isQueuedYouTubeTranscript = current?.resource_type === 'youtube'
         && ['queued', 'processing'].includes(current?.youtube_transcript_status);
@@ -166,7 +166,7 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
   const isGitHub = resource.resource_type === 'github_repo';
   const isYouTube = resource.resource_type === 'youtube';
   const isReddit = resource.resource_type === 'reddit';
-  const isInstagram = resource.resource_type === 'instagram_reel' || resource.resource_type === 'instagram_carousel';
+  const isInstagram = ['instagram_reel', 'instagram_carousel', 'instagram_post'].includes(resource.resource_type);
   const isResearchPaper = resource.resource_type === 'research_paper';
   const isPdf = resource.resource_type === 'pdf';
   const isArticle = resource.resource_type === 'article';
@@ -179,7 +179,8 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
     ? resource.instagram_media_items.filter(Boolean)
     : [];
   const displayTitle = resource.instagram_display_title || resource.title;
-  const downloadStatusText = formatUiLabel(resource.download_status);
+  const needsReview = resource.instagram_review_state === 'needs_review';
+  const downloadStatusText = needsReview ? 'Needs Review' : formatUiLabel(resource.download_status);
   const enrichmentStatusText = formatUiLabel(resource.instagram_enrichment_status);
   const ingestionSourceText = formatUiLabel(resource.ingestion_source);
   const showInstagramEnrichmentProgress = isInstagram && isInstagramEnrichmentActive(resource) && !resource.summary;
@@ -317,7 +318,9 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
             {isInstagram && resource.download_status && (
               <span className={cn(
                 'text-[10px] tracking-widest font-semibold px-2 py-0.5 rounded-full border',
-                INSTAGRAM_STATUS_COLORS[resource.download_status] || 'border-fuchsia-500/20 bg-fuchsia-500/10 text-fuchsia-200',
+                needsReview
+                  ? 'border-amber-500/20 bg-amber-500/10 text-amber-200'
+                  : (INSTAGRAM_STATUS_COLORS[resource.download_status] || 'border-fuchsia-500/20 bg-fuchsia-500/10 text-fuchsia-200'),
               )}>
                 {instagramMediaTypeLabel} Download {downloadStatusText}
               </span>
@@ -391,6 +394,15 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
                   <p className="text-sm leading-relaxed text-foreground/80">{resource.instagram_enrichment_message}</p>
                 </div>
               )}
+            </div>
+          )}
+
+          {isInstagram && needsReview && (
+            <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-4">
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-amber-300">Needs Review</p>
+              <p className="text-sm leading-relaxed text-foreground/80">
+                {resource.instagram_review_reason || 'LifeOS could not fetch downloadable media for this Instagram post automatically, even after trying the local browser-backed path.'}
+              </p>
             </div>
           )}
 
@@ -498,7 +510,7 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
                     <FolderOpen className="h-3.5 w-3.5" /> Open Drive Folder
                   </a>
                 )}
-              {resource.download_status === 'failed' && (
+              {['failed', 'blocked'].includes(resource.download_status) && (
                   <Button
                     type="button"
                     size="sm"
