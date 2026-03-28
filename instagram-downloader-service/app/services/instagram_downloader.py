@@ -482,7 +482,7 @@ async def maybe_upload_to_drive(
         return drive_folder, uploaded_files
 
 
-async def download_instagram_media(request: DownloadRequest) -> DownloadResponse:
+async def download_instagram_media_locally(request: DownloadRequest) -> tuple[dict[str, str], Path, list[DownloadedFile]]:
     if not is_valid_instagram_url(request.url):
         raise InstagramDownloaderError("Invalid or unsupported Instagram URL.", 400)
 
@@ -508,8 +508,22 @@ async def download_instagram_media(request: DownloadRequest) -> DownloadResponse
     if not files:
         raise InstagramDownloaderError("Download completed but no files were found.", 500)
 
+    return metadata, download_dir, files
+
+
+async def upload_instagram_files_to_drive(
+    request: DownloadRequest,
+    download_dir: Path,
+    files: list[DownloadedFile],
+    media_type: str,
+) -> tuple[GoogleDriveFolder | None, list[GoogleDriveFile]]:
+    return await maybe_upload_to_drive(request, download_dir, files, media_type)
+
+
+async def download_instagram_media(request: DownloadRequest) -> DownloadResponse:
+    metadata, download_dir, files = await download_instagram_media_locally(request)
     request_media_type = metadata["media_type"]
-    drive_folder, drive_files = await maybe_upload_to_drive(request, download_dir, files, request_media_type)
+    drive_folder, drive_files = await upload_instagram_files_to_drive(request, download_dir, files, request_media_type)
 
     return DownloadResponse(
         success=True,

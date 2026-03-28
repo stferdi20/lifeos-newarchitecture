@@ -6,7 +6,12 @@ from contextlib import suppress
 import httpx
 
 from app.schemas.download import DownloadRequest, DownloadResponse, YouTubeTranscriptRequest
-from app.services.instagram_downloader import InstagramDownloaderError, download_instagram_media, fetch_youtube_transcript
+from app.services.instagram_downloader import (
+    InstagramDownloaderError,
+    download_instagram_media_locally,
+    fetch_youtube_transcript,
+    upload_instagram_files_to_drive,
+)
 
 
 WORKER_VERSION = "0.2.0"
@@ -105,6 +110,34 @@ class WorkerLoop:
         )
         response.raise_for_status()
 
+    async def enrich_instagram_resource(self, client: httpx.AsyncClient, claimed_job: dict, metadata: dict):
+        job = claimed_job.get("job") or {}
+        response = await client.post(
+            f"{self.api_base_url}/instagram-downloader/worker/resources/{job['resource_id']}/enrich",
+            headers={"x-downloader-secret": self.shared_secret},
+            json={
+                "owner_user_id": job["owner_user_id"],
+                "source_url": job["source_url"],
+                **metadata,
+            },
+            timeout=120.0,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def update_instagram_download_state(self, client: httpx.AsyncClient, claimed_job: dict, status: str):
+        job = claimed_job.get("job") or {}
+        response = await client.post(
+            f"{self.api_base_url}/instagram-downloader/worker/resources/{job['resource_id']}/download-state",
+            headers={"x-downloader-secret": self.shared_secret},
+            json={
+                "owner_user_id": job["owner_user_id"],
+                "status": status,
+            },
+            timeout=30.0,
+        )
+        response.raise_for_status()
+
     async def process_claimed_job(self, client: httpx.AsyncClient, claimed_job: dict):
         job = claimed_job.get("job") or {}
         google_drive = claimed_job.get("google_drive") or {}
@@ -124,13 +157,48 @@ class WorkerLoop:
               else:
                   await self.fail_job(client, job["id"], transcript.error or "YouTube transcript extraction failed.")
           else:
-              download = await download_instagram_media(
-                  DownloadRequest(
-                      url=job["source_url"],
-                      google_drive=google_drive,
-                      include_analysis=job.get("include_analysis", True),
-                      download_base_dir=(claimed_job.get("settings") or {}).get("download_base_dir"),
+              request = DownloadRequest(
+                  url=job["source_url"],
+                  google_drive=google_drive,
+                  include_analysis=job.get("include_analysis", True),
+                  download_base_dir=(claimed_job.get("settings") or {}).get("download_base_dir"),
+              )
+              metadata, download_dir, files = await download_instagram_media_locally(request)
+              enrichment_task = None
+              if job.get("include_analysis", True):
+                  enrichment_task = asyncio.create_task(
+                      self.enrich_instagram_resource(client, claimed_job, metadata)
                   )
+
+              await self.update_instagram_download_state(client, claimed_job, "uploading")
+              drive_folder, drive_files = await upload_instagram_files_to_drive(
+                  request,
+                  download_dir,
+                  files,
+                  metadata["media_type"],
+              )
+
+              enrichment_result = None
+              if enrichment_task:
+                  enrichment_result = await asyncio.gather(enrichment_task, return_exceptions=True)
+                  if enrichment_result and isinstance(enrichment_result[0], Exception):
+                      # The backend route persists enrichment failure state. Keep download completion independent.
+                      pass
+
+              download = DownloadResponse(
+                  success=True,
+                  input_url=job["source_url"],
+                  media_type=metadata["media_type"],
+                  media_type_label=metadata["media_type_label"],
+                  download_dir=str(download_dir),
+                  files=files,
+                  drive_folder=drive_folder,
+                  drive_files=drive_files,
+                  normalized_title=metadata["normalized_title"],
+                  creator_handle=metadata["creator_handle"],
+                  caption=metadata["caption"],
+                  published_at=metadata["published_at"],
+                  error=None,
               )
               await self.complete_job(client, job["id"], download)
         except InstagramDownloaderError as error:

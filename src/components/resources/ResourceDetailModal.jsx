@@ -40,15 +40,31 @@ const ENRICHMENT_STATUS_COLORS = {
 
 const INSTAGRAM_STATUS_COLORS = {
   queued: 'border-secondary/60 bg-secondary/50 text-muted-foreground',
-  processing: 'border-sky-500/20 bg-sky-500/10 text-sky-200',
+  downloading: 'border-sky-500/20 bg-sky-500/10 text-sky-200',
+  uploading: 'border-cyan-500/20 bg-cyan-500/10 text-cyan-200',
   downloaded: 'border-cyan-500/20 bg-cyan-500/10 text-cyan-200',
   uploaded: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200',
   failed: 'border-red-500/20 bg-red-500/10 text-red-200',
   blocked: 'border-amber-500/20 bg-amber-500/10 text-amber-200',
 };
 
+const INSTAGRAM_ENRICHMENT_COLORS = {
+  queued: 'border-secondary/60 bg-secondary/50 text-muted-foreground',
+  analyzing: 'border-violet-500/20 bg-violet-500/10 text-violet-200',
+  completed: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200',
+  failed: 'border-red-500/20 bg-red-500/10 text-red-200',
+};
+
 function formatInstagramStatus(status = '') {
   return String(status || '').replace(/_/g, ' ').trim();
+}
+
+function isInstagramDownloadActive(resource) {
+  return ['queued', 'downloading', 'uploading'].includes(String(resource?.download_status || ''));
+}
+
+function isInstagramEnrichmentActive(resource) {
+  return ['queued', 'analyzing'].includes(String(resource?.instagram_enrichment_status || ''));
 }
 
 const USEFUL_EXTRACTED_TEXT_SOURCES = new Set([
@@ -124,7 +140,7 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
     refetchInterval: (query) => {
       const current = query.state.data || resource;
       const isInstagramResource = current?.resource_type === 'instagram_reel' || current?.resource_type === 'instagram_carousel';
-      const isQueuedInstagram = isInstagramResource && ['queued', 'processing'].includes(current?.download_status);
+      const isQueuedInstagram = isInstagramResource && (isInstagramDownloadActive(current) || isInstagramEnrichmentActive(current));
       const isQueuedYouTubeTranscript = current?.resource_type === 'youtube'
         && ['queued', 'processing'].includes(current?.youtube_transcript_status);
       return isQueuedInstagram || isQueuedYouTubeTranscript ? 3000 : false;
@@ -166,6 +182,10 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
   const instagramMediaItems = Array.isArray(resource.instagram_media_items)
     ? resource.instagram_media_items.filter(Boolean)
     : [];
+  const displayTitle = resource.instagram_display_title || resource.title;
+  const downloadStatusText = formatInstagramStatus(resource.download_status);
+  const enrichmentStatusText = formatInstagramStatus(resource.instagram_enrichment_status);
+  const showInstagramEnrichmentProgress = isInstagram && isInstagramEnrichmentActive(resource) && !resource.summary;
   const instagramMediaTypeLabel = resource.instagram_media_type_label
     || (resource.resource_type === 'instagram_reel' ? 'Reel' : resource.resource_type === 'instagram_carousel' ? 'Carousel' : 'Post');
   const derivedSubreddit = (() => {
@@ -214,7 +234,7 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
         <ResponsiveModalHeader>
           <ResponsiveModalTitle className="flex items-center gap-2 pr-8">
             {isGitHub && <Github className="w-5 h-5 text-muted-foreground shrink-0" />}
-            <span className="truncate">{resource.title}</span>
+            <span className="truncate">{displayTitle}</span>
           </ResponsiveModalTitle>
         </ResponsiveModalHeader>
 
@@ -302,7 +322,15 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
                 'text-[10px] uppercase tracking-widest font-semibold px-2 py-0.5 rounded-full border',
                 INSTAGRAM_STATUS_COLORS[resource.download_status] || 'border-fuchsia-500/20 bg-fuchsia-500/10 text-fuchsia-200',
               )}>
-                {instagramMediaTypeLabel} {formatInstagramStatus(resource.download_status)}
+                {instagramMediaTypeLabel} download {downloadStatusText}
+              </span>
+            )}
+            {isInstagram && resource.instagram_enrichment_status && (
+              <span className={cn(
+                'text-[10px] uppercase tracking-widest font-semibold px-2 py-0.5 rounded-full border',
+                INSTAGRAM_ENRICHMENT_COLORS[resource.instagram_enrichment_status] || 'border-secondary/60 bg-secondary/50 text-muted-foreground',
+              )}>
+                enrich {enrichmentStatusText}
               </span>
             )}
             {resource.url && (
@@ -352,11 +380,37 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
             </Button>
           </div>
 
+          {isInstagram && (resource.download_status_message || resource.instagram_enrichment_message) && (
+            <div className="grid gap-2 sm:grid-cols-2">
+              {resource.download_status_message && (
+                <div className="rounded-xl border border-cyan-500/15 bg-cyan-500/5 p-4">
+                  <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-cyan-300">Download Pipeline</p>
+                  <p className="text-sm leading-relaxed text-foreground/80">{resource.download_status_message}</p>
+                </div>
+              )}
+              {resource.instagram_enrichment_message && (
+                <div className="rounded-xl border border-violet-500/15 bg-violet-500/5 p-4">
+                  <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-violet-300">Enrichment Pipeline</p>
+                  <p className="text-sm leading-relaxed text-foreground/80">{resource.instagram_enrichment_message}</p>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Summary */}
           {resource.summary && (
             <div className="bg-secondary/30 rounded-xl p-4">
               <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">AI Summary</p>
               <p className="text-sm text-foreground/80 leading-relaxed">{resource.summary}</p>
+            </div>
+          )}
+
+          {showInstagramEnrichmentProgress && (
+            <div className="rounded-xl border border-violet-500/15 bg-violet-500/5 p-4">
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-violet-300">Enrichment In Progress</p>
+              <p className="text-sm leading-relaxed text-foreground/80">
+                Instagram knowledge enrichment is still running in parallel. The downloaded files can finish before the AI summary is ready.
+              </p>
             </div>
           )}
 

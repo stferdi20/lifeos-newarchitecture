@@ -38,11 +38,19 @@ const STATUS_COLORS = {
 
 const INSTAGRAM_STATUS_STYLES = {
   queued: 'bg-secondary text-muted-foreground',
-  processing: 'bg-sky-500/10 text-sky-300',
+  downloading: 'bg-sky-500/10 text-sky-300',
+  uploading: 'bg-cyan-500/10 text-cyan-200',
   downloaded: 'bg-cyan-500/10 text-cyan-200',
   uploaded: 'bg-emerald-500/10 text-emerald-300',
   failed: 'bg-red-500/10 text-red-300',
   blocked: 'bg-amber-500/10 text-amber-200',
+};
+
+const INSTAGRAM_ENRICHMENT_STYLES = {
+  queued: 'bg-secondary text-muted-foreground',
+  analyzing: 'bg-violet-500/10 text-violet-200',
+  completed: 'bg-emerald-500/10 text-emerald-300',
+  failed: 'bg-red-500/10 text-red-300',
 };
 
 function formatInstagramStatus(status = '') {
@@ -147,7 +155,7 @@ export default function ResourceCard({
   const previewItem = getPreviewItem(resource);
   const ArchiveIcon = resource.is_archived ? ArchiveRestore : Archive;
   const archiveLabel = resource.is_archived ? 'Restore resource' : 'Archive resource';
-  const safeTitle = asText(resource.title, 'Untitled');
+  const safeTitle = asText(resource.instagram_display_title || resource.title, 'Untitled');
   const safeAuthor = asText(resource.author);
   const instagramAuthorHandle = asText(resource.instagram_author_handle);
   const instagramMediaTypeLabel = asText(resource.instagram_media_type_label || (resource.resource_type === 'instagram_reel' ? 'Reel' : resource.resource_type === 'instagram_carousel' ? 'Carousel' : 'Post'));
@@ -156,6 +164,7 @@ export default function ResourceCard({
   const safeThumbnail = typeof resource.thumbnail === 'string' && resource.thumbnail.trim() ? resource.thumbnail : '';
   const driveUrl = resource.drive_folder_url || resource.drive_files?.[0]?.url || '';
   const downloadStatusClass = INSTAGRAM_STATUS_STYLES[resource.download_status] || 'bg-secondary text-muted-foreground';
+  const enrichmentStatusClass = INSTAGRAM_ENRICHMENT_STYLES[resource.instagram_enrichment_status] || 'bg-secondary text-muted-foreground';
 
   return (
     <div
@@ -269,7 +278,12 @@ export default function ResourceCard({
             )}
             {resource.download_status && resource.download_status !== 'skipped' && (
               <span className={cn('text-[10px] rounded-full px-1.5 py-0.5', downloadStatusClass)}>
-                {formatInstagramStatus(resource.download_status)}
+                download {formatInstagramStatus(resource.download_status)}
+              </span>
+            )}
+            {resource.instagram_enrichment_status && (
+              <span className={cn('text-[10px] rounded-full px-1.5 py-0.5', enrichmentStatusClass)}>
+                enrich {formatInstagramStatus(resource.instagram_enrichment_status)}
               </span>
             )}
             {driveUrl && (

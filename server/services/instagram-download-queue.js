@@ -33,12 +33,58 @@ function buildQueuedSummary() {
   return 'Queued for Instagram download. It will process automatically when your downloader worker is online.';
 }
 
-function buildProcessingSummary() {
-  return 'Instagram media is being downloaded and uploaded to Google Drive.';
+function buildDownloadingMessage() {
+  return 'Downloading Instagram media to your local worker.';
+}
+
+function buildUploadingMessage() {
+  return 'Uploading Instagram media to Google Drive.';
+}
+
+function buildUploadedMessage() {
+  return 'Instagram media uploaded to Google Drive.';
+}
+
+function buildQueuedEnrichmentMessage() {
+  return 'Instagram enrichment will start when your downloader worker claims this import.';
+}
+
+function buildAnalyzingEnrichmentMessage() {
+  return 'Analyzing Instagram content into a full resource summary.';
+}
+
+function buildCompletedEnrichmentMessage() {
+  return 'Instagram enrichment completed.';
+}
+
+function buildFailedEnrichmentMessage(message = '') {
+  return message ? `Instagram enrichment failed: ${message}` : 'Instagram enrichment failed.';
 }
 
 function buildFailedSummary(message = '') {
   return message ? `Instagram download failed: ${message}` : 'Instagram download failed.';
+}
+
+function computeInstagramReadyState(resource = {}) {
+  const downloadDone = ['uploaded', 'blocked', 'failed'].includes(String(resource.download_status || ''));
+  const enrichmentDone = ['completed', 'failed'].includes(String(resource.instagram_enrichment_status || ''));
+  if (downloadDone && enrichmentDone) return 'complete';
+  if (downloadDone || enrichmentDone) return 'partial';
+  return 'pending';
+}
+
+function withInstagramReadyState(resource = {}) {
+  return {
+    ...resource,
+    instagram_ready_state: computeInstagramReadyState(resource),
+  };
+}
+
+function mergeInstagramResourceState(current = {}, patch = {}) {
+  return withInstagramReadyState({
+    ...current,
+    ...patch,
+  });
 }
 
 function getInstagramFailureStatus(message = '') {
@@ -215,12 +261,23 @@ function toInstagramMediaItems(download = {}, existingItems = []) {
   });
 }
 
-async function analyzeInstagramResource(userId, url) {
+async function analyzeInstagramResource(userId, url, download = {}) {
   try {
+    const fallbackTitle = download.normalized_title || buildInstagramDisplayTitleFromData({
+      resourceType: inferResourceType(url),
+      authorHandle: download.creator_handle || '',
+      caption: download.caption || '',
+      transcript: download.transcript || '',
+      publishedAt: download.published_at || '',
+    });
+    const content = [download.caption || '', download.transcript || '']
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+      .join('\n\n');
     const analyzed = await analyzeResource({
       url,
-      title: '',
-      content: '',
+      title: fallbackTitle,
+      content,
       userId,
     });
     return analyzed?.data || {};
@@ -231,28 +288,32 @@ async function analyzeInstagramResource(userId, url) {
 
 export async function createPendingInstagramResource(userId, { url, projectId = '' }) {
   const resourceType = inferResourceType(url);
-  const resource = await createCompatEntity(userId, 'Resource', {
+  const resource = await createCompatEntity(userId, 'Resource', withInstagramReadyState({
     title: buildPendingTitle(url),
     url,
     source_url: url,
     resource_type: resourceType,
-    summary: buildQueuedSummary(),
-    why_it_matters: 'This Instagram resource is waiting for the downloader worker to process it.',
-    who_its_for: 'People capturing Instagram reels and posts into their LifeOS library.',
+    summary: '',
+    why_it_matters: '',
+    who_its_for: '',
     main_topic: 'Instagram import',
     resource_score: 5,
-    tags: ['instagram', 'queued'],
+    tags: ['instagram'],
     key_points: [],
     actionable_points: [],
-    use_cases: ['Wait for the downloader worker to finish processing this link.'],
+    use_cases: [],
     download_status: 'queued',
+    download_status_message: buildQueuedSummary(),
+    instagram_enrichment_status: 'queued',
+    instagram_enrichment_error: '',
+    instagram_enrichment_message: buildQueuedEnrichmentMessage(),
     downloader_mode: 'queue',
     instagram_media_items: [],
     drive_folder_url: '',
     drive_folder_id: '',
     drive_target: GLOBAL_DRIVE_TARGET,
     is_archived: false,
-  });
+  }));
 
   if (projectId) {
     await createCompatEntity(userId, 'ProjectResource', {
@@ -266,12 +327,18 @@ export async function createPendingInstagramResource(userId, { url, projectId = 
 }
 
 export async function updateInstagramResourceQueued(userId, resourceId, jobId) {
-  return updateCompatEntity(userId, 'Resource', resourceId, {
+  const current = await getCompatEntity(userId, 'Resource', resourceId);
+  return updateCompatEntity(userId, 'Resource', resourceId, mergeInstagramResourceState(current, {
     download_status: 'queued',
-    summary: buildQueuedSummary(),
+    download_status_message: buildQueuedSummary(),
+    instagram_enrichment_status: current.instagram_enrichment_status === 'completed' ? 'completed' : 'queued',
+    instagram_enrichment_error: current.instagram_enrichment_status === 'completed' ? '' : (current.instagram_enrichment_error || ''),
+    instagram_enrichment_message: current.instagram_enrichment_status === 'completed'
+      ? buildCompletedEnrichmentMessage()
+      : buildQueuedEnrichmentMessage(),
     downloader_job_id: jobId,
     downloader_updated_at: new Date().toISOString(),
-  });
+  }));
 }
 
 export async function updateYouTubeTranscriptQueued(userId, resourceId, jobId) {
@@ -287,13 +354,28 @@ export async function updateYouTubeTranscriptQueued(userId, resourceId, jobId) {
 }
 
 export async function updateInstagramResourceProcessing(userId, resourceId, workerId = '') {
-  return updateCompatEntity(userId, 'Resource', resourceId, {
-    download_status: 'processing',
-    summary: buildProcessingSummary(),
+  const current = await getCompatEntity(userId, 'Resource', resourceId);
+  return updateCompatEntity(userId, 'Resource', resourceId, mergeInstagramResourceState(current, {
+    download_status: 'downloading',
+    download_status_message: buildDownloadingMessage(),
     ingestion_error: '',
+    instagram_enrichment_status: current.instagram_enrichment_status === 'completed' ? 'completed' : 'analyzing',
+    instagram_enrichment_error: current.instagram_enrichment_status === 'completed' ? '' : '',
+    instagram_enrichment_message: current.instagram_enrichment_status === 'completed'
+      ? buildCompletedEnrichmentMessage()
+      : buildAnalyzingEnrichmentMessage(),
     downloader_worker_id: workerId,
     downloader_updated_at: new Date().toISOString(),
-  });
+  }));
+}
+
+export async function updateInstagramResourceUploading(userId, resourceId) {
+  const current = await getCompatEntity(userId, 'Resource', resourceId);
+  return updateCompatEntity(userId, 'Resource', resourceId, mergeInstagramResourceState(current, {
+    download_status: 'uploading',
+    download_status_message: buildUploadingMessage(),
+    downloader_updated_at: new Date().toISOString(),
+  }));
 }
 
 export async function updateYouTubeTranscriptProcessing(userId, resourceId, workerId = '') {
@@ -308,12 +390,13 @@ export async function updateYouTubeTranscriptProcessing(userId, resourceId, work
 }
 
 export async function updateInstagramResourceFailed(userId, resourceId, errorMessage) {
-  return updateCompatEntity(userId, 'Resource', resourceId, {
+  const current = await getCompatEntity(userId, 'Resource', resourceId);
+  return updateCompatEntity(userId, 'Resource', resourceId, mergeInstagramResourceState(current, {
     download_status: getInstagramFailureStatus(errorMessage),
-    summary: buildFailedSummary(errorMessage),
+    download_status_message: buildFailedSummary(errorMessage),
     ingestion_error: errorMessage || '',
     downloader_updated_at: new Date().toISOString(),
-  });
+  }));
 }
 
 export async function updateYouTubeTranscriptFailed(userId, resourceId, errorMessage) {
@@ -326,13 +409,10 @@ export async function updateYouTubeTranscriptFailed(userId, resourceId, errorMes
   });
 }
 
-export async function applySuccessfulInstagramDownload(userId, resourceId, sourceUrl, download, { includeAnalysis = true } = {}) {
-  const current = await getCompatEntity(userId, 'Resource', resourceId);
-  const analysis = includeAnalysis ? await analyzeInstagramResource(userId, sourceUrl) : {};
+async function buildInstagramEnrichmentPayload(userId, sourceUrl, current = {}, download = {}) {
+  const analysis = await analyzeInstagramResource(userId, sourceUrl, download);
   const normalized = normalizeResourceRecord(sourceUrl, analysis);
   const creatorHandle = normalizeCreatorHandle(download.creator_handle || normalized.instagram_author_handle || current.instagram_author_handle || '');
-  const driveFolder = download.drive_folder || null;
-  const driveFiles = Array.isArray(download.drive_files) ? download.drive_files : [];
   const displayTitle = chooseInstagramDisplayTitle({
     sourceUrl,
     normalized,
@@ -351,26 +431,114 @@ export async function applySuccessfulInstagramDownload(userId, resourceId, sourc
     instagram_posted_at: download.published_at || normalized.instagram_posted_at || current.instagram_posted_at || '',
   });
 
-  return updateCompatEntity(userId, 'Resource', resourceId, {
-    ...current,
+  return {
     ...merged,
     title: displayTitle,
-    summary: merged.summary || normalized.summary || current.summary || 'Instagram media downloaded successfully.',
+    author: merged.author || normalized.author || (creatorHandle ? `@${creatorHandle}` : current.author || ''),
+    instagram_display_title: displayTitle,
+    instagram_author_handle: creatorHandle || merged.instagram_author_handle || '',
+    instagram_media_type_label: download.media_type_label || merged.instagram_media_type_label || getInstagramMediaTypeLabel(download.media_type),
+    instagram_caption: download.caption || merged.instagram_caption || '',
+    instagram_posted_at: download.published_at || merged.instagram_posted_at || '',
+  };
+}
+
+export async function completeInstagramResourceEnrichment(userId, resourceId, sourceUrl, download = {}) {
+  const current = await getCompatEntity(userId, 'Resource', resourceId);
+  const enrichmentPayload = await buildInstagramEnrichmentPayload(userId, sourceUrl, current, download);
+  return updateCompatEntity(userId, 'Resource', resourceId, mergeInstagramResourceState(current, {
+    ...enrichmentPayload,
+    instagram_enrichment_status: 'completed',
+    instagram_enrichment_error: '',
+    instagram_enrichment_message: buildCompletedEnrichmentMessage(),
+    downloader_updated_at: new Date().toISOString(),
+  }));
+}
+
+export async function failInstagramResourceEnrichment(userId, resourceId, errorMessage) {
+  const current = await getCompatEntity(userId, 'Resource', resourceId);
+  return updateCompatEntity(userId, 'Resource', resourceId, mergeInstagramResourceState(current, {
+    instagram_enrichment_status: 'failed',
+    instagram_enrichment_error: errorMessage || 'Instagram enrichment failed.',
+    instagram_enrichment_message: buildFailedEnrichmentMessage(errorMessage),
+    downloader_updated_at: new Date().toISOString(),
+  }));
+}
+
+export async function applySuccessfulInstagramDownload(userId, resourceId, sourceUrl, download, { includeAnalysis = true } = {}) {
+  const current = await getCompatEntity(userId, 'Resource', resourceId);
+  const shouldRunAnalysisInline = includeAnalysis && current.instagram_enrichment_status !== 'completed';
+  let enrichmentPayload = {};
+  let enrichmentStatus = current.instagram_enrichment_status || 'queued';
+  let enrichmentError = current.instagram_enrichment_error || '';
+  let enrichmentMessage = current.instagram_enrichment_message || '';
+
+  if (shouldRunAnalysisInline) {
+    try {
+      enrichmentPayload = await buildInstagramEnrichmentPayload(userId, sourceUrl, current, download);
+      enrichmentStatus = 'completed';
+      enrichmentError = '';
+      enrichmentMessage = buildCompletedEnrichmentMessage();
+    } catch (error) {
+      enrichmentStatus = 'failed';
+      enrichmentError = error?.message || 'Instagram enrichment failed.';
+      enrichmentMessage = buildFailedEnrichmentMessage(enrichmentError);
+    }
+  }
+
+  const baseResource = {
+    ...current,
+    ...enrichmentPayload,
+  };
+  const creatorHandle = normalizeCreatorHandle(download.creator_handle || baseResource.instagram_author_handle || current.instagram_author_handle || '');
+  const driveFolder = download.drive_folder || null;
+  const driveFiles = Array.isArray(download.drive_files) ? download.drive_files : [];
+  const displayTitle = chooseInstagramDisplayTitle({
+    sourceUrl,
+    normalized: baseResource,
+    download,
+    current: baseResource,
+  });
+  const merged = preserveStrongerExistingData(current, {
+    ...baseResource,
+    title: displayTitle,
+    author: baseResource.author || (creatorHandle ? `@${creatorHandle}` : current.author || ''),
+    instagram_display_title: displayTitle,
+    instagram_author_handle: creatorHandle || baseResource.instagram_author_handle || current.instagram_author_handle || '',
+    instagram_media_type_label: download.media_type_label || baseResource.instagram_media_type_label || current.instagram_media_type_label || getInstagramMediaTypeLabel(download.media_type),
+    instagram_caption: download.caption || baseResource.instagram_caption || current.instagram_caption || '',
+    instagram_posted_at: download.published_at || baseResource.instagram_posted_at || current.instagram_posted_at || '',
+  });
+
+  return updateCompatEntity(userId, 'Resource', resourceId, mergeInstagramResourceState(current, {
+    ...merged,
+    title: displayTitle,
+    summary: merged.summary || current.summary || '',
     download_status: driveFiles.length > 0 ? 'uploaded' : 'downloaded',
+    download_status_message: buildUploadedMessage(),
     ingestion_error: '',
     downloader_job_id: '',
     downloader_updated_at: new Date().toISOString(),
     downloader_completed_at: new Date().toISOString(),
-    instagram_media_items: toInstagramMediaItems(download, normalized.instagram_media_items || current.instagram_media_items || []),
+    instagram_media_items: toInstagramMediaItems(download, baseResource.instagram_media_items || current.instagram_media_items || []),
     instagram_display_title: displayTitle,
     instagram_author_handle: creatorHandle || merged.instagram_author_handle || '',
     instagram_media_type_label: download.media_type_label || merged.instagram_media_type_label || getInstagramMediaTypeLabel(download.media_type),
+    instagram_enrichment_status: enrichmentStatus,
+    instagram_enrichment_error: enrichmentError,
+    instagram_enrichment_message: enrichmentMessage || (
+      enrichmentStatus === 'completed'
+        ? buildCompletedEnrichmentMessage()
+        : enrichmentStatus === 'failed'
+          ? buildFailedEnrichmentMessage(enrichmentError)
+          : current.instagram_enrichment_message || buildQueuedEnrichmentMessage()
+    ),
     drive_folder_id: driveFolder?.id || '',
     drive_folder_url: driveFolder?.url || '',
     drive_folder_name: driveFolder?.name || INSTAGRAM_IMPORTS_FOLDER_NAME,
     drive_files: driveFiles,
     drive_target: GLOBAL_DRIVE_TARGET,
-  });
+  }));
 }
 
 export async function createInstagramDownloadJob(userId, {
@@ -478,11 +646,7 @@ export async function requeueFailedInstagramJobs(userId) {
 
   if (result.error) throw new HttpError(500, result.error.message);
   const rows = (result.data || []).map(normalizeJob);
-  await Promise.all(rows.map((job) => updateCompatEntity(userId, 'Resource', job.resource_id, {
-    download_status: 'queued',
-    summary: buildQueuedSummary(),
-    downloader_updated_at: now,
-  }).catch(() => null)));
+  await Promise.all(rows.map((job) => updateInstagramResourceQueued(userId, job.resource_id, job.id).catch(() => null)));
   return rows;
 }
 
@@ -528,13 +692,7 @@ export async function retryInstagramDownloadForResource(userId, resourceId) {
 
     if (retried.error) throw new HttpError(500, retried.error.message);
     const normalizedJob = normalizeJob(retried.data);
-    const updated = await updateCompatEntity(userId, 'Resource', resourceId, {
-      download_status: 'queued',
-      summary: buildQueuedSummary(),
-      ingestion_error: '',
-      downloader_job_id: normalizedJob.id,
-      downloader_updated_at: now,
-    });
+    const updated = await updateInstagramResourceQueued(userId, resourceId, normalizedJob.id);
     return { resource: updated, job: normalizedJob, queued: true };
   }
 

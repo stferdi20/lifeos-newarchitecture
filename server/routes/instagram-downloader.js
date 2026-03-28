@@ -7,12 +7,15 @@ import { getServerEnv } from '../config/env.js';
 import {
   claimNextInstagramDownloadJob,
   completeInstagramDownloadJob,
+  completeInstagramResourceEnrichment,
   failInstagramDownloadJob,
+  failInstagramResourceEnrichment,
   getInstagramDownloaderStatusForUser,
   getInstagramDownloaderSettingsForUser,
   registerInstagramWorkerHeartbeat,
   requeueFailedInstagramJobs,
   retryInstagramDownloadForResource,
+  updateInstagramResourceUploading,
   updateInstagramDownloaderSettingsForUser,
 } from '../services/instagram-download-queue.js';
 
@@ -40,6 +43,7 @@ const workerCompleteSchema = z.object({
   success: z.boolean(),
   input_url: z.string().url(),
   media_type: z.string().optional(),
+  media_type_label: z.string().optional(),
   download_dir: z.string().nullable().optional(),
   files: z.array(z.object({
     filename: z.string(),
@@ -63,7 +67,27 @@ const workerCompleteSchema = z.object({
   status: z.string().optional(),
   transcript_source: z.string().optional(),
   selected_mode: z.string().optional(),
+  normalized_title: z.string().optional(),
+  creator_handle: z.string().optional(),
+  caption: z.string().optional(),
+  published_at: z.string().optional(),
   error: z.string().nullable().optional(),
+});
+
+const workerEnrichmentSchema = z.object({
+  owner_user_id: z.string().min(1),
+  source_url: z.string().url(),
+  media_type: z.string().optional(),
+  media_type_label: z.string().optional(),
+  normalized_title: z.string().optional(),
+  creator_handle: z.string().optional(),
+  caption: z.string().optional(),
+  published_at: z.string().optional(),
+});
+
+const workerDownloadStateSchema = z.object({
+  owner_user_id: z.string().min(1),
+  status: z.enum(['uploading']),
 });
 
 function assertWorkerSecret(c) {
@@ -134,6 +158,37 @@ instagramDownloaderRoutes.post('/worker/jobs/:jobId/complete', zValidator('json'
   assertWorkerSecret(c);
   const result = await completeInstagramDownloadJob(c.req.param('jobId'), c.req.valid('json'));
   return c.json({ success: true, job: result.job, resource: result.resource });
+});
+
+instagramDownloaderRoutes.post('/worker/resources/:resourceId/enrich', zValidator('json', workerEnrichmentSchema), async (c) => {
+  assertWorkerSecret(c);
+  const body = c.req.valid('json');
+  try {
+    const resource = await completeInstagramResourceEnrichment(
+      body.owner_user_id,
+      c.req.param('resourceId'),
+      body.source_url,
+      body,
+    );
+    return c.json({ success: true, resource });
+  } catch (error) {
+    await failInstagramResourceEnrichment(
+      body.owner_user_id,
+      c.req.param('resourceId'),
+      error?.message || 'Instagram enrichment failed.',
+    ).catch(() => null);
+    throw error;
+  }
+});
+
+instagramDownloaderRoutes.post('/worker/resources/:resourceId/download-state', zValidator('json', workerDownloadStateSchema), async (c) => {
+  assertWorkerSecret(c);
+  const body = c.req.valid('json');
+  let resource = null;
+  if (body.status === 'uploading') {
+    resource = await updateInstagramResourceUploading(body.owner_user_id, c.req.param('resourceId'));
+  }
+  return c.json({ success: true, resource });
 });
 
 instagramDownloaderRoutes.post('/worker/jobs/:jobId/fail', zValidator('json', workerFailSchema), async (c) => {
