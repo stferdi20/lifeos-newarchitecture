@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { TrendingUp, RefreshCw, Cpu, Rocket, Bitcoin, Globe } from 'lucide-react';
 import { fetchTrends as fetchTrendsApi } from '@/lib/news-api';
-import { cn } from '@/lib/utils';
+import { cn, formatUiLabel } from '@/lib/utils';
 import { PageHeader } from '@/components/layout/page-header';
 
 const categoryConfig = {
@@ -74,7 +74,7 @@ export default function Trends() {
                       <div className="flex flex-wrap items-center gap-3 mb-2">
                         <span className={cn("px-3 py-1 rounded-full text-sm font-medium border", config.color)}>
                           <Icon className="w-3 h-3 inline mr-1" />
-                          {trend.category}
+                          {formatUiLabel(trend.category)}
                         </span>
                         <div className="text-left sm:text-right">
                           <p className="text-lg font-bold text-primary">{trend.trend_score}</p>
@@ -94,7 +94,7 @@ export default function Trends() {
                   <div className="flex flex-wrap gap-3 mt-3 text-xs">
                     {Object.entries(trend.source_breakdown).map(([source, count]) => (
                       <span key={source} className="text-muted-foreground">
-                        {source.replace(/_/g, ' ')}: <span className="font-semibold">{count || 0}</span>
+                        {formatUiLabel(source)}: <span className="font-semibold">{count || 0}</span>
                       </span>
                     ))}
                   </div>

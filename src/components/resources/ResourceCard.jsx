@@ -1,5 +1,5 @@
 import React from 'react';
-import { cn } from '@/lib/utils';
+import { cn, formatUiLabel } from '@/lib/utils';
 import { format } from 'date-fns';
 import {
   Youtube, MessageSquare, Newspaper, GraduationCap, FileText, Globe, FileDown,
@@ -35,28 +35,6 @@ const STATUS_COLORS = {
   deprecated: 'text-red-400 bg-red-500/10 border-red-500/20',
   unknown: '',
 };
-
-const INSTAGRAM_STATUS_STYLES = {
-  queued: 'bg-secondary text-muted-foreground',
-  downloading: 'bg-sky-500/10 text-sky-300',
-  uploading: 'bg-cyan-500/10 text-cyan-200',
-  downloaded: 'bg-cyan-500/10 text-cyan-200',
-  uploaded: 'bg-emerald-500/10 text-emerald-300',
-  failed: 'bg-red-500/10 text-red-300',
-  blocked: 'bg-amber-500/10 text-amber-200',
-};
-
-const INSTAGRAM_ENRICHMENT_STYLES = {
-  queued: 'bg-secondary text-muted-foreground',
-  analyzing: 'bg-violet-500/10 text-violet-200',
-  completed: 'bg-emerald-500/10 text-emerald-300',
-  failed: 'bg-red-500/10 text-red-300',
-};
-
-function formatInstagramStatus(status = '') {
-  const normalized = String(status || '').trim().toLowerCase();
-  return normalized ? normalized.replace(/_/g, ' ') : '';
-}
 
 function hashStr(s) {
   let h = 0;
@@ -163,9 +141,6 @@ export default function ResourceCard({
   const safeTags = Array.isArray(resource.tags) ? resource.tags.filter((tag) => typeof tag === 'string' && tag.trim()) : [];
   const safeThumbnail = typeof resource.thumbnail === 'string' && resource.thumbnail.trim() ? resource.thumbnail : '';
   const driveUrl = resource.drive_folder_url || resource.drive_files?.[0]?.url || '';
-  const downloadStatusClass = INSTAGRAM_STATUS_STYLES[resource.download_status] || 'bg-secondary text-muted-foreground';
-  const enrichmentStatusClass = INSTAGRAM_ENRICHMENT_STYLES[resource.instagram_enrichment_status] || 'bg-secondary text-muted-foreground';
-
   return (
     <div
       onClick={() => onClick?.(resource)}
@@ -248,8 +223,8 @@ export default function ResourceCard({
         {/* Status badge for tools/GitHub */}
         {resource.status && resource.status !== 'unknown' && STATUS_COLORS[resource.status] && (
           <div className="absolute bottom-2 left-2">
-            <span className={cn('text-[10px] uppercase tracking-widest font-semibold px-2 py-0.5 rounded-full border', STATUS_COLORS[resource.status])}>
-              {resource.status}
+            <span className={cn('text-[10px] tracking-widest font-semibold px-2 py-0.5 rounded-full border', STATUS_COLORS[resource.status])}>
+              {formatUiLabel(resource.status)}
             </span>
           </div>
         )}
@@ -273,17 +248,7 @@ export default function ResourceCard({
             </span>
             {resource.instagram_media_items?.length > 0 && (
               <span className="text-[10px] rounded-full bg-pink-500/10 px-1.5 py-0.5 text-pink-200">
-                {resource.instagram_media_items.length} media
-              </span>
-            )}
-            {resource.download_status && resource.download_status !== 'skipped' && (
-              <span className={cn('text-[10px] rounded-full px-1.5 py-0.5', downloadStatusClass)}>
-                download {formatInstagramStatus(resource.download_status)}
-              </span>
-            )}
-            {resource.instagram_enrichment_status && (
-              <span className={cn('text-[10px] rounded-full px-1.5 py-0.5', enrichmentStatusClass)}>
-                enrich {formatInstagramStatus(resource.instagram_enrichment_status)}
+                {resource.instagram_media_items.length} Media
               </span>
             )}
             {driveUrl && (
@@ -342,7 +307,7 @@ export default function ResourceCard({
           )}
           {resource.is_archived && (
             <span className="inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 font-medium">
-              archived
+              Archived
             </span>
           )}
         </div>

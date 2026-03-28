@@ -6,7 +6,7 @@ import { ExternalLink, Star, Trash2, Tag, Zap, Heart, Clock, Github, Archive, Ar
 import { LifeArea, Resource } from '@/lib/resources-api';
 import { retryInstagramDownloadForResource } from '@/lib/instagram-downloader-api';
 import ReactMarkdown from 'react-markdown';
-import { cn } from '@/lib/utils';
+import { cn, formatUiLabel } from '@/lib/utils';
 import { ResponsiveModal, ResponsiveModalContent, ResponsiveModalHeader, ResponsiveModalTitle } from '@/components/ui/responsive-modal';
 
 const STATUS_COLORS = {
@@ -18,17 +18,17 @@ const STATUS_COLORS = {
 
 const CONTENT_SOURCE_LABELS = {
   youtube_transcript: 'Transcript',
-  youtube_description: 'Video description',
-  html_text: 'Page text',
-  reddit_thread: 'Thread text',
-  pdf_text: 'PDF text',
+  youtube_description: 'Video Description',
+  html_text: 'Page Text',
+  reddit_thread: 'Thread Text',
+  pdf_text: 'PDF Text',
   github_readme: 'GitHub README',
-  research_metadata: 'Paper metadata',
-  structured_content: 'Structured content',
-  metadata_description: 'Metadata summary',
-  metadata_only: 'Metadata only',
-  instagram_caption: 'Instagram caption',
-  instagram_caption_transcript: 'Caption + transcript',
+  research_metadata: 'Paper Metadata',
+  structured_content: 'Structured Content',
+  metadata_description: 'Metadata Summary',
+  metadata_only: 'Metadata Only',
+  instagram_caption: 'Instagram Caption',
+  instagram_caption_transcript: 'Caption + Transcript',
 };
 
 const ENRICHMENT_STATUS_COLORS = {
@@ -54,10 +54,6 @@ const INSTAGRAM_ENRICHMENT_COLORS = {
   completed: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200',
   failed: 'border-red-500/20 bg-red-500/10 text-red-200',
 };
-
-function formatInstagramStatus(status = '') {
-  return String(status || '').replace(/_/g, ' ').trim();
-}
 
 function isInstagramDownloadActive(resource) {
   return ['queued', 'downloading', 'uploading'].includes(String(resource?.download_status || ''));
@@ -183,8 +179,9 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
     ? resource.instagram_media_items.filter(Boolean)
     : [];
   const displayTitle = resource.instagram_display_title || resource.title;
-  const downloadStatusText = formatInstagramStatus(resource.download_status);
-  const enrichmentStatusText = formatInstagramStatus(resource.instagram_enrichment_status);
+  const downloadStatusText = formatUiLabel(resource.download_status);
+  const enrichmentStatusText = formatUiLabel(resource.instagram_enrichment_status);
+  const ingestionSourceText = formatUiLabel(resource.ingestion_source);
   const showInstagramEnrichmentProgress = isInstagram && isInstagramEnrichmentActive(resource) && !resource.summary;
   const instagramMediaTypeLabel = resource.instagram_media_type_label
     || (resource.resource_type === 'instagram_reel' ? 'Reel' : resource.resource_type === 'instagram_carousel' ? 'Carousel' : 'Post');
@@ -266,10 +263,10 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
             )}
             {showDebugStatus && resource.enrichment_status && (
               <span className={cn(
-                'text-[10px] uppercase tracking-widest font-semibold px-2 py-0.5 rounded-full border',
+                'text-[10px] tracking-widest font-semibold px-2 py-0.5 rounded-full border',
                 ENRICHMENT_STATUS_COLORS[resource.enrichment_status] || ENRICHMENT_STATUS_COLORS.metadata_only,
               )}>
-                enrichment {resource.enrichment_status}
+                Enrichment {formatUiLabel(resource.enrichment_status)}
               </span>
             )}
             {showDebugStatus && resource.analysis_version && (
@@ -278,8 +275,8 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
               </span>
             )}
             {resource.status && resource.status !== 'unknown' && (
-              <span className={cn('text-[10px] uppercase tracking-widest font-semibold px-2 py-0.5 rounded-full border', STATUS_COLORS[resource.status])}>
-                {resource.status}
+              <span className={cn('text-[10px] tracking-widest font-semibold px-2 py-0.5 rounded-full border', STATUS_COLORS[resource.status])}>
+                {formatUiLabel(resource.status)}
               </span>
             )}
             {isGitHub && resource.github_stars != null && (
@@ -308,29 +305,29 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
               </span>
             )}
             {isReddit && resource.reddit_thread_type && (
-              <span className="text-[10px] uppercase tracking-widest font-semibold px-2 py-0.5 rounded-full border border-orange-500/20 bg-orange-500/10 text-orange-300">
-                {resource.reddit_thread_type}
+              <span className="text-[10px] tracking-widest font-semibold px-2 py-0.5 rounded-full border border-orange-500/20 bg-orange-500/10 text-orange-300">
+                {formatUiLabel(resource.reddit_thread_type)}
               </span>
             )}
             {isInstagram && resource.ingestion_source && (
-              <span className="text-[10px] uppercase tracking-widest font-semibold px-2 py-0.5 rounded-full border border-pink-500/20 bg-pink-500/10 text-pink-200">
-                {resource.ingestion_source === 'official_api' ? 'official api' : 'extractor fallback'}
+              <span className="text-[10px] tracking-widest font-semibold px-2 py-0.5 rounded-full border border-pink-500/20 bg-pink-500/10 text-pink-200">
+                {ingestionSourceText}
               </span>
             )}
             {isInstagram && resource.download_status && (
               <span className={cn(
-                'text-[10px] uppercase tracking-widest font-semibold px-2 py-0.5 rounded-full border',
+                'text-[10px] tracking-widest font-semibold px-2 py-0.5 rounded-full border',
                 INSTAGRAM_STATUS_COLORS[resource.download_status] || 'border-fuchsia-500/20 bg-fuchsia-500/10 text-fuchsia-200',
               )}>
-                {instagramMediaTypeLabel} download {downloadStatusText}
+                {instagramMediaTypeLabel} Download {downloadStatusText}
               </span>
             )}
             {isInstagram && resource.instagram_enrichment_status && (
               <span className={cn(
-                'text-[10px] uppercase tracking-widest font-semibold px-2 py-0.5 rounded-full border',
+                'text-[10px] tracking-widest font-semibold px-2 py-0.5 rounded-full border',
                 INSTAGRAM_ENRICHMENT_COLORS[resource.instagram_enrichment_status] || 'border-secondary/60 bg-secondary/50 text-muted-foreground',
               )}>
-                enrich {enrichmentStatusText}
+                Enrichment {enrichmentStatusText}
               </span>
             )}
             {resource.url && (
@@ -353,7 +350,7 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <Select value={areaId || resource.area_id || ''} onValueChange={handleAreaChange}>
               <SelectTrigger className="h-8 w-full text-xs bg-secondary/50 border-border sm:w-44">
-                <SelectValue placeholder="Assign area..." />
+                <SelectValue placeholder="Assign Area..." />
               </SelectTrigger>
               <SelectContent>
                 {areas.map(a => (
@@ -501,7 +498,7 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
                     <FolderOpen className="h-3.5 w-3.5" /> Open Drive Folder
                   </a>
                 )}
-                {resource.download_status === 'failed' && (
+              {resource.download_status === 'failed' && (
                   <Button
                     type="button"
                     size="sm"
@@ -516,7 +513,7 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
                 )}
                 {resource.download_status && resource.download_status !== 'skipped' && (
                   <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                    <Download className="h-3.5 w-3.5" /> {formatInstagramStatus(resource.download_status)}
+                    <Download className="h-3.5 w-3.5" /> {downloadStatusText}
                   </span>
                 )}
               </div>

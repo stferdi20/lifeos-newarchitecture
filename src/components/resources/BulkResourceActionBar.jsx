@@ -60,7 +60,7 @@ export default function BulkResourceActionBar({
     <div className="fixed bottom-6 left-1/2 z-50 flex max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-wrap items-center gap-2 rounded-2xl border border-border bg-card px-4 py-3 shadow-2xl">
       <div className="flex items-center gap-2 pr-1">
         <CheckSquare className="w-4 h-4 text-primary" />
-        <span className="text-sm font-medium">{selectedCount} selected</span>
+        <span className="text-sm font-medium">{selectedCount} Selected</span>
       </div>
 
       <Button size="sm" variant="outline" disabled={isWorking} onClick={onArchive} className="border-border text-xs">
@@ -85,10 +85,10 @@ export default function BulkResourceActionBar({
         <MapPinned className="w-3.5 h-3.5 text-muted-foreground" />
         <Select value={areaId} onValueChange={setAreaId} disabled={isWorking}>
           <SelectTrigger className="h-8 w-36 border-border/50 bg-secondary/40 text-xs">
-            <SelectValue placeholder="Assign area" />
+            <SelectValue placeholder="Assign Area" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="__none__">Choose area</SelectItem>
+            <SelectItem value="__none__">Choose Area</SelectItem>
             {areas.map((area) => (
               <SelectItem key={area.id} value={area.id}>
                 <span className="mr-1">{area.icon}</span> {area.name}
@@ -111,7 +111,7 @@ export default function BulkResourceActionBar({
         <Input
           value={addTagInput}
           onChange={(event) => setAddTagInput(event.target.value)}
-          placeholder="Add tag"
+          placeholder="Add Tag"
           className="h-8 w-28 border-border/50 bg-secondary/40 text-xs"
           disabled={isWorking}
         />
@@ -132,10 +132,10 @@ export default function BulkResourceActionBar({
         <Tag className="w-3.5 h-3.5 text-muted-foreground" />
         <Select value={removeTagInput || '__none__'} onValueChange={(value) => setRemoveTagInput(value === '__none__' ? '' : value)} disabled={isWorking || availableTags.length === 0}>
           <SelectTrigger className="h-8 w-28 border-border/50 bg-secondary/40 text-xs">
-            <SelectValue placeholder="Remove tag" />
+            <SelectValue placeholder="Remove Tag" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="__none__">Remove tag</SelectItem>
+            <SelectItem value="__none__">Remove Tag</SelectItem>
             {availableTags.map((tag) => (
               <SelectItem key={tag} value={tag}>#{tag}</SelectItem>
             ))}
