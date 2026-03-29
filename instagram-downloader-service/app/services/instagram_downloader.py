@@ -212,8 +212,9 @@ def should_use_instaloader(url: str) -> bool:
     return "/p/" in value or "/tv/" in value
 
 
-def should_try_fastdl_carousel(url: str) -> bool:
-    return "/p/" in str(url or "").lower()
+def should_try_fastdl(url: str) -> bool:
+    value = str(url or "").lower()
+    return any(fragment in value for fragment in ("/p/", "/reel/", "/tv/"))
 
 
 def get_instagram_browser_cookie_target() -> str:
@@ -1016,6 +1017,17 @@ async def download_fastdl_assets(download_dir: Path, download_links: list[dict[s
     return files
 
 
+def infer_fastdl_media_type(request: DownloadRequest, download_links: list[dict[str, Any]]) -> str:
+    url = str(request.url or "").lower()
+    if "/reel/" in url:
+        return "reel"
+    if len(download_links) > 1:
+        return "carousel"
+    if "/p/" in url or "/tv/" in url:
+        return "post"
+    return "unknown"
+
+
 def build_fastdl_metadata(
     request: DownloadRequest,
     download_links: list[dict[str, Any]],
@@ -1026,12 +1038,13 @@ def build_fastdl_metadata(
     creator_handle = normalize_creator_handle(info) if info else ""
     caption = normalize_whitespace(info.get("description") or "") if info else ""
     published_at = normalize_published_at(info) if info else ""
+    media_type = infer_fastdl_media_type(request, download_links)
     return build_metadata_result(
-        media_type="carousel",
+        media_type=media_type,
         creator_handle=creator_handle,
         caption=caption,
         published_at=published_at,
-        extractor="fastdl_carousel",
+        extractor="fastdl",
         media_items=build_fastdl_media_items(download_links),
     )
 
@@ -1211,16 +1224,16 @@ async def download_with_gallery_dl(request: DownloadRequest) -> tuple[dict[str, 
     return metadata, download_dir, files
 
 
-async def download_with_fastdl_carousel(request: DownloadRequest) -> tuple[dict[str, Any], Path, list[DownloadedFile]]:
+async def download_with_fastdl(request: DownloadRequest) -> tuple[dict[str, Any], Path, list[DownloadedFile]]:
     fastdl_result_url, download_links = await fetch_fastdl_download_links(request.url)
-    if len(download_links) < 2:
-        raise InstagramDownloaderError("FastDL returned fewer than two downloadable carousel items for this post.", 502)
+    if len(download_links) < 1:
+        raise InstagramDownloaderError("FastDL returned no downloadable media items for this Instagram URL.", 502)
 
     download_dir = build_request_download_dir(request.url, request.download_base_dir)
     files = await download_fastdl_assets(download_dir, download_links)
-    if len(files) < 2:
+    if len(files) < 1:
         cleanup_download_dir(download_dir)
-        raise InstagramDownloaderError("FastDL returned fewer than two downloaded carousel files for this post.", 502)
+        raise InstagramDownloaderError("FastDL returned no downloaded media files for this Instagram URL.", 502)
 
     fallback_info: dict[str, Any] = {}
     try:
@@ -1230,7 +1243,8 @@ async def download_with_fastdl_carousel(request: DownloadRequest) -> tuple[dict[
 
     metadata = build_fastdl_metadata(request, download_links, fallback_info=fallback_info)
     metadata["fastdl_result_url"] = fastdl_result_url
-    metadata["drive_subfolder_name"] = metadata["normalized_title"]
+    if metadata["media_type"] == "carousel":
+        metadata["drive_subfolder_name"] = metadata["normalized_title"]
     files = collect_downloaded_files(download_dir, metadata["normalized_title"])
     metadata["media_items"] = attach_media_filenames(metadata.get("media_items", []), files)
     return metadata, download_dir, files
@@ -1240,14 +1254,14 @@ async def download_instagram_media_locally(request: DownloadRequest) -> tuple[di
     if not is_valid_instagram_url(request.url):
         raise InstagramDownloaderError("Invalid or unsupported Instagram URL.", 400)
 
-    if not should_use_instaloader(request.url):
-        return await download_with_ytdlp(request, extractor="yt_dlp")
-
-    if should_try_fastdl_carousel(request.url):
+    if should_try_fastdl(request.url):
         try:
-            return await download_with_fastdl_carousel(request)
+            return await download_with_fastdl(request)
         except InstagramDownloaderError:
             pass
+
+    if not should_use_instaloader(request.url):
+        return await download_with_ytdlp(request, extractor="yt_dlp")
 
     try:
         return await download_with_instaloader(request)
