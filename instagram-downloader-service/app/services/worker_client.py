@@ -176,6 +176,7 @@ class WorkerLoop:
                   download_dir,
                   files,
                   metadata["media_type"],
+                  subfolder_name=metadata.get("drive_subfolder_name"),
               )
 
               enrichment_result = None

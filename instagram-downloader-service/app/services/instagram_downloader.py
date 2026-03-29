@@ -10,10 +10,13 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, unquote, urlparse
 
 import browser_cookie3
 import httpx
 import instaloader
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import async_playwright
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
@@ -36,6 +39,7 @@ FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 DEFAULT_ROOT_FOLDER = "Life OS"
 DEFAULT_RESOURCES_FOLDER = "Resources"
 DEFAULT_INSTAGRAM_FOLDER = "Instagram Imports"
+FASTDL_SHORTCUT_BASE = "https://f-d.app/"
 DEFAULT_MAX_TRANSCRIPT_CHARS = 60000
 MEDIA_TYPE_FOLDER_NAMES = {
     "reel": "Reels",
@@ -206,6 +210,10 @@ def parse_instagram_shortcode(url: str) -> str:
 def should_use_instaloader(url: str) -> bool:
     value = str(url or "").lower()
     return "/p/" in value or "/tv/" in value
+
+
+def should_try_fastdl_carousel(url: str) -> bool:
+    return "/p/" in str(url or "").lower()
 
 
 def get_instagram_browser_cookie_target() -> str:
@@ -458,6 +466,16 @@ def map_gallery_dl_error(error: Exception, stderr: str = "") -> InstagramDownloa
     return InstagramDownloaderError("gallery-dl failed to extract the Instagram post.", 502)
 
 
+def map_fastdl_error(error: Exception | str) -> InstagramDownloaderError:
+    message = normalize_whitespace(str(error or "")).strip()
+    lowered = message.lower()
+    if "timed out" in lowered or "timeout" in lowered:
+        return InstagramDownloaderError("FastDL timed out while preparing carousel downloads.", 504)
+    if "no carousel download links" in lowered or "returned fewer than two" in lowered:
+        return InstagramDownloaderError("FastDL did not expose downloadable carousel items for this post.", 502)
+    return InstagramDownloaderError(message or "FastDL carousel extraction failed.", 502)
+
+
 def should_attempt_browser_fallback(error: Exception) -> bool:
     lowered = str(error or "").lower()
     return any(fragment in lowered for fragment in (
@@ -473,6 +491,7 @@ def should_attempt_browser_fallback(error: Exception) -> bool:
         "returned no sidecar",
         "gallery-dl",
         "redirected to the instagram login page",
+        "fastdl",
     ))
 
 
@@ -600,6 +619,49 @@ def attach_media_filenames(media_items: list[dict[str, Any]], files: list[Downlo
             "filepath": file.filepath if file else item.get("filepath"),
         })
     return enriched
+
+
+def content_type_to_extension(content_type: str, fallback_extension: str = "") -> str:
+    normalized = str(content_type or "").split(";")[0].strip().lower()
+    mapping = {
+        "image/jpeg": ".jpg",
+        "image/jpg": ".jpg",
+        "image/png": ".png",
+        "image/webp": ".webp",
+        "video/mp4": ".mp4",
+        "image/heic": ".heic",
+        "image/heif": ".heif",
+    }
+    if normalized in mapping:
+        return mapping[normalized]
+    guessed = mimetypes.guess_extension(normalized) if normalized else None
+    return guessed or fallback_extension or ""
+
+
+def derive_fastdl_filename(href: str, index: int, content_type: str) -> str:
+    parsed = parse_qs(urlparse(href).query)
+    raw_filename = unquote(parsed.get("filename", [f"carousel_item_{index + 1:02d}"])[0] or "")
+    stem = sanitize_filename(Path(raw_filename).stem or f"carousel_item_{index + 1:02d}")
+    original_extension = Path(raw_filename).suffix.lower()
+    extension = content_type_to_extension(content_type, original_extension)
+    return f"{index + 1:02d}_{stem}{extension}"
+
+
+def build_fastdl_media_items(download_links: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for index, item in enumerate(download_links):
+        items.append({
+            "index": index,
+            "label": f"#{index + 1}",
+            "type": item.get("type") or "unknown",
+            "filename": item.get("filename"),
+            "filepath": item.get("filepath"),
+            "source_url": item.get("source_url"),
+            "width": None,
+            "height": None,
+            "duration_seconds": None,
+        })
+    return items
 
 
 async def drive_request(
@@ -738,6 +800,7 @@ async def maybe_upload_to_drive(
     download_dir: Path,
     files: list[DownloadedFile],
     media_type: str,
+    subfolder_name: str | None = None,
 ) -> tuple[GoogleDriveFolder | None, list[GoogleDriveFile]]:
     if not request.google_drive:
         return None, []
@@ -753,10 +816,19 @@ async def maybe_upload_to_drive(
             parent_id = instagram["id"]
 
         folder = await ensure_drive_folder(client, request.google_drive.access_token, folder_name, parent_id)
+        target_folder = folder
+        if subfolder_name:
+            target_folder = await ensure_drive_folder(
+                client,
+                request.google_drive.access_token,
+                normalize_whitespace(subfolder_name)[:120] or "Instagram Carousel",
+                folder["id"],
+            )
+
         drive_folder = GoogleDriveFolder(
-            id=folder["id"],
-            name=folder["name"],
-            url=folder.get("webViewLink") or f"https://drive.google.com/drive/folders/{folder['id']}",
+            id=target_folder["id"],
+            name=target_folder["name"],
+            url=target_folder.get("webViewLink") or f"https://drive.google.com/drive/folders/{target_folder['id']}",
         )
 
         uploaded_files = []
@@ -860,6 +932,107 @@ def build_gallery_dl_metadata(
         published_at=published_at,
         extractor="gallery_dl",
         media_items=build_gallery_dl_media_items(files),
+    )
+
+
+def build_fastdl_shortcut_url(url: str) -> str:
+    return f"{FASTDL_SHORTCUT_BASE}{url}"
+
+
+async def fetch_fastdl_download_links(url: str) -> tuple[str, list[dict[str, Any]]]:
+    target_url = build_fastdl_shortcut_url(url)
+    wait_timeout_ms = int(os.getenv("FASTDL_WAIT_TIMEOUT_MS", "60000"))
+    ready_wait_ms = int(os.getenv("FASTDL_READY_WAIT_MS", "4000"))
+    selector = "a.button__download[href*='media.fastdl.app/get']"
+
+    try:
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=True)
+            page = await browser.new_page()
+            try:
+                await page.goto(target_url, wait_until="domcontentloaded", timeout=wait_timeout_ms)
+                await page.wait_for_selector(selector, timeout=wait_timeout_ms)
+                await page.wait_for_timeout(ready_wait_ms)
+                final_url = page.url
+                links = await page.locator(selector).evaluate_all(
+                    """
+                    els => els.map((el, index) => {
+                      const href = el.href || '';
+                      const parent = el.parentElement || el.closest('div') || document.body;
+                      const img = parent.querySelector('img');
+                      return {
+                        index,
+                        href,
+                        preview_url: img ? (img.currentSrc || img.src || '') : '',
+                      };
+                    }).filter(item => item.href)
+                    """
+                )
+            finally:
+                await browser.close()
+    except PlaywrightTimeoutError as error:
+        raise map_fastdl_error(error) from error
+    except Exception as error:
+        raise map_fastdl_error(error) from error
+
+    deduped: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in links:
+        href = str(item.get("href") or "")
+        if not href or href in seen:
+            continue
+        seen.add(href)
+        deduped.append(item)
+
+    return final_url, deduped
+
+
+async def download_fastdl_assets(download_dir: Path, download_links: list[dict[str, Any]]) -> list[DownloadedFile]:
+    timeout = httpx.Timeout(60.0, connect=20.0, read=60.0, write=60.0, pool=60.0)
+    files: list[DownloadedFile] = []
+    async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
+        for index, item in enumerate(download_links):
+            href = str(item.get("href") or "")
+            if not href:
+                continue
+            response = await client.get(href)
+            if not response.is_success:
+                raise InstagramDownloaderError(f"FastDL asset download failed with status {response.status_code}.", 502)
+            content_type = response.headers.get("content-type", "")
+            filename = derive_fastdl_filename(href, index, content_type)
+            file_path = download_dir / filename
+            file_path.write_bytes(response.content)
+            files.append(
+                DownloadedFile(
+                    filename=file_path.name,
+                    filepath=str(file_path.resolve()),
+                    type=detect_file_type(file_path),
+                )
+            )
+            item["filename"] = file_path.name
+            item["filepath"] = str(file_path.resolve())
+            item["type"] = detect_file_type(file_path)
+            item["source_url"] = item.get("preview_url") or unquote(parse_qs(urlparse(href).query).get("uri", [""])[0] or "")
+    return files
+
+
+def build_fastdl_metadata(
+    request: DownloadRequest,
+    download_links: list[dict[str, Any]],
+    *,
+    fallback_info: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    info = fallback_info or {}
+    creator_handle = normalize_creator_handle(info) if info else ""
+    caption = normalize_whitespace(info.get("description") or "") if info else ""
+    published_at = normalize_published_at(info) if info else ""
+    return build_metadata_result(
+        media_type="carousel",
+        creator_handle=creator_handle,
+        caption=caption,
+        published_at=published_at,
+        extractor="fastdl_carousel",
+        media_items=build_fastdl_media_items(download_links),
     )
 
 
@@ -1038,12 +1211,43 @@ async def download_with_gallery_dl(request: DownloadRequest) -> tuple[dict[str, 
     return metadata, download_dir, files
 
 
+async def download_with_fastdl_carousel(request: DownloadRequest) -> tuple[dict[str, Any], Path, list[DownloadedFile]]:
+    fastdl_result_url, download_links = await fetch_fastdl_download_links(request.url)
+    if len(download_links) < 2:
+        raise InstagramDownloaderError("FastDL returned fewer than two downloadable carousel items for this post.", 502)
+
+    download_dir = build_request_download_dir(request.url, request.download_base_dir)
+    files = await download_fastdl_assets(download_dir, download_links)
+    if len(files) < 2:
+        cleanup_download_dir(download_dir)
+        raise InstagramDownloaderError("FastDL returned fewer than two downloaded carousel files for this post.", 502)
+
+    fallback_info: dict[str, Any] = {}
+    try:
+        fallback_info = inspect_with_ytdlp(request.url, force_browser_session=True)
+    except Exception:
+        fallback_info = {}
+
+    metadata = build_fastdl_metadata(request, download_links, fallback_info=fallback_info)
+    metadata["fastdl_result_url"] = fastdl_result_url
+    metadata["drive_subfolder_name"] = metadata["normalized_title"]
+    files = collect_downloaded_files(download_dir, metadata["normalized_title"])
+    metadata["media_items"] = attach_media_filenames(metadata.get("media_items", []), files)
+    return metadata, download_dir, files
+
+
 async def download_instagram_media_locally(request: DownloadRequest) -> tuple[dict[str, Any], Path, list[DownloadedFile]]:
     if not is_valid_instagram_url(request.url):
         raise InstagramDownloaderError("Invalid or unsupported Instagram URL.", 400)
 
     if not should_use_instaloader(request.url):
         return await download_with_ytdlp(request, extractor="yt_dlp")
+
+    if should_try_fastdl_carousel(request.url):
+        try:
+            return await download_with_fastdl_carousel(request)
+        except InstagramDownloaderError:
+            pass
 
     try:
         return await download_with_instaloader(request)
@@ -1068,7 +1272,7 @@ async def download_instagram_media_locally(request: DownloadRequest) -> tuple[di
         return metadata, download_dir, files
     except InstagramDownloaderError as error:
         raise InstagramDownloaderError(
-            "Instagram media needs review. Instaloader, gallery-dl, and your local browser session could not fetch downloadable media for this post.",
+            "Instagram media needs review. FastDL, Instaloader, gallery-dl, and your local browser session could not fetch downloadable media for this post.",
             error.status_code,
         ) from error
 
@@ -1078,14 +1282,21 @@ async def upload_instagram_files_to_drive(
     download_dir: Path,
     files: list[DownloadedFile],
     media_type: str,
+    subfolder_name: str | None = None,
 ) -> tuple[GoogleDriveFolder | None, list[GoogleDriveFile]]:
-    return await maybe_upload_to_drive(request, download_dir, files, media_type)
+    return await maybe_upload_to_drive(request, download_dir, files, media_type, subfolder_name=subfolder_name)
 
 
 async def download_instagram_media(request: DownloadRequest) -> DownloadResponse:
     metadata, download_dir, files = await download_instagram_media_locally(request)
     request_media_type = metadata["media_type"]
-    drive_folder, drive_files = await upload_instagram_files_to_drive(request, download_dir, files, request_media_type)
+    drive_folder, drive_files = await upload_instagram_files_to_drive(
+        request,
+        download_dir,
+        files,
+        request_media_type,
+        subfolder_name=metadata.get("drive_subfolder_name"),
+    )
 
     return DownloadResponse(
         success=True,
