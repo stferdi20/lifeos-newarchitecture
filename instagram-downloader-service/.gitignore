@@ -1,0 +1,6 @@
+.venv/
+downloads/
+logs/
+*.session
+*.session-*
+instaloader.session

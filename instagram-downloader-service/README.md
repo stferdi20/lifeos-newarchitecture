@@ -47,6 +47,9 @@ INSTAGRAM_DOWNLOADER_DOWNLOAD_ROOT=./downloads
 INSTAGRAM_DOWNLOADER_SHARED_SECRET=
 INSTAGRAM_COOKIES_FROM_BROWSER=
 INSTAGRAM_COOKIEFILE=
+INSTALOADER_USERNAME=
+INSTALOADER_SESSION_FILE=
+INSTALOADER_COOKIEFILE=
 LIFEOS_API_BASE_URL=
 INSTAGRAM_DOWNLOADER_POLL_INTERVAL_SECONDS=10
 INSTAGRAM_DOWNLOADER_WORKER_ID=
@@ -56,6 +59,35 @@ INSTAGRAM_DOWNLOADER_WORKER_LABEL=
 On macOS, the worker now defaults to Safari browser cookies for Instagram extraction unless you override it.
 `INSTAGRAM_COOKIES_FROM_BROWSER` can be set to a browser like `safari` or `chrome` so the worker uses live browser cookies for Instagram extraction.
 `INSTAGRAM_COOKIEFILE` is useful when public extraction is blocked and you need a logged-in browser-exported cookie file for Instagram.
+For Instagram `p/...` posts and carousels, the worker now prefers a stronger Instaloader auth path in this order:
+1. `INSTALOADER_SESSION_FILE` + `INSTALOADER_USERNAME`
+2. `INSTALOADER_COOKIEFILE`
+3. live browser cookies from `INSTAGRAM_COOKIES_FROM_BROWSER`
+
+### Create a Stronger Instaloader Session
+
+If Instagram keeps blocking protected posts or carousels, create a saved Instaloader session once:
+
+```bash
+cd "/Users/stefanusferdi/Documents/Data Penting/Antigravity Projects/LifeOS Trifecta/lifeos-new architecture/instagram-downloader-service"
+source .venv/bin/activate
+python scripts/create_instaloader_session.py
+```
+
+The script will prompt for:
+- Instagram username
+- Instagram password
+- 2FA code if your account uses it
+- where to save the session file
+
+After that, set these env vars when you run the worker:
+
+```bash
+INSTALOADER_USERNAME=your_instagram_username
+INSTALOADER_SESSION_FILE=/absolute/path/to/instaloader.session
+```
+
+The session file should stay private and must not be committed to Git.
 `YOUTUBE_COOKIEFILE` or `YTDLP_COOKIEFILE` can help when YouTube subtitle extraction needs a valid cookie file in the worker runtime.
 
 ## Sample curl

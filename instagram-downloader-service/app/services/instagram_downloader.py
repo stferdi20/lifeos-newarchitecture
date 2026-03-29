@@ -1,4 +1,5 @@
 import hashlib
+import http.cookiejar
 import mimetypes
 import os
 import re
@@ -438,6 +439,11 @@ def map_instaloader_error(error: Exception) -> InstagramDownloaderError:
     return InstagramDownloaderError(message or "Instaloader failed to extract the Instagram post.", 502)
 
 
+def map_instaloader_auth_error(error: InstagramDownloaderError) -> InstagramDownloaderError:
+    message = error.message or "Instaloader authentication failed."
+    return InstagramDownloaderError(f"{message} Configure a saved Instaloader session file for a stronger logged-in session.", error.status_code)
+
+
 def should_attempt_browser_fallback(error: Exception) -> bool:
     lowered = str(error or "").lower()
     return any(fragment in lowered for fragment in (
@@ -471,6 +477,67 @@ def load_instaloader_browser_session(loader: instaloader.Instaloader) -> str:
 
     loader.context._session.cookies.update(cookies)
     return browser
+
+
+def load_instaloader_cookie_file(loader: instaloader.Instaloader, cookie_file: str) -> str:
+    if not cookie_file:
+        raise InstagramDownloaderError("No Instaloader cookie file path is configured.", 403)
+
+    jar = http.cookiejar.MozillaCookieJar()
+    try:
+        jar.load(cookie_file, ignore_discard=True, ignore_expires=True)
+    except FileNotFoundError as error:
+        raise InstagramDownloaderError(f"Instaloader cookie file not found: {cookie_file}", 403) from error
+    except Exception as error:
+        raise InstagramDownloaderError(f"Failed to load Instaloader cookie file: {cookie_file}", 403) from error
+
+    if len(jar) == 0:
+        raise InstagramDownloaderError(f"Instaloader cookie file is empty: {cookie_file}", 403)
+
+    loader.context._session.cookies.update(jar)
+    return cookie_file
+
+
+def load_instaloader_saved_session(loader: instaloader.Instaloader, username: str, session_file: str) -> str:
+    if not username or not session_file:
+        raise InstagramDownloaderError("Instaloader session mode requires INSTALOADER_USERNAME and INSTALOADER_SESSION_FILE.", 403)
+
+    if not Path(session_file).expanduser().exists():
+        raise InstagramDownloaderError(f"Instaloader session file not found: {session_file}", 403)
+
+    try:
+        loader.load_session_from_file(username, session_file)
+    except FileNotFoundError as error:
+        raise InstagramDownloaderError(f"Instaloader session file not found: {session_file}", 403) from error
+    except Exception as error:
+        raise InstagramDownloaderError(f"Failed to load Instaloader session file: {session_file}", 403) from error
+
+    try:
+        authenticated_user = loader.test_login()
+    except Exception as error:
+        raise InstagramDownloaderError("Instaloader session file was loaded but Instagram rejected the saved session.", 403) from error
+
+    if not authenticated_user:
+        raise InstagramDownloaderError("Instaloader session file did not produce a logged-in Instagram session.", 403)
+
+    return authenticated_user
+
+
+def authenticate_instaloader(loader: instaloader.Instaloader) -> str:
+    username = os.getenv("INSTALOADER_USERNAME", "").strip()
+    session_file = os.getenv("INSTALOADER_SESSION_FILE", "").strip()
+    cookie_file = os.getenv("INSTALOADER_COOKIEFILE", "").strip() or os.getenv("INSTAGRAM_COOKIEFILE", "").strip()
+
+    if session_file:
+        authenticated_user = load_instaloader_saved_session(loader, username, session_file)
+        return f"instaloader_session:{authenticated_user}"
+
+    if cookie_file:
+        load_instaloader_cookie_file(loader, cookie_file)
+        return f"cookie_file:{cookie_file}"
+
+    browser = load_instaloader_browser_session(loader)
+    return f"browser:{browser}"
 
 
 def collect_downloaded_files(download_dir: Path, base_title: str = "") -> list[DownloadedFile]:
@@ -757,14 +824,17 @@ async def download_with_instaloader(request: DownloadRequest) -> tuple[dict[str,
         raise InstagramDownloaderError("Unsupported Instagram post URL.", 400)
 
     download_dir = build_request_download_dir(request.url, request.download_base_dir)
+    loader = build_instaloader_instance(download_dir)
     try:
-        loader = build_instaloader_instance(download_dir)
-        load_instaloader_browser_session(loader)
+        auth_mode = authenticate_instaloader(loader)
+    except InstagramDownloaderError as error:
+        raise map_instaloader_auth_error(error) from error
+
+    try:
         post = instaloader.Post.from_shortcode(loader.context, shortcode)
         metadata = build_instaloader_metadata(request.url, post, extractor="instaloader")
+        metadata["instaloader_auth_mode"] = auth_mode
         loader.download_post(post, target="")
-    except InstagramDownloaderError:
-        raise
     except Exception as error:
         raise map_instaloader_error(error) from error
 
