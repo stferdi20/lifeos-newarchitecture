@@ -3,6 +3,7 @@ import http.cookiejar
 import mimetypes
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -862,6 +863,59 @@ def build_gallery_dl_metadata(
     )
 
 
+async def fetch_instagram_page_html(url: str) -> str:
+    try:
+        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+            response = await client.get(
+                url,
+                headers={
+                    "User-Agent": "Mozilla/5.0",
+                    "Accept-Language": "en-US,en;q=0.9",
+                },
+            )
+            if response.is_success:
+                return response.text
+    except Exception:
+        return ""
+    return ""
+
+
+def validate_browser_fallback_download(url: str, info: dict[str, Any], files: list[DownloadedFile], page_html: str) -> str:
+    if not should_use_instaloader(url):
+        return ""
+    if len(files) != 1 or files[0].type != "video":
+        return ""
+    if not page_html:
+        return ""
+
+    html = page_html.lower()
+    has_sidecar_markers = any(marker in html for marker in ("graphsidecar", "edge_sidecar_to_children", "carousel_item"))
+    has_og_video = "property=\"og:video\"" in html or "property='og:video'" in html
+    has_og_image = "property=\"og:image\"" in html or "property='og:image'" in html
+
+    entries = [entry for entry in (info.get("entries") or []) if entry]
+    entry_title = normalize_whitespace((entries[0].get("title") if entries else "") or "")
+    generic_entry_title = bool(re.fullmatch(r"Video\s+\d+", entry_title))
+
+    if has_sidecar_markers or has_og_video:
+        return ""
+
+    if has_og_image and generic_entry_title:
+        return (
+            "Instagram exposed inconsistent browser-fallback media for this post, "
+            "so LifeOS skipped the download to avoid saving the wrong asset."
+        )
+
+    return ""
+
+
+def cleanup_download_dir(download_dir: Path) -> None:
+    try:
+        shutil.rmtree(download_dir, ignore_errors=True)
+    except Exception:
+        return
+
+
 def inspect_with_ytdlp(url: str, *, force_browser_session: bool = False) -> dict[str, Any]:
     with YoutubeDL(build_ydl_options(Path("."), force_browser_session=force_browser_session)) as ydl:
         info = ydl.extract_info(url, download=False)
@@ -897,6 +951,16 @@ async def download_with_ytdlp(
         raise InstagramDownloaderError(f"Download failed: {error}", 502) from error
 
     files = collect_downloaded_files(download_dir, metadata["normalized_title"])
+    if extractor == "browser_fallback":
+        rejection_reason = validate_browser_fallback_download(
+            request.url,
+            info,
+            files,
+            await fetch_instagram_page_html(request.url),
+        )
+        if rejection_reason:
+            cleanup_download_dir(download_dir)
+            raise InstagramDownloaderError(rejection_reason, 409)
     metadata["media_items"] = attach_media_filenames(metadata.get("media_items", []), files)
     if not files:
         raise InstagramDownloaderError("Download completed but no files were found.", 500)
