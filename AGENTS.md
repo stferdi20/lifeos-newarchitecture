@@ -24,6 +24,7 @@ This repo covers the web app and backend. The native menubar app in the sibling 
 - If the counterpart should change, update it in the same task when possible.
 - If the counterpart change is risky or ambiguous, pause and confirm with the user instead of letting the two surfaces drift.
 - Apply the same reasoning in reverse when a menubar task implies webapp or backend support changes.
+- For snippet work specifically: synced snippets stay shared across webapp and menubar, but clipboard history remains menubar-local unless the user explicitly asks to sync raw history.
 
 ## Required start-of-task workflow
 

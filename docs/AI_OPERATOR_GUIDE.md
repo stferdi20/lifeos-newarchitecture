@@ -45,6 +45,12 @@ When a feature exists in both the webapp and the menubar:
 - update both surfaces in the same task when the change is straightforward
 - if only one surface changes, explicitly justify why the other surface was left alone
 
+For snippet-related work:
+
+- keep real snippets aligned across both surfaces
+- treat clipboard history as menubar-local by default
+- only promoted history items should cross into the shared backend snippet system unless the user asks for a different model
+
 ## Documentation and guidance checkpoint
 
 For every non-trivial task, perform and report this check:
