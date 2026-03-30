@@ -5,7 +5,14 @@ import { requireUser } from '../lib/supabase.js';
 import { safeJson } from '../lib/http.js';
 import { invokeCompatFunction } from '../services/compat-functions.js';
 import { submitInstagramDownload } from '../services/instagram-download-queue.js';
+import {
+  drainResourceCaptureQueue,
+  getResourceCaptureStatusForUser,
+  retryResourceCaptureForResource,
+  submitResourceCapture,
+} from '../services/resource-capture-queue.js';
 import { reEnrichResourcesForUser } from '../services/resources.js';
+import { getServerEnv } from '../config/env.js';
 import {
   bulkCreateCompatEntities,
   createCompatEntity,
@@ -30,6 +37,12 @@ const instagramDownloadSchema = z.object({
   project_id: z.string().optional(),
 });
 
+const resourceCaptureSchema = z.object({
+  url: z.string().url(),
+  project_id: z.string().optional(),
+  source: z.enum(['manual_modal', 'ios_share_shortcut', 'capture_page', 'quick_paste']).optional().default('manual_modal'),
+});
+
 const resourceReenrichSchema = z.object({
   resource_ids: z.array(z.string()).optional().default([]),
   filters: z.object({
@@ -44,6 +57,19 @@ const resourceReenrichSchema = z.object({
 });
 
 const resourceRoutes = new Hono();
+
+function assertCronSecret(c) {
+  const secret = getServerEnv().CRON_SECRET;
+  if (!secret) {
+    throw new Error('CRON_SECRET is not configured.');
+  }
+
+  const authorization = c.req.header('authorization') || '';
+  const expected = `Bearer ${secret}`;
+  if (authorization !== expected) {
+    throw new Error('Unauthorized cron request.');
+  }
+}
 
 resourceRoutes.post('/analyze', zValidator('json', resourceAnalyzeSchema), async (c) => {
   const auth = await requireUser(c);
@@ -69,6 +95,47 @@ resourceRoutes.post('/instagram-download', zValidator('json', instagramDownloadS
   });
 
   return c.json(result, result.queued ? 202 : 200);
+});
+
+resourceRoutes.post('/capture', zValidator('json', resourceCaptureSchema), async (c) => {
+  const auth = await requireUser(c);
+  const body = c.req.valid('json');
+  const result = await submitResourceCapture(auth.user.id, {
+    url: body.url,
+    projectId: body.project_id || '',
+    source: body.source,
+  });
+
+  void drainResourceCaptureQueue({ limit: 1, workerId: 'resource-capture-inline' }).catch(() => null);
+  return c.json(result, 202);
+});
+
+resourceRoutes.post('/:resourceId/retry-capture', async (c) => {
+  const auth = await requireUser(c);
+  const result = await retryResourceCaptureForResource(auth.user.id, c.req.param('resourceId'));
+  void drainResourceCaptureQueue({ limit: 1, workerId: 'resource-capture-inline' }).catch(() => null);
+  return c.json({ success: true, ...result }, 202);
+});
+
+resourceRoutes.get('/capture/status', async (c) => {
+  const auth = await requireUser(c);
+  const status = await getResourceCaptureStatusForUser(auth.user.id);
+  return c.json(status);
+});
+
+resourceRoutes.get('/capture/drain', async (c) => {
+  try {
+    assertCronSecret(c);
+  } catch (error) {
+    return c.json({ error: error.message || 'Unauthorized' }, 401);
+  }
+
+  const limit = Number(c.req.query('limit') || 3);
+  const result = await drainResourceCaptureQueue({
+    limit,
+    workerId: 'resource-capture-cron',
+  });
+  return c.json(result);
 });
 
 resourceRoutes.post('/re-enrich', zValidator('json', resourceReenrichSchema), async (c) => {

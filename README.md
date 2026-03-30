@@ -75,6 +75,7 @@ INSTAGRAM_DOWNLOADER_BASE_URL=
 INSTAGRAM_DOWNLOADER_SHARED_SECRET=
 INSTAGRAM_DOWNLOADER_TIMEOUT_MS=120000
 INSTAGRAM_DOWNLOADER_STATUS_STALE_MS=90000
+CRON_SECRET=
 YTDLP_BIN=yt-dlp
 YTDLP_TIMEOUT_MS=20000
 ```
@@ -101,6 +102,17 @@ YouTube transcript extraction now follows the same worker pattern as Instagram:
 - your local Python worker can later fetch the transcript and upgrade the resource automatically
 
 Direct worker calls through `INSTAGRAM_DOWNLOADER_BASE_URL` are still supported, but they are no longer required for the same local-worker pattern that Instagram already uses.
+
+Generic URL capture now also supports an async queue-backed flow:
+
+- `POST /api/resources/capture` creates a visible placeholder resource immediately
+- background analysis upgrades that same resource later
+- `/capture?url=...` is the mobile-friendly entrypoint for iPhone Shortcuts and share flows
+- `GET /api/resources/capture/drain` is the cron-accessible drain route and expects `Authorization: Bearer $CRON_SECRET`
+
+Shortcut and operator setup details live in:
+
+- [iPhone Shortcut Capture Guide](/Users/stefanusferdi/Documents/Data Penting/Antigravity Projects/LifeOS Trifecta/lifeos-new architecture/docs/IPHONE_SHORTCUT_CAPTURE.md)
 
 ## Instagram Downloader
 

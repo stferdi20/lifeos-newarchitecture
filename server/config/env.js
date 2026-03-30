@@ -55,6 +55,7 @@ export function getServerEnv() {
     INSTAGRAM_DOWNLOADER_SHARED_SECRET: normalizeString(process.env.INSTAGRAM_DOWNLOADER_SHARED_SECRET),
     INSTAGRAM_DOWNLOADER_TIMEOUT_MS: Number(process.env.INSTAGRAM_DOWNLOADER_TIMEOUT_MS || 120000),
     INSTAGRAM_DOWNLOADER_STATUS_STALE_MS: Number(process.env.INSTAGRAM_DOWNLOADER_STATUS_STALE_MS || 90000),
+    CRON_SECRET: normalizeString(process.env.CRON_SECRET),
     YTDLP_BIN: normalizeString(process.env.YTDLP_BIN) || 'yt-dlp',
     YTDLP_TIMEOUT_MS: Number(process.env.YTDLP_TIMEOUT_MS || 20000),
   };

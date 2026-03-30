@@ -3,8 +3,9 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ExternalLink, Star, Trash2, Tag, Zap, Heart, Clock, Github, Archive, ArchiveRestore, Lightbulb, CheckCircle2, Quote, Users, BookOpen, MessageSquareText, ArrowUpCircle, MessagesSquare, Clapperboard, Download, FolderOpen, RefreshCw, AlertTriangle, GraduationCap, FileText } from 'lucide-react';
-import { LifeArea, Resource } from '@/lib/resources-api';
+import { LifeArea, Resource, retryResourceCapture } from '@/lib/resources-api';
 import { retryInstagramDownloadForResource } from '@/lib/instagram-downloader-api';
+import { getGenericCaptureStatusLabel, isGenericCaptureActive, isGenericCaptureFailed } from '@/lib/resource-capture';
 import ReactMarkdown from 'react-markdown';
 import { cn, formatUiLabel } from '@/lib/utils';
 import { ResponsiveModal, ResponsiveModalContent, ResponsiveModalHeader, ResponsiveModalTitle } from '@/components/ui/responsive-modal';
@@ -53,6 +54,13 @@ const INSTAGRAM_ENRICHMENT_COLORS = {
   analyzing: 'border-violet-500/20 bg-violet-500/10 text-violet-200',
   completed: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200',
   failed: 'border-red-500/20 bg-red-500/10 text-red-200',
+};
+
+const GENERIC_CAPTURE_COLORS = {
+  queued: 'border-secondary/60 bg-secondary/50 text-muted-foreground',
+  processing: 'border-sky-500/20 bg-sky-500/10 text-sky-200',
+  failed: 'border-red-500/20 bg-red-500/10 text-red-200',
+  completed: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200',
 };
 
 function isInstagramDownloadActive(resource) {
@@ -139,7 +147,7 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
       const isQueuedInstagram = isInstagramResource && (isInstagramDownloadActive(current) || isInstagramEnrichmentActive(current));
       const isQueuedYouTubeTranscript = current?.resource_type === 'youtube'
         && ['queued', 'processing'].includes(current?.youtube_transcript_status);
-      return isQueuedInstagram || isQueuedYouTubeTranscript ? 3000 : false;
+      return isQueuedInstagram || isQueuedYouTubeTranscript || isGenericCaptureActive(current) ? 3000 : false;
     },
   });
 
@@ -148,6 +156,14 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['resources'] });
       queryClient.invalidateQueries({ queryKey: ['instagram-downloader-status'] });
+      queryClient.invalidateQueries({ queryKey: ['resource-detail', resource.id] });
+    },
+  });
+
+  const retryCaptureMutation = useMutation({
+    mutationFn: () => retryResourceCapture(resource.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['resources'] });
       queryClient.invalidateQueries({ queryKey: ['resource-detail', resource.id] });
     },
   });
@@ -184,6 +200,8 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
   const enrichmentStatusText = formatUiLabel(resource.instagram_enrichment_status);
   const ingestionSourceText = formatUiLabel(resource.ingestion_source);
   const showInstagramEnrichmentProgress = isInstagram && isInstagramEnrichmentActive(resource) && !resource.summary;
+  const showGenericCaptureStatus = !isInstagram && (isGenericCaptureActive(resource) || isGenericCaptureFailed(resource));
+  const genericCaptureStatusText = getGenericCaptureStatusLabel(resource);
   const instagramMediaTypeLabel = resource.instagram_media_type_label
     || (resource.resource_type === 'instagram_reel' ? 'Reel' : resource.resource_type === 'instagram_carousel' ? 'Carousel' : 'Post');
   const derivedSubreddit = (() => {
@@ -260,6 +278,14 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
             {resource.content_language && (
               <span className="text-[10px] uppercase tracking-widest font-semibold px-2 py-0.5 rounded-full border border-cyan-500/20 bg-cyan-500/10 text-cyan-300">
                 {resource.content_language}
+              </span>
+            )}
+            {showGenericCaptureStatus && (
+              <span className={cn(
+                'text-[10px] tracking-widest font-semibold px-2 py-0.5 rounded-full border',
+                GENERIC_CAPTURE_COLORS[resource.capture_status] || GENERIC_CAPTURE_COLORS.queued,
+              )}>
+                Capture {genericCaptureStatusText}
               </span>
             )}
             {showDebugStatus && resource.enrichment_status && (
@@ -346,6 +372,25 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
                 <p>{resource.enrichment_warning}</p>
               </div>
+            </div>
+          )}
+
+          {showGenericCaptureStatus && resource.capture_status_message && (
+            <div className="rounded-xl border border-border/50 bg-secondary/20 p-4">
+              <p className="text-sm leading-relaxed text-foreground/80">{resource.capture_status_message}</p>
+              {isGenericCaptureFailed(resource) && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="mt-3 h-8 gap-1 text-xs border-border"
+                  onClick={() => retryCaptureMutation.mutate()}
+                  disabled={retryCaptureMutation.isPending}
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${retryCaptureMutation.isPending ? 'animate-spin' : ''}`} />
+                  Retry capture
+                </Button>
+              )}
             </div>
           )}
 

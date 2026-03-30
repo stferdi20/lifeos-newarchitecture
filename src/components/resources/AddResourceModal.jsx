@@ -38,7 +38,11 @@ export default function AddResourceModal({ open, onClose, onCreated, projectId }
       const result = await createResourceFromUrl(payload);
       onCreated?.(result.resource);
       if (result.queued) {
-        toast.success('Instagram import queued. It will process when your downloader worker is online.');
+        toast.success(isInstagramUrl
+          ? 'Instagram import queued. It will process when your downloader worker is online.'
+          : 'Resource queued. We’ll keep processing it in the background.');
+      } else {
+        toast.success('Resource saved.');
       }
       setUrl('');
       onClose();
@@ -97,7 +101,7 @@ export default function AddResourceModal({ open, onClose, onCreated, projectId }
 
           <Button onClick={handleAnalyze} disabled={!url.trim() || loading} className="w-full">
             {loading ? (
-              <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {isInstagramUrl ? 'Fetching Instagram content...' : 'Analyzing...'}</>
+              <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {isInstagramUrl ? 'Fetching Instagram content...' : 'Queueing capture...'}</>
             ) : (
               <><Sparkles className="w-4 h-4 mr-2" /> Analyze & Save</>
             )}

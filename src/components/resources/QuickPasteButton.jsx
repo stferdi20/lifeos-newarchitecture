@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ClipboardPaste, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { createResourceFromUrl } from '@/lib/resources-api';
+import { captureResourceFromUrl, createResourceFromUrl } from '@/lib/resources-api';
 import { isNormalizedResourceUrl, normalizeResourceUrl } from '@/lib/resource-url';
 
 export default function QuickPasteButton({ onCreated, projectId }) {
@@ -18,13 +18,15 @@ export default function QuickPasteButton({ onCreated, projectId }) {
       }
 
       setLoading(true);
-      const payload = { url: normalizedUrl };
+      const payload = { url: normalizedUrl, source: 'quick_paste' };
       if (projectId) payload.project_id = projectId;
 
       toast.info('Saving pasted URL...', { id: 'quick-paste-toast' });
-      const result = await createResourceFromUrl(payload);
+      const result = /instagram\.com\/(?:(?:share\/)?(?:reel|p|tv))\//i.test(normalizedUrl)
+        ? await createResourceFromUrl(payload)
+        : await captureResourceFromUrl(payload);
 
-      toast.success(result.queued ? 'Instagram import queued.' : 'Resource saved!', { id: 'quick-paste-toast' });
+      toast.success(result.queued ? 'Resource queued.' : 'Resource saved!', { id: 'quick-paste-toast' });
       onCreated?.(result.resource);
     } catch (e) {
       const backendError = e?.response?.data?.error || e?.message || '';

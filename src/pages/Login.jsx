@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { Loader2, LockKeyhole, Mail, UserRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,7 @@ import { shouldUseSupabaseAuth } from '@/lib/runtime-config';
 import { getSupabaseBrowserClient } from '@/lib/supabase-browser';
 
 export default function Login() {
+  const location = useLocation();
   const { isAuthenticated, isLoadingAuth, authStateEvent, clearPasswordRecoveryState } = useAuth();
   const [mode, setMode] = useState('sign-in');
   const [fullName, setFullName] = useState('');
@@ -17,7 +18,17 @@ export default function Login() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [sending, setSending] = useState(false);
   const [linkError, setLinkError] = useState('');
-  const redirectTarget = useMemo(() => `${window.location.origin}/Login`, []);
+  const nextTarget = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return params.get('next') || '/';
+  }, [location.search]);
+  const redirectTarget = useMemo(() => {
+    const loginUrl = new URL(`${window.location.origin}/Login`);
+    if (nextTarget && nextTarget !== '/') {
+      loginUrl.searchParams.set('next', nextTarget);
+    }
+    return loginUrl.toString();
+  }, [nextTarget]);
   const isRecoveringPassword = authStateEvent === 'PASSWORD_RECOVERY';
 
   useEffect(() => {
@@ -57,7 +68,7 @@ export default function Login() {
   }
 
   if (!isLoadingAuth && isAuthenticated && !isRecoveringPassword) {
-    return <Navigate to="/" replace />;
+    return <Navigate to={nextTarget || '/'} replace />;
   }
 
   const getClient = () => {
@@ -203,7 +214,7 @@ export default function Login() {
       setLinkError('');
       setConfirmPassword('');
       toast.success('Password updated. You can now sign in with email and password.');
-      window.location.assign('/');
+      window.location.assign(nextTarget || '/');
     } catch (error) {
       toast.error(error?.message || 'Unable to update your password.');
     } finally {

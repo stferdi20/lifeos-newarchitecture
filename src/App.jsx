@@ -33,6 +33,7 @@ const Snippets = lazy(() => import('./pages/Snippets'));
 const Tasks = lazy(() => import('./pages/Tasks'));
 const Login = lazy(() => import('./pages/Login'));
 const Settings = lazy(() => import('./pages/Settings'));
+const Capture = lazy(() => import('./pages/Capture'));
 
 function RouteFallback() {
   return (
@@ -83,6 +84,7 @@ const AuthenticatedApp = () => {
     return (
       <Routes>
         <Route path="/Login" element={<RouteElement><Login /></RouteElement>} />
+        <Route path="/capture" element={<RouteElement><Capture /></RouteElement>} />
         <Route path="*" element={<Navigate to="/Login" replace />} />
       </Routes>
     );
@@ -116,6 +118,7 @@ const AuthenticatedApp = () => {
   return (
     <Routes>
       <Route path="/Login" element={<Navigate to="/" replace />} />
+      <Route path="/capture" element={<RouteElement><Capture /></RouteElement>} />
       <Route element={<RouteElement><AppLayout /></RouteElement>}>
         <Route path="/" element={<Navigate to="/Dashboard" replace />} />
         <Route path="/Dashboard" element={<RouteElement><Dashboard /></RouteElement>} />

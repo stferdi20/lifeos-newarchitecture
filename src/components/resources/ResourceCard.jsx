@@ -1,6 +1,7 @@
 import React from 'react';
 import { cn, formatUiLabel } from '@/lib/utils';
 import { format } from 'date-fns';
+import { getGenericCaptureStatusLabel, isGenericCaptureActive, isGenericCaptureFailed } from '@/lib/resource-capture';
 import {
   Youtube, MessageSquare, Newspaper, GraduationCap, FileText, Globe, FileDown,
   ExternalLink, Star, Github, CheckSquare, Archive, ArchiveRestore, Clapperboard, Trash2, FolderOpen, AlertTriangle
@@ -35,6 +36,13 @@ const STATUS_COLORS = {
   beta: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
   deprecated: 'text-red-400 bg-red-500/10 border-red-500/20',
   unknown: '',
+};
+
+const CAPTURE_STATUS_COLORS = {
+  queued: 'border-secondary/60 bg-secondary/50 text-muted-foreground',
+  processing: 'border-sky-500/20 bg-sky-500/10 text-sky-200',
+  failed: 'border-red-500/20 bg-red-500/10 text-red-200',
+  completed: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200',
 };
 
 function hashStr(s) {
@@ -143,6 +151,8 @@ export default function ResourceCard({
   const safeTags = Array.isArray(resource.tags) ? resource.tags.filter((tag) => typeof tag === 'string' && tag.trim()) : [];
   const safeThumbnail = typeof resource.thumbnail === 'string' && resource.thumbnail.trim() ? resource.thumbnail : '';
   const driveUrl = resource.drive_folder_url || resource.drive_files?.[0]?.url || '';
+  const showGenericCaptureStatus = !isInstagram && (isGenericCaptureActive(resource) || isGenericCaptureFailed(resource));
+  const captureStatusLabel = getGenericCaptureStatusLabel(resource);
   return (
     <div
       onClick={() => onClick?.(resource)}
@@ -236,6 +246,22 @@ export default function ResourceCard({
         <h3 className="text-sm font-semibold line-clamp-2 group-hover:text-primary transition-colors">
           {safeTitle}
         </h3>
+
+        {showGenericCaptureStatus && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <span className={cn(
+              'inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium',
+              CAPTURE_STATUS_COLORS[resource.capture_status] || CAPTURE_STATUS_COLORS.queued,
+            )}>
+              {captureStatusLabel}
+            </span>
+            {resource.capture_status_message && (
+              <span className="text-[10px] text-muted-foreground line-clamp-1">
+                {resource.capture_status_message}
+              </span>
+            )}
+          </div>
+        )}
 
         {(safeAuthor || instagramAuthorHandle) && (
           <p className="text-[10px] text-muted-foreground mt-1">

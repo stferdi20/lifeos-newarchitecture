@@ -36,6 +36,19 @@ function isInstagramUrl(url = '') {
   return /instagram\.com\/(?:(?:share\/)?(?:reel|p|tv))\//i.test(String(url || ''));
 }
 
+export async function captureResourceFromUrl(payload = {}) {
+  const normalizedUrl = normalizeResourceUrl(payload.url || '');
+  const request = { ...payload, url: normalizedUrl };
+  const res = await apiPost('/resources/capture', request);
+  return {
+    resource: res?.resource || null,
+    queued: Boolean(res?.queued),
+    job: res?.job || null,
+    success: Boolean(res?.success),
+    deduped: Boolean(res?.deduped),
+  };
+}
+
 export async function createResourceFromUrl(payload = {}) {
   const normalizedUrl = normalizeResourceUrl(payload.url || '');
   const request = { ...payload, url: normalizedUrl };
@@ -51,16 +64,20 @@ export async function createResourceFromUrl(payload = {}) {
     };
   }
 
-  const resource = await analyzeResourceUrl(request);
+  const result = await captureResourceFromUrl(request);
   return {
-    resource,
-    queued: false,
-    job: null,
+    resource: result.resource,
+    queued: result.queued,
+    job: result.job,
     download: null,
-    success: true,
+    success: result.success,
   };
 }
 
 export async function reEnrichResources(payload = {}) {
   return apiPost('/resources/re-enrich', payload);
+}
+
+export async function retryResourceCapture(resourceId) {
+  return apiPost(`/resources/${encodeURIComponent(resourceId)}/retry-capture`, {});
 }

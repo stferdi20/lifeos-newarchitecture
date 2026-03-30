@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { listBoardWorkspaces } from '@/lib/projects-api';
 import { CardResource, LifeArea, ProjectResource, Resource, reEnrichResources } from '@/lib/resources-api';
+import { isGenericCaptureActive } from '@/lib/resource-capture';
 import ResourceFilters from '../components/resources/ResourceFilters';
 import ResourceCard from '../components/resources/ResourceCard';
 import ResourceDetailModal from '../components/resources/ResourceDetailModal';
@@ -81,7 +82,7 @@ export default function Resources() {
         const isQueuedInstagram = ['queued', 'processing'].includes(resource?.download_status);
         const isQueuedYouTubeTranscript = resource?.resource_type === 'youtube'
           && ['queued', 'processing'].includes(resource?.youtube_transcript_status);
-        return isQueuedInstagram || isQueuedYouTubeTranscript;
+        return isQueuedInstagram || isQueuedYouTubeTranscript || isGenericCaptureActive(resource);
       });
       return hasPendingBackgroundWork ? 3000 : false;
     },
