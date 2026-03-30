@@ -27,6 +27,8 @@ export default function Capture() {
   const rawUrl = params.get('url') || '';
   const projectId = params.get('projectId') || '';
   const source = params.get('source') || 'capture_page';
+  const returnMode = params.get('return_mode') || '';
+  const isShortcutReturnMode = returnMode === 'shortcut';
   const normalizedUrl = normalizeResourceUrl(rawUrl);
 
   const lookupWorkerState = async () => {
@@ -61,8 +63,14 @@ export default function Capture() {
     const lastSubmittedAt = Number(window.sessionStorage.getItem(storageKey) || 0);
     if (Date.now() - lastSubmittedAt <= RECENT_CAPTURE_WINDOW_MS) {
       setState('success');
-      setMessage('This link was already submitted recently. Taking you back to Resources...');
-      window.setTimeout(() => navigate('/Resources', { replace: true }), 700);
+      setMessage(
+        isShortcutReturnMode
+          ? 'This link was already submitted recently. Your shortcut can return you to the source app now.'
+          : 'This link was already submitted recently. Taking you back to Resources...'
+      );
+      if (!isShortcutReturnMode) {
+        window.setTimeout(() => navigate('/Resources', { replace: true }), 700);
+      }
       return;
     }
 
@@ -87,26 +95,44 @@ export default function Capture() {
         }
         setState('success');
         if (result?.deduped) {
-          setMessage('This link is already queued. Taking you back to Resources...');
+          setMessage(
+            isShortcutReturnMode
+              ? 'Already queued.'
+              : 'This link is already queued. Taking you back to Resources...'
+          );
           toast.success('Already queued.');
         } else if (workerState === 'online') {
-          setMessage('Saved. Worker is processing this now. Redirecting to Resources...');
+          setMessage(
+            isShortcutReturnMode
+              ? 'Saved. Worker is processing this now.'
+              : 'Saved. Worker is processing this now. Redirecting to Resources...'
+          );
           toast.success('Saved to queue. Worker is processing this now.');
         } else if (workerState === 'offline') {
-          setMessage('Saved. Waiting for local worker. Redirecting to Resources...');
+          setMessage(
+            isShortcutReturnMode
+              ? 'Saved. Waiting for local worker.'
+              : 'Saved. Waiting for local worker. Redirecting to Resources...'
+          );
           toast.success('Saved to queue. Waiting for local worker.');
         } else {
-          setMessage('Saved to queue. Redirecting to Resources...');
+          setMessage(
+            isShortcutReturnMode
+              ? 'Saved to queue.'
+              : 'Saved to queue. Redirecting to Resources...'
+          );
           toast.success('Saved to queue.');
         }
-        window.setTimeout(() => navigate('/Resources', { replace: true }), 700);
+        if (!isShortcutReturnMode) {
+          window.setTimeout(() => navigate('/Resources', { replace: true }), 700);
+        }
       })
       .catch((error) => {
         setState('error');
         setMessage(error?.message || 'LifeOS could not queue this link.');
         toast.error(error?.message || 'Failed to queue resource capture.');
       });
-  }, [isAuthenticated, isLoadingAuth, location.pathname, location.search, navigate, normalizedUrl, projectId, queryClient, source]);
+  }, [isAuthenticated, isLoadingAuth, isShortcutReturnMode, location.pathname, location.search, navigate, normalizedUrl, projectId, queryClient, source]);
 
   if (state === 'invalid') {
     return (
@@ -135,6 +161,16 @@ export default function Capture() {
         </div>
         <h1 className="mt-4 text-lg font-semibold">Saving to LifeOS</h1>
         <p className="mt-2 text-sm text-muted-foreground">{message}</p>
+        {state === 'success' && isShortcutReturnMode ? (
+          <div className="mt-4 space-y-2">
+            <p className="text-xs text-muted-foreground">
+              Your shortcut can reopen the source app now. If nothing happens, you can open Resources instead.
+            </p>
+            <Link to="/Resources" className="inline-flex text-sm font-medium text-primary underline-offset-4 hover:underline">
+              Open Resources
+            </Link>
+          </div>
+        ) : null}
       </div>
     </div>
   );
