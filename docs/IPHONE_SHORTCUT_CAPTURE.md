@@ -9,6 +9,7 @@ This guide covers the new async resource capture flow for iPhone.
 - Submitting a URL creates a placeholder resource immediately and finishes analysis in the background.
 - The Resources page shows queued, processing, and failed capture states directly on the card.
 - Shortcut-driven captures can now stay on a short success screen while the Shortcut reopens a supported source app or falls back to Resources.
+- Instagram links shared through the shortcut are automatically handed off to the Instagram downloader queue instead of staying in the generic analyzer path.
 
 ## Required Backend Setup
 
@@ -75,6 +76,12 @@ If no supported app matches, the shortcut falls back to `Resources`.
 8. The placeholder resource card is already created either way.
 9. If your local worker is online, processing starts automatically.
 10. If your local worker is offline, the card waits in queue and resumes later when the worker is running again.
+
+For Instagram links specifically:
+
+- LifeOS first accepts the share through `/capture`
+- then the worker hands that job off to the dedicated Instagram downloader queue
+- the same resource card is upgraded in place instead of creating a second Instagram card
 
 ## Notes
 

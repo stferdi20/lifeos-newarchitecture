@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import socket
 from contextlib import suppress
@@ -18,6 +19,7 @@ WORKER_VERSION = "0.2.0"
 INSTAGRAM_JOB_TYPE = "instagram_download"
 YOUTUBE_TRANSCRIPT_JOB_TYPE = "youtube_transcript"
 RESOURCE_CAPTURE_JOB_TYPE = "resource_capture"
+logger = logging.getLogger(__name__)
 
 
 class WorkerLoop:
@@ -45,6 +47,10 @@ class WorkerLoop:
     @property
     def worker_label(self) -> str:
         return os.getenv("INSTAGRAM_DOWNLOADER_WORKER_LABEL", "").strip() or "MacBook Downloader"
+
+    @property
+    def heartbeat_interval(self) -> float:
+        return max(min(self.poll_interval, 15.0), 5.0)
 
     def enabled(self) -> bool:
         return bool(self.api_base_url and self.shared_secret)
@@ -176,83 +182,100 @@ class WorkerLoop:
         job_type = (job.get("payload") or {}).get("job_type") or INSTAGRAM_JOB_TYPE
         self.current_job_id = job.get("id")
         await self.heartbeat(client)
+        heartbeat_task = asyncio.create_task(self._heartbeat_while_processing(client))
 
         try:
-          if job_type == RESOURCE_CAPTURE_JOB_TYPE:
-              await self.complete_resource_capture_job(client, job["id"])
-          elif job_type == YOUTUBE_TRANSCRIPT_JOB_TYPE:
-              transcript = await fetch_youtube_transcript(
-                  YouTubeTranscriptRequest(
-                      url=job["source_url"],
-                  )
-              )
-              if transcript.success:
-                  await self.complete_job(client, job["id"], transcript)
-              else:
-                  await self.fail_job(client, job["id"], transcript.error or "YouTube transcript extraction failed.")
-          else:
-              request = DownloadRequest(
-                  url=job["source_url"],
-                  google_drive=google_drive,
-                  include_analysis=job.get("include_analysis", True),
-                  download_base_dir=(claimed_job.get("settings") or {}).get("download_base_dir"),
-              )
-              metadata, download_dir, files = await download_instagram_media_locally(request)
-              enrichment_task = None
-              if job.get("include_analysis", True):
-                  enrichment_task = asyncio.create_task(
-                      self.enrich_instagram_resource(client, claimed_job, metadata)
-                  )
+            if job_type == RESOURCE_CAPTURE_JOB_TYPE:
+                await self.complete_resource_capture_job(client, job["id"])
+            elif job_type == YOUTUBE_TRANSCRIPT_JOB_TYPE:
+                transcript = await fetch_youtube_transcript(
+                    YouTubeTranscriptRequest(
+                        url=job["source_url"],
+                    )
+                )
+                if transcript.success:
+                    await self.complete_job(client, job["id"], transcript)
+                else:
+                    await self.fail_job(client, job["id"], transcript.error or "YouTube transcript extraction failed.")
+            else:
+                request = DownloadRequest(
+                    url=job["source_url"],
+                    google_drive=google_drive,
+                    include_analysis=job.get("include_analysis", True),
+                    download_base_dir=(claimed_job.get("settings") or {}).get("download_base_dir"),
+                )
+                metadata, download_dir, files = await download_instagram_media_locally(request)
+                enrichment_task = None
+                if job.get("include_analysis", True):
+                    enrichment_task = asyncio.create_task(
+                        self.enrich_instagram_resource(client, claimed_job, metadata)
+                    )
 
-              await self.update_instagram_download_state(client, claimed_job, "uploading")
-              drive_folder, drive_files = await upload_instagram_files_to_drive(
-                  request,
-                  download_dir,
-                  files,
-                  metadata["media_type"],
-                  subfolder_name=metadata.get("drive_subfolder_name"),
-              )
+                await self.update_instagram_download_state(client, claimed_job, "uploading")
+                drive_folder, drive_files = await upload_instagram_files_to_drive(
+                    request,
+                    download_dir,
+                    files,
+                    metadata["media_type"],
+                    subfolder_name=metadata.get("drive_subfolder_name"),
+                )
 
-              enrichment_result = None
-              if enrichment_task:
-                  enrichment_result = await asyncio.gather(enrichment_task, return_exceptions=True)
-                  if enrichment_result and isinstance(enrichment_result[0], Exception):
-                      # The backend route persists enrichment failure state. Keep download completion independent.
-                      pass
+                enrichment_result = None
+                if enrichment_task:
+                    enrichment_result = await asyncio.gather(enrichment_task, return_exceptions=True)
+                    if enrichment_result and isinstance(enrichment_result[0], Exception):
+                        # The backend route persists enrichment failure state. Keep download completion independent.
+                        pass
 
-              download = DownloadResponse(
-                  success=True,
-                  input_url=job["source_url"],
-                  media_type=metadata["media_type"],
-                  media_type_label=metadata["media_type_label"],
-                  download_dir=str(download_dir),
-                  files=files,
-                  media_items=metadata.get("media_items", []),
-                  drive_folder=drive_folder,
-                  drive_files=drive_files,
-                  normalized_title=metadata["normalized_title"],
-                  creator_handle=metadata["creator_handle"],
-                  caption=metadata["caption"],
-                  published_at=metadata["published_at"],
-                  extractor=metadata.get("extractor"),
-                  review_state=metadata.get("review_state"),
-                  review_reason=metadata.get("review_reason"),
-                  error=None,
-              )
-              await self.complete_job(client, job["id"], download)
+                download = DownloadResponse(
+                    success=True,
+                    input_url=job["source_url"],
+                    media_type=metadata["media_type"],
+                    media_type_label=metadata["media_type_label"],
+                    download_dir=str(download_dir),
+                    files=files,
+                    media_items=metadata.get("media_items", []),
+                    drive_folder=drive_folder,
+                    drive_files=drive_files,
+                    normalized_title=metadata["normalized_title"],
+                    creator_handle=metadata["creator_handle"],
+                    caption=metadata["caption"],
+                    published_at=metadata["published_at"],
+                    thumbnail_url=metadata.get("thumbnail_url"),
+                    extractor=metadata.get("extractor"),
+                    review_state=metadata.get("review_state"),
+                    review_reason=metadata.get("review_reason"),
+                    error=None,
+                )
+                await self.complete_job(client, job["id"], download)
         except InstagramDownloaderError as error:
-          if job_type == RESOURCE_CAPTURE_JOB_TYPE:
-              await self.fail_resource_capture_job(client, job["id"], error.message)
-          else:
-              await self.fail_job(client, job["id"], error.message)
+            logger.exception("Worker job failed with InstagramDownloaderError", extra={"job_id": job.get("id"), "job_type": job_type})
+            if job_type == RESOURCE_CAPTURE_JOB_TYPE:
+                await self.fail_resource_capture_job(client, job["id"], error.message)
+            else:
+                await self.fail_job(client, job["id"], error.message)
         except Exception as error:
-          if job_type == RESOURCE_CAPTURE_JOB_TYPE:
-              await self.fail_resource_capture_job(client, job["id"], str(error))
-          else:
-              await self.fail_job(client, job["id"], str(error))
+            logger.exception("Worker job failed", extra={"job_id": job.get("id"), "job_type": job_type})
+            if job_type == RESOURCE_CAPTURE_JOB_TYPE:
+                await self.fail_resource_capture_job(client, job["id"], str(error))
+            else:
+                await self.fail_job(client, job["id"], str(error))
         finally:
-          self.current_job_id = None
-          await self.heartbeat(client)
+            heartbeat_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await heartbeat_task
+            self.current_job_id = None
+            await self.heartbeat(client)
+
+    async def _heartbeat_while_processing(self, client: httpx.AsyncClient):
+        while self.running and self.current_job_id:
+            await asyncio.sleep(self.heartbeat_interval)
+            try:
+                await self.heartbeat(client)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Worker heartbeat failed during processing", extra={"job_id": self.current_job_id})
 
     async def run(self):
         async with httpx.AsyncClient() as client:
@@ -272,7 +295,7 @@ class WorkerLoop:
                     raise
                 except Exception:
                     # Keep the local worker resilient; next loop attempts again.
-                    pass
+                    logger.exception("Worker polling loop failed")
 
                 await asyncio.sleep(max(self.poll_interval, 2.0))
 

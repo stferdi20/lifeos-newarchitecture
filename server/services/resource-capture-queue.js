@@ -1,4 +1,5 @@
 import { HttpError } from '../lib/http.js';
+import { getServerEnv } from '../config/env.js';
 import { getServiceRoleClient } from '../lib/supabase.js';
 import { analyzeResource } from './resources.js';
 import { createCompatEntity, getCompatEntity, updateCompatEntity } from './compat-store.js';
@@ -81,6 +82,22 @@ function buildCompletedMessage() {
 
 function buildFailedMessage(message = '') {
   return message ? `Resource capture failed: ${message}` : 'Resource capture failed.';
+}
+
+function isInstagramResourceType(resourceType = '') {
+  return ['instagram_reel', 'instagram_carousel', 'instagram_post'].includes(String(resourceType || ''));
+}
+
+function isTimestampOlderThan(value, thresholdMs) {
+  const parsed = Date.parse(value || '');
+  if (!Number.isFinite(parsed)) return true;
+  return Date.now() - parsed > thresholdMs;
+}
+
+function getProcessingRecoveryThresholdMs() {
+  const env = getServerEnv();
+  const staleMs = Math.max(Number(env.INSTAGRAM_DOWNLOADER_STATUS_STALE_MS || 90000), 10000);
+  return Math.max(staleMs * 3, 5 * 60 * 1000);
 }
 
 function normalizeJob(row) {
@@ -357,7 +374,59 @@ async function hasProcessingJobForUser(userId) {
   return Boolean(result.data?.id);
 }
 
+async function recoverStaleResourceCaptureJobs() {
+  const recoveryThresholdMs = getProcessingRecoveryThresholdMs();
+  const [jobsRes, workersRes] = await Promise.all([
+    getAdmin()
+      .from('resource_capture_jobs')
+      .select('*')
+      .eq('status', 'processing')
+      .order('started_at', { ascending: true })
+      .limit(25),
+    getAdmin()
+      .from('instagram_downloader_workers')
+      .select('*'),
+  ]);
+
+  if (jobsRes.error) throw new HttpError(500, jobsRes.error.message);
+  if (workersRes.error) throw new HttpError(500, workersRes.error.message);
+
+  const workersById = new Map((workersRes.data || []).map((worker) => [worker.worker_id, worker]));
+  const now = new Date().toISOString();
+
+  for (const row of jobsRes.data || []) {
+    const worker = row.worker_id ? workersById.get(row.worker_id) : null;
+    const workerHeartbeatStale = !worker || isTimestampOlderThan(worker.last_heartbeat_at, recoveryThresholdMs);
+    const jobStartedTooLongAgo = isTimestampOlderThan(row.started_at || row.updated_at || row.created_at, recoveryThresholdMs);
+
+    if (!workerHeartbeatStale || !jobStartedTooLongAgo) continue;
+
+    const recovered = await getAdmin()
+      .from('resource_capture_jobs')
+      .update({
+        status: 'queued',
+        scheduled_for: now,
+        started_at: null,
+        completed_at: null,
+        worker_id: null,
+        last_error: row.last_error || null,
+      })
+      .eq('id', row.id)
+      .eq('status', 'processing')
+      .select('*')
+      .maybeSingle();
+
+    if (recovered.error) throw new HttpError(500, recovered.error.message);
+    if (recovered.data) {
+      const job = normalizeJob(recovered.data);
+      await updateResourceQueued(job.owner_user_id, job.resource_id, job).catch(() => null);
+    }
+  }
+}
+
 export async function claimNextResourceCaptureJob(workerId = 'resource-capture-worker') {
+  await recoverStaleResourceCaptureJobs();
+
   const queued = await getAdmin()
     .from('resource_capture_jobs')
     .select('*')
@@ -459,6 +528,27 @@ export async function completeGenericCaptureJob(jobId) {
   if (!jobRes.data) throw new HttpError(404, 'Resource capture job not found.');
 
   const job = normalizeJob(jobRes.data);
+  const resourceType = inferResourceType(job.source_url);
+  if (isInstagramResourceType(resourceType)) {
+    const { retryInstagramDownloadForResource } = await import('./instagram-download-queue.js');
+    const handoff = await retryInstagramDownloadForResource(job.owner_user_id, job.resource_id);
+    await completeResourceCaptureJob(jobId, {
+      data: {
+        title: handoff?.resource?.title || buildPendingCaptureTitle(job.source_url),
+        summary: handoff?.resource?.download_status_message || 'Instagram download queued.',
+        resource_type: handoff?.resource?.resource_type || resourceType,
+      },
+    });
+    return {
+      job: {
+        ...job,
+        status: 'completed',
+      },
+      resource: handoff?.resource,
+      handed_off: 'instagram_download',
+    };
+  }
+
   const analyzed = await analyzeResource({
     url: job.source_url,
     userId: job.owner_user_id,

@@ -29,6 +29,27 @@ function buildPendingTitle(url = '') {
   return token ? `${label} ${token}` : label;
 }
 
+function isInstagramResourceType(resourceType = '') {
+  return ['instagram_reel', 'instagram_carousel', 'instagram_post'].includes(String(resourceType || ''));
+}
+
+function shouldReplaceWithPendingInstagramTitle(currentTitle = '') {
+  const title = String(currentTitle || '').trim();
+  return !title || /^Queued from /i.test(title);
+}
+
+function isTimestampOlderThan(value, thresholdMs) {
+  const parsed = Date.parse(value || '');
+  if (!Number.isFinite(parsed)) return true;
+  return Date.now() - parsed > thresholdMs;
+}
+
+function getProcessingRecoveryThresholdMs() {
+  const env = getServerEnv();
+  const staleMs = Math.max(Number(env.INSTAGRAM_DOWNLOADER_STATUS_STALE_MS || 90000), 10000);
+  return Math.max(staleMs * 3, 5 * 60 * 1000);
+}
+
 function buildQueuedSummary() {
   return 'Queued for Instagram download. It will process automatically when your downloader worker is online.';
 }
@@ -345,7 +366,21 @@ export async function createPendingInstagramResource(userId, { url, projectId = 
 
 export async function updateInstagramResourceQueued(userId, resourceId, jobId) {
   const current = await getCompatEntity(userId, 'Resource', resourceId);
+  const sourceUrl = current.source_url || current.url || '';
+  const resourceType = inferResourceType(sourceUrl) || current.resource_type || '';
+  const nextTitle = shouldReplaceWithPendingInstagramTitle(current.title)
+    ? buildPendingTitle(sourceUrl)
+    : current.title;
+  const nextTags = Array.isArray(current.tags) && current.tags.length
+    ? [...new Set([...current.tags, 'instagram'])]
+    : ['instagram'];
   return updateCompatEntity(userId, 'Resource', resourceId, mergeInstagramResourceState(current, {
+    title: nextTitle,
+    source_url: sourceUrl,
+    url: sourceUrl,
+    resource_type: isInstagramResourceType(resourceType) ? resourceType : current.resource_type,
+    main_topic: current.main_topic || 'Instagram import',
+    tags: nextTags,
     download_status: 'queued',
     download_status_message: buildQueuedSummary(),
     instagram_enrichment_status: current.instagram_enrichment_status === 'completed' ? 'completed' : 'queued',
@@ -358,6 +393,56 @@ export async function updateInstagramResourceQueued(userId, resourceId, jobId) {
     downloader_job_id: jobId,
     downloader_updated_at: new Date().toISOString(),
   }));
+}
+
+async function recoverStaleInstagramProcessingJobs() {
+  const recoveryThresholdMs = getProcessingRecoveryThresholdMs();
+  const [jobsRes, workersRes] = await Promise.all([
+    getAdmin()
+      .from('instagram_download_jobs')
+      .select('*')
+      .eq('status', 'processing')
+      .order('started_at', { ascending: true })
+      .limit(25),
+    getAdmin()
+      .from('instagram_downloader_workers')
+      .select('*'),
+  ]);
+
+  if (jobsRes.error) throw new HttpError(500, jobsRes.error.message);
+  if (workersRes.error) throw new HttpError(500, workersRes.error.message);
+
+  const workersById = new Map((workersRes.data || []).map((worker) => [worker.worker_id, worker]));
+  const now = new Date().toISOString();
+
+  for (const row of jobsRes.data || []) {
+    const worker = row.worker_id ? workersById.get(row.worker_id) : null;
+    const workerHeartbeatStale = !worker || isTimestampOlderThan(worker.last_heartbeat_at, recoveryThresholdMs);
+    const jobStartedTooLongAgo = isTimestampOlderThan(row.started_at || row.updated_at || row.created_at, recoveryThresholdMs);
+
+    if (!workerHeartbeatStale || !jobStartedTooLongAgo) continue;
+
+    const recovered = await getAdmin()
+      .from('instagram_download_jobs')
+      .update({
+        status: 'queued',
+        scheduled_for: now,
+        started_at: null,
+        completed_at: null,
+        worker_id: null,
+        last_error: row.last_error || null,
+      })
+      .eq('id', row.id)
+      .eq('status', 'processing')
+      .select('*')
+      .maybeSingle();
+
+    if (recovered.error) throw new HttpError(500, recovered.error.message);
+    if (recovered.data) {
+      const job = normalizeJob(recovered.data);
+      await updateInstagramResourceQueued(job.owner_user_id, job.resource_id, job.id).catch(() => null);
+    }
+  }
 }
 
 export async function updateYouTubeTranscriptQueued(userId, resourceId, jobId) {
@@ -821,6 +906,8 @@ export async function registerInstagramWorkerHeartbeat({ workerId, label = '', v
 }
 
 export async function claimNextInstagramDownloadJob(workerId) {
+  await recoverStaleInstagramProcessingJobs();
+
   const queued = await getAdmin()
     .from('instagram_download_jobs')
     .select('*')

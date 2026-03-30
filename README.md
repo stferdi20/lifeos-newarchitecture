@@ -108,6 +108,7 @@ Generic URL capture now also supports an async queue-backed flow:
 - background analysis upgrades that same resource later
 - `/capture?url=...` is the mobile-friendly entrypoint for iPhone Shortcuts and share flows
 - generic capture now drains through the same local worker pattern already used for Instagram and YouTube jobs
+- Instagram links shared through `/capture` are automatically handed off into the Instagram downloader queue so they do not get stuck in the generic analyzer path
 
 Shortcut and operator setup details live in:
 
