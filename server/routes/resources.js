@@ -6,13 +6,11 @@ import { safeJson } from '../lib/http.js';
 import { invokeCompatFunction } from '../services/compat-functions.js';
 import { submitInstagramDownload } from '../services/instagram-download-queue.js';
 import {
-  drainResourceCaptureQueue,
   getResourceCaptureStatusForUser,
   retryResourceCaptureForResource,
   submitResourceCapture,
 } from '../services/resource-capture-queue.js';
 import { reEnrichResourcesForUser } from '../services/resources.js';
-import { getServerEnv } from '../config/env.js';
 import {
   bulkCreateCompatEntities,
   createCompatEntity,
@@ -58,19 +56,6 @@ const resourceReenrichSchema = z.object({
 
 const resourceRoutes = new Hono();
 
-function assertCronSecret(c) {
-  const secret = getServerEnv().CRON_SECRET;
-  if (!secret) {
-    throw new Error('CRON_SECRET is not configured.');
-  }
-
-  const authorization = c.req.header('authorization') || '';
-  const expected = `Bearer ${secret}`;
-  if (authorization !== expected) {
-    throw new Error('Unauthorized cron request.');
-  }
-}
-
 resourceRoutes.post('/analyze', zValidator('json', resourceAnalyzeSchema), async (c) => {
   const auth = await requireUser(c);
   const result = await invokeCompatFunction(auth.user.id, 'analyzeResource', c.req.valid('json'));
@@ -105,15 +90,12 @@ resourceRoutes.post('/capture', zValidator('json', resourceCaptureSchema), async
     projectId: body.project_id || '',
     source: body.source,
   });
-
-  void drainResourceCaptureQueue({ limit: 1, workerId: 'resource-capture-inline' }).catch(() => null);
   return c.json(result, 202);
 });
 
 resourceRoutes.post('/:resourceId/retry-capture', async (c) => {
   const auth = await requireUser(c);
   const result = await retryResourceCaptureForResource(auth.user.id, c.req.param('resourceId'));
-  void drainResourceCaptureQueue({ limit: 1, workerId: 'resource-capture-inline' }).catch(() => null);
   return c.json({ success: true, ...result }, 202);
 });
 
@@ -121,21 +103,6 @@ resourceRoutes.get('/capture/status', async (c) => {
   const auth = await requireUser(c);
   const status = await getResourceCaptureStatusForUser(auth.user.id);
   return c.json(status);
-});
-
-resourceRoutes.get('/capture/drain', async (c) => {
-  try {
-    assertCronSecret(c);
-  } catch (error) {
-    return c.json({ error: error.message || 'Unauthorized' }, 401);
-  }
-
-  const limit = Number(c.req.query('limit') || 3);
-  const result = await drainResourceCaptureQueue({
-    limit,
-    workerId: 'resource-capture-cron',
-  });
-  return c.json(result);
 });
 
 resourceRoutes.post('/re-enrich', zValidator('json', resourceReenrichSchema), async (c) => {

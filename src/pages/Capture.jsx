@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
 import { captureResourceFromUrl } from '@/lib/resources-api';
 import { isNormalizedResourceUrl, normalizeResourceUrl } from '@/lib/resource-url';
+import { apiGet } from '@/lib/api-client';
 
 const RECENT_CAPTURE_WINDOW_MS = 30 * 1000;
 
@@ -27,6 +28,16 @@ export default function Capture() {
   const projectId = params.get('projectId') || '';
   const source = params.get('source') || 'capture_page';
   const normalizedUrl = normalizeResourceUrl(rawUrl);
+
+  const lookupWorkerState = async () => {
+    try {
+      const response = await apiGet('/instagram-downloader/status');
+      const workerOnline = Boolean(response?.worker?.online);
+      return workerOnline ? 'online' : 'offline';
+    } catch {
+      return 'unknown';
+    }
+  };
 
   useEffect(() => {
     if (!normalizedUrl || !isNormalizedResourceUrl(normalizedUrl)) {
@@ -59,12 +70,15 @@ export default function Capture() {
     setState('submitting');
     setMessage('Saving this link to LifeOS...');
 
-    captureResourceFromUrl({
-      url: normalizedUrl,
-      project_id: projectId || undefined,
-      source,
-    })
-      .then((result) => {
+    Promise.all([
+      captureResourceFromUrl({
+        url: normalizedUrl,
+        project_id: projectId || undefined,
+        source,
+      }),
+      lookupWorkerState(),
+    ])
+      .then(([result, workerState]) => {
         if (result?.resource?.id) {
           queryClient.setQueryData(['resources'], (current) => {
             const list = Array.isArray(current) ? current : [];
@@ -72,8 +86,19 @@ export default function Capture() {
           });
         }
         setState('success');
-        setMessage('Queued successfully. Redirecting to Resources...');
-        toast.success('Resource queued. We’ll keep processing it in the background.');
+        if (result?.deduped) {
+          setMessage('This link is already queued. Taking you back to Resources...');
+          toast.success('Already queued.');
+        } else if (workerState === 'online') {
+          setMessage('Saved. Worker is processing this now. Redirecting to Resources...');
+          toast.success('Saved to queue. Worker is processing this now.');
+        } else if (workerState === 'offline') {
+          setMessage('Saved. Waiting for local worker. Redirecting to Resources...');
+          toast.success('Saved to queue. Waiting for local worker.');
+        } else {
+          setMessage('Saved to queue. Redirecting to Resources...');
+          toast.success('Saved to queue.');
+        }
         window.setTimeout(() => navigate('/Resources', { replace: true }), 700);
       })
       .catch((error) => {

@@ -12,17 +12,8 @@ This guide covers the new async resource capture flow for iPhone.
 ## Required Backend Setup
 
 1. Apply the new Supabase migration for `resource_capture_jobs`.
-2. Set `CRON_SECRET` in your deployed environment.
-3. Configure a scheduled request to:
-
-```text
-GET /api/resources/capture/drain?limit=3
-Authorization: Bearer <CRON_SECRET>
-```
-
-Recommended cadence: every minute.
-
-The app will also try a best-effort inline drain after each capture submit, but the scheduled drain is the reliable hosted fallback.
+2. Make sure your existing local Python worker is configured and running when you want queued captures to process.
+3. If the worker is offline, captures still succeed immediately and stay queued until the worker comes back online.
 
 ## iPhone Shortcut Setup
 
@@ -49,10 +40,12 @@ https://YOUR-LIFEOS-DOMAIN/capture?source=ios_share_shortcut&url=[Shortcut Input
 3. LifeOS opens the capture page.
 4. The URL is queued immediately.
 5. A placeholder resource card appears in Resources.
-6. Analysis finishes in the background and upgrades the same card.
+6. If your local worker is online, processing starts automatically.
+7. If your local worker is offline, the card waits in queue and resumes later when the worker is running again.
 
 ## Notes
 
 - iOS does not reliably support fully automatic “copy a link and run in the background” from the clipboard with no trigger.
 - The supported v1 path is Share Sheet first.
 - If a capture fails, open the resource card and use `Retry capture`.
+- No cron setup is required for generic capture; the existing local worker is the background consumer.

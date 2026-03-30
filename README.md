@@ -75,7 +75,6 @@ INSTAGRAM_DOWNLOADER_BASE_URL=
 INSTAGRAM_DOWNLOADER_SHARED_SECRET=
 INSTAGRAM_DOWNLOADER_TIMEOUT_MS=120000
 INSTAGRAM_DOWNLOADER_STATUS_STALE_MS=90000
-CRON_SECRET=
 YTDLP_BIN=yt-dlp
 YTDLP_TIMEOUT_MS=20000
 ```
@@ -108,7 +107,7 @@ Generic URL capture now also supports an async queue-backed flow:
 - `POST /api/resources/capture` creates a visible placeholder resource immediately
 - background analysis upgrades that same resource later
 - `/capture?url=...` is the mobile-friendly entrypoint for iPhone Shortcuts and share flows
-- `GET /api/resources/capture/drain` is the cron-accessible drain route and expects `Authorization: Bearer $CRON_SECRET`
+- generic capture now drains through the same local worker pattern already used for Instagram and YouTube jobs
 
 Shortcut and operator setup details live in:
 

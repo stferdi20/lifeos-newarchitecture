@@ -10,6 +10,7 @@ const CAPTURE_SOURCE_VALUES = new Set([
   'capture_page',
   'quick_paste',
 ]);
+const RESOURCE_CAPTURE_JOB_TYPE = 'resource_capture';
 
 function getAdmin() {
   return getServiceRoleClient();
@@ -101,6 +102,7 @@ function normalizeJob(row) {
     started_at: row.started_at || null,
     completed_at: row.completed_at || null,
     payload: row.payload || {},
+    job_type: row.payload?.job_type || RESOURCE_CAPTURE_JOB_TYPE,
     created_at: row.created_at || null,
     updated_at: row.updated_at || null,
   };
@@ -183,13 +185,30 @@ export async function createResourceCaptureJob(userId, {
       capture_source: normalizeCaptureSource(captureSource),
       requested_at: now,
       scheduled_for: now,
-      payload: {},
+      payload: {
+        job_type: RESOURCE_CAPTURE_JOB_TYPE,
+      },
     })
     .select('*')
     .single();
 
   if (result.error) throw new HttpError(500, result.error.message);
   return normalizeJob(result.data);
+}
+
+export async function getGenericCaptureWorkerSummary() {
+  const jobsRes = await getAdmin()
+    .from('resource_capture_jobs')
+    .select('status');
+
+  if (jobsRes.error) throw new HttpError(500, jobsRes.error.message);
+  return (jobsRes.data || []).reduce((acc, row) => {
+    acc.total += 1;
+    if (row.status === 'queued') acc.queued += 1;
+    if (row.status === 'processing') acc.processing += 1;
+    if (row.status === 'failed') acc.failed += 1;
+    return acc;
+  }, { total: 0, queued: 0, processing: 0, failed: 0 });
 }
 
 async function updateResourceQueued(userId, resourceId, job) {
@@ -375,6 +394,14 @@ export async function claimNextResourceCaptureJob(workerId = 'resource-capture-w
   return null;
 }
 
+export async function claimNextGenericCaptureJob(workerId = 'resource-capture-worker') {
+  const job = await claimNextResourceCaptureJob(workerId);
+  if (!job) return null;
+  return {
+    job,
+  };
+}
+
 export async function completeResourceCaptureJob(jobId, analyzed) {
   const currentJobRes = await getAdmin()
     .from('resource_capture_jobs')
@@ -419,6 +446,24 @@ export async function completeResourceCaptureJob(jobId, analyzed) {
   }
 
   return { job: normalizeJob(done.data), resource: updated };
+}
+
+export async function completeGenericCaptureJob(jobId) {
+  const jobRes = await getAdmin()
+    .from('resource_capture_jobs')
+    .select('*')
+    .eq('id', jobId)
+    .maybeSingle();
+
+  if (jobRes.error) throw new HttpError(500, jobRes.error.message);
+  if (!jobRes.data) throw new HttpError(404, 'Resource capture job not found.');
+
+  const job = normalizeJob(jobRes.data);
+  const analyzed = await analyzeResource({
+    url: job.source_url,
+    userId: job.owner_user_id,
+  });
+  return completeResourceCaptureJob(jobId, analyzed);
 }
 
 export async function failResourceCaptureJob(jobId, message = '') {
@@ -496,54 +541,4 @@ export async function retryResourceCaptureForResource(userId, resourceId) {
     source: resource.capture_source || 'manual_modal',
   });
   return submitted;
-}
-
-export async function processNextResourceCaptureJob(workerId = 'resource-capture-worker') {
-  const job = await claimNextResourceCaptureJob(workerId);
-  if (!job) {
-    return { processed: false, job: null, resource: null };
-  }
-
-  try {
-    const analyzed = await analyzeResource({
-      url: job.source_url,
-      userId: job.owner_user_id,
-    });
-    const completed = await completeResourceCaptureJob(job.id, analyzed);
-    return {
-      processed: true,
-      job: completed.job,
-      resource: completed.resource,
-    };
-  } catch (error) {
-    const failedJob = await failResourceCaptureJob(job.id, error?.message || 'Resource capture failed.');
-    return {
-      processed: false,
-      job: failedJob,
-      resource: null,
-      error,
-    };
-  }
-}
-
-export async function drainResourceCaptureQueue({ limit = 1, workerId = 'resource-capture-worker' } = {}) {
-  const max = Math.max(1, Math.min(Number(limit) || 1, 20));
-  const results = [];
-
-  for (let index = 0; index < max; index += 1) {
-    const result = await processNextResourceCaptureJob(workerId);
-    if (!result.job) break;
-    results.push(result);
-  }
-
-  return {
-    success: true,
-    processed: results.length,
-    results: results.map((entry) => ({
-      processed: entry.processed,
-      job: entry.job,
-      resource: entry.resource,
-      error: entry.error?.message || '',
-    })),
-  };
 }

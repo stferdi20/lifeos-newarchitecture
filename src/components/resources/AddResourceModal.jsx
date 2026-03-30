@@ -40,7 +40,9 @@ export default function AddResourceModal({ open, onClose, onCreated, projectId }
       if (result.queued) {
         toast.success(isInstagramUrl
           ? 'Instagram import queued. It will process when your downloader worker is online.'
-          : 'Resource queued. We’ll keep processing it in the background.');
+          : result.deduped
+            ? 'Already queued.'
+            : 'Saved to queue.');
       } else {
         toast.success('Resource saved.');
       }

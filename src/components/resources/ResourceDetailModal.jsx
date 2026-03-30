@@ -391,6 +391,11 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
                   Retry capture
                 </Button>
               )}
+              {!isGenericCaptureFailed(resource) && resource.capture_status === 'queued' && (
+                <p className="mt-3 text-xs text-muted-foreground">
+                  If your local worker is offline, this will stay queued and resume automatically when the worker is running again.
+                </p>
+              )}
             </div>
           )}
 

@@ -71,6 +71,7 @@ export async function createResourceFromUrl(payload = {}) {
     job: result.job,
     download: null,
     success: result.success,
+    deduped: result.deduped,
   };
 }
 

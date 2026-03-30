@@ -18,6 +18,12 @@ import {
   updateInstagramResourceUploading,
   updateInstagramDownloaderSettingsForUser,
 } from '../services/instagram-download-queue.js';
+import {
+  claimNextGenericCaptureJob,
+  completeGenericCaptureJob,
+  failResourceCaptureJob,
+  getGenericCaptureWorkerSummary,
+} from '../services/resource-capture-queue.js';
 
 const workerHeartbeatSchema = z.object({
   worker_id: z.string().min(1),
@@ -104,6 +110,10 @@ const workerDownloadStateSchema = z.object({
   status: z.enum(['uploading']),
 });
 
+const genericCaptureCompleteSchema = z.object({
+  success: z.boolean().optional().default(true),
+});
+
 function assertWorkerSecret(c) {
   const expected = getServerEnv().INSTAGRAM_DOWNLOADER_SHARED_SECRET;
   if (!expected) {
@@ -120,7 +130,11 @@ const instagramDownloaderRoutes = new Hono();
 
 instagramDownloaderRoutes.get('/status', async (c) => {
   const auth = await requireUser(c);
-  const status = await getInstagramDownloaderStatusForUser(auth.user.id);
+  const [status, genericCapture] = await Promise.all([
+    getInstagramDownloaderStatusForUser(auth.user.id),
+    getGenericCaptureWorkerSummary().catch(() => ({ total: 0, queued: 0, processing: 0, failed: 0 })),
+  ]);
+  status.generic_capture_queue = genericCapture;
   return c.json(status);
 });
 
@@ -208,6 +222,25 @@ instagramDownloaderRoutes.post('/worker/resources/:resourceId/download-state', z
 instagramDownloaderRoutes.post('/worker/jobs/:jobId/fail', zValidator('json', workerFailSchema), async (c) => {
   assertWorkerSecret(c);
   const job = await failInstagramDownloadJob(c.req.param('jobId'), c.req.valid('json').error);
+  return c.json({ success: true, job });
+});
+
+instagramDownloaderRoutes.post('/worker/resource-capture/claim', async (c) => {
+  assertWorkerSecret(c);
+  const workerId = c.req.header('x-worker-id') || 'instagram-worker';
+  const claimed = await claimNextGenericCaptureJob(workerId);
+  return c.json({ success: true, job: claimed });
+});
+
+instagramDownloaderRoutes.post('/worker/resource-capture/jobs/:jobId/complete', zValidator('json', genericCaptureCompleteSchema), async (c) => {
+  assertWorkerSecret(c);
+  const result = await completeGenericCaptureJob(c.req.param('jobId'));
+  return c.json({ success: true, job: result.job, resource: result.resource });
+});
+
+instagramDownloaderRoutes.post('/worker/resource-capture/jobs/:jobId/fail', zValidator('json', workerFailSchema), async (c) => {
+  assertWorkerSecret(c);
+  const job = await failResourceCaptureJob(c.req.param('jobId'), c.req.valid('json').error);
   return c.json({ success: true, job });
 });
 

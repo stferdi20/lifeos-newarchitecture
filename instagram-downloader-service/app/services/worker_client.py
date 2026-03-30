@@ -17,6 +17,7 @@ from app.services.instagram_downloader import (
 WORKER_VERSION = "0.2.0"
 INSTAGRAM_JOB_TYPE = "instagram_download"
 YOUTUBE_TRANSCRIPT_JOB_TYPE = "youtube_transcript"
+RESOURCE_CAPTURE_JOB_TYPE = "resource_capture"
 
 
 class WorkerLoop:
@@ -92,6 +93,19 @@ class WorkerLoop:
         payload = response.json()
         return payload.get("job")
 
+    async def claim_resource_capture_job(self, client: httpx.AsyncClient):
+        response = await client.post(
+            f"{self.api_base_url}/instagram-downloader/worker/resource-capture/claim",
+            headers={
+                "x-downloader-secret": self.shared_secret,
+                "x-worker-id": self.worker_id,
+            },
+            timeout=30.0,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        return payload.get("job")
+
     async def complete_job(self, client: httpx.AsyncClient, job_id: str, download: DownloadResponse):
         response = await client.post(
             f"{self.api_base_url}/instagram-downloader/worker/jobs/{job_id}/complete",
@@ -104,6 +118,24 @@ class WorkerLoop:
     async def fail_job(self, client: httpx.AsyncClient, job_id: str, error_message: str):
         response = await client.post(
             f"{self.api_base_url}/instagram-downloader/worker/jobs/{job_id}/fail",
+            headers={"x-downloader-secret": self.shared_secret},
+            json={"error": error_message},
+            timeout=30.0,
+        )
+        response.raise_for_status()
+
+    async def complete_resource_capture_job(self, client: httpx.AsyncClient, job_id: str):
+        response = await client.post(
+            f"{self.api_base_url}/instagram-downloader/worker/resource-capture/jobs/{job_id}/complete",
+            headers={"x-downloader-secret": self.shared_secret},
+            json={"success": True},
+            timeout=180.0,
+        )
+        response.raise_for_status()
+
+    async def fail_resource_capture_job(self, client: httpx.AsyncClient, job_id: str, error_message: str):
+        response = await client.post(
+            f"{self.api_base_url}/instagram-downloader/worker/resource-capture/jobs/{job_id}/fail",
             headers={"x-downloader-secret": self.shared_secret},
             json={"error": error_message},
             timeout=30.0,
@@ -146,7 +178,9 @@ class WorkerLoop:
         await self.heartbeat(client)
 
         try:
-          if job_type == YOUTUBE_TRANSCRIPT_JOB_TYPE:
+          if job_type == RESOURCE_CAPTURE_JOB_TYPE:
+              await self.complete_resource_capture_job(client, job["id"])
+          elif job_type == YOUTUBE_TRANSCRIPT_JOB_TYPE:
               transcript = await fetch_youtube_transcript(
                   YouTubeTranscriptRequest(
                       url=job["source_url"],
@@ -207,9 +241,15 @@ class WorkerLoop:
               )
               await self.complete_job(client, job["id"], download)
         except InstagramDownloaderError as error:
-          await self.fail_job(client, job["id"], error.message)
+          if job_type == RESOURCE_CAPTURE_JOB_TYPE:
+              await self.fail_resource_capture_job(client, job["id"], error.message)
+          else:
+              await self.fail_job(client, job["id"], error.message)
         except Exception as error:
-          await self.fail_job(client, job["id"], str(error))
+          if job_type == RESOURCE_CAPTURE_JOB_TYPE:
+              await self.fail_resource_capture_job(client, job["id"], str(error))
+          else:
+              await self.fail_job(client, job["id"], str(error))
         finally:
           self.current_job_id = None
           await self.heartbeat(client)
@@ -222,6 +262,11 @@ class WorkerLoop:
                     claimed_job = await self.claim_job(client)
                     if claimed_job:
                         await self.process_claimed_job(client, claimed_job)
+                        continue
+
+                    claimed_capture_job = await self.claim_resource_capture_job(client)
+                    if claimed_capture_job:
+                        await self.process_claimed_job(client, claimed_capture_job)
                         continue
                 except asyncio.CancelledError:
                     raise

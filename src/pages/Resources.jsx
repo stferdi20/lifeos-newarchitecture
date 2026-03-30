@@ -88,6 +88,15 @@ export default function Resources() {
     },
   });
 
+  const { data: downloaderStatus } = useQuery({
+    queryKey: ['instagram-downloader-status'],
+    queryFn: async () => {
+      const module = await import('@/lib/instagram-downloader-api');
+      return module.getInstagramDownloaderStatus();
+    },
+    refetchInterval: 5000,
+  });
+
   const { data: projects = [], isLoading: projectsLoading } = useQuery({
     queryKey: ['projects'],
     queryFn: () => listBoardWorkspaces(),
@@ -616,6 +625,9 @@ export default function Resources() {
 
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs text-muted-foreground">{filteredResources.length} resource{filteredResources.length !== 1 ? 's' : ''}</p>
+        {downloaderStatus?.worker?.online === false && (
+          <p className="text-xs text-muted-foreground">Local worker offline. Queued captures will resume when it comes back online.</p>
+        )}
         {filteredResources.length > 0 && (
           <Button
             size="sm"

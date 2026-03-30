@@ -26,7 +26,12 @@ export default function QuickPasteButton({ onCreated, projectId }) {
         ? await createResourceFromUrl(payload)
         : await captureResourceFromUrl(payload);
 
-      toast.success(result.queued ? 'Resource queued.' : 'Resource saved!', { id: 'quick-paste-toast' });
+      toast.success(
+        result.queued
+          ? (result.deduped ? 'Already queued.' : 'Saved to queue.')
+          : 'Resource saved!',
+        { id: 'quick-paste-toast' },
+      );
       onCreated?.(result.resource);
     } catch (e) {
       const backendError = e?.response?.data?.error || e?.message || '';
