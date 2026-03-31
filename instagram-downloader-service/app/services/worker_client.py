@@ -3,11 +3,15 @@ import logging
 import os
 import socket
 from contextlib import suppress
+from pathlib import Path
 
 import httpx
 
 from app.schemas.download import DownloadRequest, DownloadResponse, YouTubeTranscriptRequest
 from app.services.instagram_downloader import (
+    apply_durable_preview_urls,
+    find_first_file_by_type,
+    generate_reel_preview_frame,
     InstagramDownloaderError,
     download_instagram_media_locally,
     fetch_youtube_transcript,
@@ -212,13 +216,21 @@ class WorkerLoop:
                     )
 
                 await self.update_instagram_download_state(client, claimed_job, "uploading")
-                drive_folder, drive_files = await upload_instagram_files_to_drive(
+                preview_file = None
+                if metadata.get("media_type") == "reel":
+                    primary_video = find_first_file_by_type(files, "video")
+                    if primary_video:
+                        preview_file = generate_reel_preview_frame(Path(primary_video.filepath))
+
+                drive_folder, drive_files, preview_drive_file = await upload_instagram_files_to_drive(
                     request,
                     download_dir,
                     files,
                     metadata["media_type"],
                     subfolder_name=metadata.get("drive_subfolder_name"),
+                    preview_file=preview_file,
                 )
+                metadata = apply_durable_preview_urls(metadata, files, drive_files, preview_drive_file)
 
                 enrichment_result = None
                 if enrichment_task:
