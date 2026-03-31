@@ -1,14 +1,30 @@
 import { Hono } from 'hono';
-import { requireUser } from '../lib/supabase.js';
+import { HttpError } from '../lib/http.js';
+import { getServiceRoleClient, requireUser } from '../lib/supabase.js';
 import {
   assertGoogleService,
   buildGoogleConnectUrl,
   disconnectGoogleService,
   exchangeGoogleCode,
+  getGoogleAccessToken,
   listGoogleConnections,
 } from '../services/google.js';
 
 const googleRoutes = new Hono();
+
+async function resolveGoogleRouteUser(c) {
+  const token = String(c.req.query('token') || '').trim();
+  if (token) {
+    const admin = getServiceRoleClient();
+    const { data, error } = await admin.auth.getUser(token);
+    if (error || !data?.user?.id) {
+      throw new HttpError(401, 'Unauthorized');
+    }
+    return { user: data.user };
+  }
+
+  return requireUser(c);
+}
 
 googleRoutes.get('/connections', async (c) => {
   const auth = await requireUser(c);
@@ -45,6 +61,37 @@ googleRoutes.get('/callback', async (c) => {
     </script>
   </body>
 </html>`);
+});
+
+googleRoutes.get('/drive-files/:fileId/content', async (c) => {
+  const auth = await resolveGoogleRouteUser(c);
+  const fileId = String(c.req.param('fileId') || '').trim();
+  if (!fileId) {
+    throw new HttpError(400, 'Missing Google Drive file id.');
+  }
+
+  const accessToken = await getGoogleAccessToken(auth.user.id, 'drive');
+  const upstream = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media&supportsAllDrives=true`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!upstream.ok || !upstream.body) {
+    throw new HttpError(upstream.status || 502, 'Failed to load Google Drive file content.');
+  }
+
+  const headers = new Headers();
+  headers.set('Cache-Control', 'private, max-age=300');
+  const contentType = upstream.headers.get('content-type');
+  if (contentType) headers.set('Content-Type', contentType);
+  const contentLength = upstream.headers.get('content-length');
+  if (contentLength) headers.set('Content-Length', contentLength);
+
+  return new Response(upstream.body, {
+    status: 200,
+    headers,
+  });
 });
 
 export default googleRoutes;

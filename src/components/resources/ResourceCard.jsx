@@ -2,6 +2,7 @@ import React from 'react';
 import { cn, formatUiLabel } from '@/lib/utils';
 import { format } from 'date-fns';
 import { getGenericCaptureStatusLabel, isGenericCaptureActive, isGenericCaptureFailed } from '@/lib/resource-capture';
+import { useResourceImageUrl } from '@/lib/drive-images';
 import {
   Youtube, MessageSquare, Newspaper, GraduationCap, FileText, Globe, FileDown,
   ExternalLink, Star, Github, CheckSquare, Archive, ArchiveRestore, Clapperboard, Trash2, FolderOpen, AlertTriangle, RefreshCw
@@ -152,6 +153,7 @@ export default function ResourceCard({
   const safeMainTopic = asText(resource.main_topic);
   const safeTags = Array.isArray(resource.tags) ? resource.tags.filter((tag) => typeof tag === 'string' && tag.trim()) : [];
   const safeThumbnail = typeof resource.thumbnail === 'string' && resource.thumbnail.trim() ? resource.thumbnail : '';
+  const displayThumbnail = useResourceImageUrl(safeThumbnail);
   const driveUrl = resource.drive_folder_url || resource.drive_files?.[0]?.url || '';
   const showGenericCaptureStatus = !isInstagram && (isGenericCaptureActive(resource) || isGenericCaptureFailed(resource));
   const captureStatusLabel = getGenericCaptureStatusLabel(resource);
@@ -221,8 +223,8 @@ export default function ResourceCard({
         </button>
       )}
       <div className="relative h-36 overflow-hidden bg-secondary/30">
-        {safeThumbnail ? (
-          <img src={safeThumbnail} alt={safeTitle} className="w-full h-full object-cover" />
+        {displayThumbnail ? (
+          <img src={displayThumbnail} alt={safeTitle} className="w-full h-full object-cover" />
         ) : (
           <FallbackPreview title={safeTitle} mainTopic={safeMainTopic} colorClass={cfg.color} url={resource.url} />
         )}
