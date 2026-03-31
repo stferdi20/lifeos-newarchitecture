@@ -240,6 +240,21 @@ async function fetchResourceRecords(ownerUserId, resourceIds = []) {
   return new Map((result.data || []).map((row) => [row.record_id, row.data || {}]));
 }
 
+async function fetchInstagramResourcesForUser(ownerUserId) {
+  const result = await getAdmin()
+    .from('legacy_entity_records')
+    .select('record_id,data')
+    .eq('entity_type', 'Resource')
+    .eq('owner_user_id', ownerUserId)
+    .order('updated_at', { ascending: false })
+    .limit(200);
+
+  if (result.error) throw new HttpError(500, result.error.message);
+  return (result.data || [])
+    .map((row) => ({ id: row.record_id, ...(row.data || {}) }))
+    .filter((resource) => isInstagramResourceType(resource.resource_type));
+}
+
 export async function getInstagramDownloaderSettingsForUser(userId) {
   const result = await getAdmin()
     .from('instagram_downloader_settings')
@@ -832,16 +847,63 @@ export async function getInstagramDownloaderStatusForUser(userId) {
 
   if (workerRes.error) throw new HttpError(500, workerRes.error.message);
 
-  const jobsRes = await getAdmin()
-    .from('instagram_download_jobs')
-    .select('*')
-    .eq('owner_user_id', userId)
-    .order('created_at', { ascending: false })
-    .limit(25);
+  const fetchJobs = async () => {
+    const jobsRes = await getAdmin()
+      .from('instagram_download_jobs')
+      .select('*')
+      .eq('owner_user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(25);
 
-  if (jobsRes.error) throw new HttpError(500, jobsRes.error.message);
+    if (jobsRes.error) throw new HttpError(500, jobsRes.error.message);
+    return (jobsRes.data || []).map(normalizeJob);
+  };
 
-  const jobs = (jobsRes.data || []).map(normalizeJob);
+  let jobs = await fetchJobs();
+  const instagramResources = await fetchInstagramResourcesForUser(userId);
+  const jobsById = new Map(jobs.map((job) => [job.id, job]));
+  const activeJobByResourceId = new Map(
+    jobs
+      .filter((job) => ['queued', 'processing', 'failed'].includes(job.status))
+      .map((job) => [job.resource_id, job])
+  );
+
+  let repaired = false;
+  for (const resource of instagramResources) {
+    const downloadStatus = String(resource.download_status || '');
+    const needsQueueRepair = ['queued', 'downloading', 'uploading'].includes(downloadStatus);
+    const needsEnrichmentRepair = ['queued', 'analyzing'].includes(String(resource.instagram_enrichment_status || ''));
+    if (!needsQueueRepair && !needsEnrichmentRepair) continue;
+
+    const matchingJob = jobsById.get(resource.downloader_job_id) || activeJobByResourceId.get(resource.id) || null;
+    if (!matchingJob) {
+      await retryInstagramDownloadForResource(userId, resource.id).catch(() => null);
+      repaired = true;
+      continue;
+    }
+
+    if (matchingJob.status === 'queued' && resource.downloader_job_id !== matchingJob.id) {
+      await updateInstagramResourceQueued(userId, resource.id, matchingJob.id).catch(() => null);
+      repaired = true;
+      continue;
+    }
+
+    if (matchingJob.status === 'processing' && resource.download_status !== 'downloading') {
+      await updateInstagramResourceProcessing(userId, resource.id, matchingJob.worker_id || '').catch(() => null);
+      repaired = true;
+      continue;
+    }
+
+    if (matchingJob.status === 'failed' && !['failed', 'blocked'].includes(downloadStatus)) {
+      await updateInstagramResourceFailed(userId, resource.id, matchingJob.last_error).catch(() => null);
+      repaired = true;
+    }
+  }
+
+  if (repaired) {
+    jobs = await fetchJobs();
+  }
+
   const resourcesById = await fetchResourceRecords(userId, jobs.map((job) => job.resource_id));
   const worker = workerRes.data
     ? {
