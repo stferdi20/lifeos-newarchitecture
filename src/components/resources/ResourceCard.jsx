@@ -4,7 +4,7 @@ import { format } from 'date-fns';
 import { getGenericCaptureStatusLabel, isGenericCaptureActive, isGenericCaptureFailed } from '@/lib/resource-capture';
 import {
   Youtube, MessageSquare, Newspaper, GraduationCap, FileText, Globe, FileDown,
-  ExternalLink, Star, Github, CheckSquare, Archive, ArchiveRestore, Clapperboard, Trash2, FolderOpen, AlertTriangle
+  ExternalLink, Star, Github, CheckSquare, Archive, ArchiveRestore, Clapperboard, Trash2, FolderOpen, AlertTriangle, RefreshCw
 } from 'lucide-react';
 
 const typeConfig = {
@@ -127,12 +127,14 @@ export default function ResourceCard({
   onClick,
   onArchiveToggle,
   onDelete,
+  onRetry,
   onTagClick,
   areas,
   selectMode = false,
   selected = false,
   className,
   archiveLoading = false,
+  retryLoading = false,
 }) {
   const area = (areas || []).find(a => a.id === resource.area_id);
   const cfg = typeConfig[resource.resource_type] || typeConfig.website;
@@ -153,6 +155,10 @@ export default function ResourceCard({
   const driveUrl = resource.drive_folder_url || resource.drive_files?.[0]?.url || '';
   const showGenericCaptureStatus = !isInstagram && (isGenericCaptureActive(resource) || isGenericCaptureFailed(resource));
   const captureStatusLabel = getGenericCaptureStatusLabel(resource);
+  const showRetryButton = Boolean(onRetry) && (
+    (isInstagram && (resource.download_status !== 'uploaded' || !driveUrl))
+    || showGenericCaptureStatus
+  );
   return (
     <div
       onClick={() => onClick?.(resource)}
@@ -370,11 +376,28 @@ export default function ResourceCard({
           <span className="text-[10px] text-muted-foreground">
             {resource.created_date ? format(new Date(resource.created_date), 'MMM d, yyyy') : ''}
           </span>
-          {resource.url && (
-            <a href={resource.url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="text-muted-foreground hover:text-primary transition-colors">
-              <ExternalLink className="w-3 h-3" />
-            </a>
-          )}
+          <div className="flex items-center gap-1.5">
+            {showRetryButton && (
+              <button
+                type="button"
+                aria-label="Retry resource"
+                title="Retry resource"
+                disabled={retryLoading}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRetry?.(resource);
+                }}
+                className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border/60 text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <RefreshCw className={cn('h-3 w-3', retryLoading && 'animate-spin')} />
+              </button>
+            )}
+            {resource.url && (
+              <a href={resource.url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="text-muted-foreground hover:text-primary transition-colors">
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
+          </div>
         </div>
       </div>
     </div>

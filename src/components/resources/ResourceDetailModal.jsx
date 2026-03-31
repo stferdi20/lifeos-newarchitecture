@@ -202,6 +202,9 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
   const showInstagramEnrichmentProgress = isInstagram && isInstagramEnrichmentActive(resource) && !resource.summary;
   const showGenericCaptureStatus = !isInstagram && (isGenericCaptureActive(resource) || isGenericCaptureFailed(resource));
   const genericCaptureStatusText = getGenericCaptureStatusLabel(resource);
+  const showRetryAction = (isInstagram && (resource.download_status !== 'uploaded' || !(resource.drive_files?.length || resource.drive_folder_url)))
+    || showGenericCaptureStatus;
+  const retryActionPending = isInstagram ? retryInstagramMutation.isPending : retryCaptureMutation.isPending;
   const instagramMediaTypeLabel = resource.instagram_media_type_label
     || (resource.resource_type === 'instagram_reel' ? 'Reel' : resource.resource_type === 'instagram_carousel' ? 'Carousel' : 'Post');
   const derivedSubreddit = (() => {
@@ -359,10 +362,32 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
                 Enrichment {enrichmentStatusText}
               </span>
             )}
-            {resource.url && (
-              <a href={resource.url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1 ml-auto">
-                <ExternalLink className="w-3 h-3" /> Source
-              </a>
+            {(showRetryAction || resource.url) && (
+              <div className="ml-auto flex items-center gap-2">
+                {showRetryAction && (
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="outline"
+                    className="h-7 w-7 border-border text-muted-foreground hover:text-primary"
+                    onClick={() => {
+                      if (isInstagram) {
+                        retryInstagramMutation.mutate();
+                        return;
+                      }
+                      retryCaptureMutation.mutate();
+                    }}
+                    disabled={retryActionPending}
+                  >
+                    <RefreshCw className={cn('h-3.5 w-3.5', retryActionPending && 'animate-spin')} />
+                  </Button>
+                )}
+                {resource.url && (
+                  <a href={resource.url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1">
+                    <ExternalLink className="w-3 h-3" /> Source
+                  </a>
+                )}
+              </div>
             )}
           </div>
 

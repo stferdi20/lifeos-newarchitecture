@@ -7,7 +7,8 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { listBoardWorkspaces } from '@/lib/projects-api';
-import { CardResource, LifeArea, ProjectResource, Resource, reEnrichResources } from '@/lib/resources-api';
+import { CardResource, LifeArea, ProjectResource, Resource, reEnrichResources, retryResourceCapture } from '@/lib/resources-api';
+import { retryInstagramDownloadForResource } from '@/lib/instagram-downloader-api';
 import { isGenericCaptureActive } from '@/lib/resource-capture';
 import ResourceFilters from '../components/resources/ResourceFilters';
 import ResourceCard from '../components/resources/ResourceCard';
@@ -320,6 +321,25 @@ export default function Resources() {
     },
     onError: (error) => {
       toast.error(error?.message || 'Failed to update archive status.');
+    },
+  });
+
+  const retryResourceMutation = useMutation({
+    mutationFn: async (targetResource) => {
+      const isInstagram = ['instagram_reel', 'instagram_carousel', 'instagram_post'].includes(targetResource?.resource_type);
+      if (isInstagram) {
+        return retryInstagramDownloadForResource(targetResource.id);
+      }
+      return retryResourceCapture(targetResource.id);
+    },
+    onSuccess: (_, targetResource) => {
+      invalidateResourceQueries();
+      queryClient.invalidateQueries({ queryKey: ['instagram-downloader-status'] });
+      queryClient.invalidateQueries({ queryKey: ['resource-detail', targetResource?.id] });
+      toast.success('Retry queued.');
+    },
+    onError: (error) => {
+      toast.error(error?.message || 'Failed to retry this resource.');
     },
   });
 
@@ -660,11 +680,13 @@ export default function Resources() {
                 onClick={handleCardClick}
                 onArchiveToggle={handleArchiveToggle}
                 onDelete={(id) => deleteDirectMutation.mutate(id)}
+                onRetry={(resource) => retryResourceMutation.mutate(resource)}
                 onTagClick={handleTagClick}
                 areas={areas}
                 selectMode={selectMode}
                 selected={selectedIds.has(r.id)}
                 archiveLoading={archiveToggleMutation.isPending && archiveToggleMutation.variables?.resourceId === r.id}
+                retryLoading={retryResourceMutation.isPending && retryResourceMutation.variables?.id === r.id}
               />
             </motion.div>
           ))}
