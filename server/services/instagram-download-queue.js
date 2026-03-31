@@ -191,12 +191,14 @@ function scoreInstagramThumbnail(value = '') {
   return 1;
 }
 
-function collectInstagramThumbnailCandidates(download = {}, current = {}, normalized = {}) {
+function collectInstagramThumbnailCandidates(download = {}, current = {}, normalized = {}, options = {}) {
   const currentItems = Array.isArray(current.instagram_media_items) ? current.instagram_media_items : [];
   const downloadItems = Array.isArray(download.media_items) ? download.media_items : [];
   const driveFiles = Array.isArray(download.drive_files) ? download.drive_files : [];
   const currentDriveFiles = Array.isArray(current.drive_files) ? current.drive_files : [];
+  const ordered = Array.isArray(options.preferred) ? options.preferred : [];
   const candidates = [
+    ...ordered,
     download.thumbnail_url,
     normalized.thumbnail,
     ...downloadItems.map((item) => item?.thumbnail_url),
@@ -211,8 +213,34 @@ function collectInstagramThumbnailCandidates(download = {}, current = {}, normal
   return [...new Set(candidates.map((value) => normalizeUrlString(value)).filter(Boolean))];
 }
 
+function chooseFirstInstagramImageThumbnail(...sources) {
+  for (const source of sources) {
+    const items = Array.isArray(source) ? source : [];
+    for (const item of items) {
+      if (item?.type !== 'image') continue;
+      const thumbnail = normalizeUrlString(item?.thumbnail_url);
+      if (thumbnail) return thumbnail;
+      const sourceUrl = normalizeUrlString(item?.source_url);
+      if (sourceUrl) return sourceUrl;
+    }
+  }
+  return '';
+}
+
 function chooseInstagramThumbnail(download = {}, current = {}, normalized = {}) {
-  const candidates = collectInstagramThumbnailCandidates(download, current, normalized);
+  const resourceType = String(
+    download.media_type
+    || normalized.resource_type
+    || current.resource_type
+    || '',
+  );
+  const preferred = [];
+  if (['instagram_carousel', 'instagram_post'].includes(resourceType)) {
+    const firstImage = chooseFirstInstagramImageThumbnail(download.media_items, current.instagram_media_items);
+    if (firstImage) preferred.push(firstImage);
+  }
+
+  const candidates = collectInstagramThumbnailCandidates(download, current, normalized, { preferred });
   let best = normalizeUrlString(current.thumbnail);
   let bestScore = scoreInstagramThumbnail(best);
 

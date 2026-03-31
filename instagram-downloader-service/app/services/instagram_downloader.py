@@ -699,6 +699,19 @@ def find_first_file_by_type(files: list[DownloadedFile], file_type: str) -> Down
     return None
 
 
+def pick_first_image_thumbnail(media_items: list[dict[str, Any]]) -> str:
+    for item in media_items or []:
+        if item.get("type") != "image":
+            continue
+        thumbnail_url = normalize_whitespace(item.get("thumbnail_url") or "")
+        if thumbnail_url:
+            return thumbnail_url
+        source_url = normalize_whitespace(item.get("source_url") or "")
+        if source_url:
+            return source_url
+    return ""
+
+
 def apply_durable_preview_urls(
     metadata: dict[str, Any],
     files: list[DownloadedFile],
@@ -725,6 +738,8 @@ def apply_durable_preview_urls(
     if preview_drive_url and updated_items:
         updated_items[0]["thumbnail_url"] = preview_drive_url
         chosen_thumbnail = preview_drive_url
+    elif metadata.get("media_type") in {"carousel", "post"}:
+        chosen_thumbnail = pick_first_image_thumbnail(updated_items) or chosen_thumbnail
     elif not chosen_thumbnail:
         chosen_thumbnail = derive_thumbnail_from_media_items(updated_items)
 
