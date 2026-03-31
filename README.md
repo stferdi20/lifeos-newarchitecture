@@ -128,6 +128,8 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --host 127.0.0.1 --port 9001
 ```
 
+For Instagram reel preview images, make sure `ffmpeg` is installed on the Mac running the local worker.
+
 Then point the existing backend at it:
 
 ```bash

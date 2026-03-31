@@ -144,6 +144,89 @@ function normalizeCreatorHandle(value = '') {
   return String(value || '').replace(/^@+/, '').trim();
 }
 
+function normalizeUrlString(value = '') {
+  const normalized = String(value || '').trim();
+  return /^https?:\/\//i.test(normalized) ? normalized : '';
+}
+
+function isRenderableImageUrl(value = '') {
+  const url = normalizeUrlString(value);
+  if (!url) return false;
+  if (/\.(?:avif|gif|jpe?g|png|webp)(?:$|\?)/i.test(url)) return true;
+  return /(cdninstagram|fbcdn|instagram|media\.fastdl|scontent)/i.test(url) && !/\.mp4(?:$|\?)/i.test(url);
+}
+
+function isDirectRenderableDriveUrl(value = '') {
+  const url = normalizeUrlString(value);
+  if (!url) return false;
+  if (!/drive\.google|googleusercontent/i.test(url)) return false;
+  return /\.(?:avif|gif|jpe?g|png|webp)(?:$|\?)/i.test(url) || /googleusercontent/i.test(url);
+}
+
+function isImageMimeType(value = '') {
+  return /^image\//i.test(String(value || '').trim());
+}
+
+function buildDriveImagePreviewUrl(file = {}) {
+  const fileId = String(file?.id || '').trim();
+  if (!fileId) return '';
+
+  if (isImageMimeType(file?.mime_type)) {
+    return `https://drive.google.com/uc?export=view&id=${fileId}`;
+  }
+
+  const filename = String(file?.name || '').trim();
+  if (/\.(?:avif|gif|jpe?g|png|webp)$/i.test(filename)) {
+    return `https://drive.google.com/uc?export=view&id=${fileId}`;
+  }
+
+  return '';
+}
+
+function scoreInstagramThumbnail(value = '') {
+  const url = normalizeUrlString(value);
+  if (!url) return 0;
+  if (isRenderableImageUrl(url) && !/drive\.google/i.test(url)) return 4;
+  if (isDirectRenderableDriveUrl(url)) return 2;
+  return 1;
+}
+
+function collectInstagramThumbnailCandidates(download = {}, current = {}, normalized = {}) {
+  const currentItems = Array.isArray(current.instagram_media_items) ? current.instagram_media_items : [];
+  const downloadItems = Array.isArray(download.media_items) ? download.media_items : [];
+  const driveFiles = Array.isArray(download.drive_files) ? download.drive_files : [];
+  const currentDriveFiles = Array.isArray(current.drive_files) ? current.drive_files : [];
+  const candidates = [
+    download.thumbnail_url,
+    normalized.thumbnail,
+    ...downloadItems.map((item) => item?.thumbnail_url),
+    ...downloadItems.filter((item) => item?.type === 'image').map((item) => item?.source_url),
+    current.thumbnail,
+    ...currentItems.map((item) => item?.thumbnail_url),
+    ...currentItems.filter((item) => item?.type === 'image').map((item) => item?.source_url),
+    ...driveFiles.map((file) => buildDriveImagePreviewUrl(file)),
+    ...currentDriveFiles.map((file) => buildDriveImagePreviewUrl(file)),
+  ];
+
+  return [...new Set(candidates.map((value) => normalizeUrlString(value)).filter(Boolean))];
+}
+
+function chooseInstagramThumbnail(download = {}, current = {}, normalized = {}) {
+  const candidates = collectInstagramThumbnailCandidates(download, current, normalized);
+  let best = normalizeUrlString(current.thumbnail);
+  let bestScore = scoreInstagramThumbnail(best);
+
+  for (const candidate of candidates) {
+    const score = scoreInstagramThumbnail(candidate);
+    if (score > bestScore) {
+      best = candidate;
+      bestScore = score;
+    }
+  }
+
+  return best;
+}
+
 function chooseInstagramDisplayTitle({
   sourceUrl = '',
   normalized = {},
@@ -302,6 +385,7 @@ function toInstagramMediaItems(download = {}, existingItems = []) {
       filename: file.filename,
       filepath: file.filepath,
       source_url: baseItem.source_url || null,
+      thumbnail_url: baseItem.thumbnail_url || buildDriveImagePreviewUrl(driveFile) || null,
       width: baseItem.width ?? null,
       height: baseItem.height ?? null,
       duration_seconds: baseItem.duration_seconds ?? null,
@@ -548,10 +632,14 @@ async function buildInstagramEnrichmentPayload(userId, sourceUrl, current = {}, 
     ...normalized,
     title: displayTitle,
     author: normalized.author || (creatorHandle ? `@${creatorHandle}` : current.author || ''),
+    thumbnail: chooseInstagramThumbnail(download, current, normalized),
     instagram_display_title: displayTitle,
     instagram_author_handle: creatorHandle || normalized.instagram_author_handle || current.instagram_author_handle || '',
     instagram_media_type_label: download.media_type_label || normalized.instagram_media_type_label || current.instagram_media_type_label || getInstagramMediaTypeLabel(download.media_type),
     instagram_caption: download.caption || normalized.instagram_caption || current.instagram_caption || '',
+    instagram_media_items: Array.isArray(download.media_items) && download.media_items.length
+      ? download.media_items
+      : (current.instagram_media_items || []),
     instagram_posted_at: download.published_at || normalized.instagram_posted_at || current.instagram_posted_at || '',
   });
 
@@ -563,6 +651,7 @@ async function buildInstagramEnrichmentPayload(userId, sourceUrl, current = {}, 
     instagram_author_handle: creatorHandle || merged.instagram_author_handle || '',
     instagram_media_type_label: download.media_type_label || merged.instagram_media_type_label || getInstagramMediaTypeLabel(download.media_type),
     instagram_caption: download.caption || merged.instagram_caption || '',
+    thumbnail: chooseInstagramThumbnail(download, current, merged),
     instagram_posted_at: download.published_at || merged.instagram_posted_at || '',
   };
 }
@@ -627,6 +716,7 @@ export async function applySuccessfulInstagramDownload(userId, resourceId, sourc
     ...baseResource,
     title: displayTitle,
     author: baseResource.author || (creatorHandle ? `@${creatorHandle}` : current.author || ''),
+    thumbnail: chooseInstagramThumbnail(download, current, baseResource),
     instagram_display_title: displayTitle,
     instagram_author_handle: creatorHandle || baseResource.instagram_author_handle || current.instagram_author_handle || '',
     instagram_media_type_label: download.media_type_label || baseResource.instagram_media_type_label || current.instagram_media_type_label || getInstagramMediaTypeLabel(download.media_type),
@@ -873,7 +963,24 @@ export async function getInstagramDownloaderStatusForUser(userId) {
     const downloadStatus = String(resource.download_status || '');
     const needsQueueRepair = ['queued', 'downloading', 'uploading'].includes(downloadStatus);
     const needsEnrichmentRepair = ['queued', 'analyzing'].includes(String(resource.instagram_enrichment_status || ''));
-    if (!needsQueueRepair && !needsEnrichmentRepair) continue;
+    const needsThumbnailRepair = downloadStatus === 'uploaded' && !normalizeUrlString(resource.thumbnail);
+    if (!needsQueueRepair && !needsEnrichmentRepair && !needsThumbnailRepair) continue;
+
+    if (needsThumbnailRepair) {
+      const thumbnail = chooseInstagramThumbnail({
+        thumbnail_url: '',
+        media_items: resource.instagram_media_items || [],
+        drive_files: resource.drive_files || [],
+      }, resource, resource);
+      if (thumbnail) {
+        await updateCompatEntity(userId, 'Resource', resource.id, mergeInstagramResourceState(resource, {
+          thumbnail,
+          downloader_updated_at: new Date().toISOString(),
+        })).catch(() => null);
+        repaired = true;
+      }
+      if (!needsQueueRepair && !needsEnrichmentRepair) continue;
+    }
 
     const matchingJob = jobsById.get(resource.downloader_job_id) || activeJobByResourceId.get(resource.id) || null;
     if (!matchingJob) {

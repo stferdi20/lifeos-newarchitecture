@@ -33,6 +33,8 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+For Instagram reel preview images, the local worker also expects `ffmpeg` to be installed and available on your machine.
+
 ## Run Locally
 
 ```bash

@@ -195,6 +195,7 @@ def build_download_metadata(url: str, info: dict[str, Any]) -> dict[str, str]:
         "caption": caption,
         "published_at": published_at,
         "normalized_title": normalized_title,
+        "thumbnail_url": normalize_whitespace(info.get("thumbnail") or ""),
         "extractor": "yt_dlp",
         "review_state": "none",
         "review_reason": "",
@@ -246,6 +247,7 @@ def build_metadata_result(
             transcript=transcript,
             published_at=published_at,
         ),
+        "thumbnail_url": "",
         "extractor": extractor,
         "review_state": review_state,
         "review_reason": review_reason,
@@ -274,6 +276,69 @@ def detect_file_type(file_path: Path) -> str:
     if guessed and guessed.startswith("image/"):
         return "image"
     return "unknown"
+
+
+def resolve_ffmpeg_binary() -> str:
+    candidates = [
+        os.getenv("FFMPEG_BIN", "").strip(),
+        "ffmpeg",
+        "/opt/homebrew/bin/ffmpeg",
+        "/usr/local/bin/ffmpeg",
+    ]
+    for candidate in candidates:
+        if not candidate:
+            continue
+        resolved = shutil.which(candidate) or (candidate if Path(candidate).exists() else "")
+        if resolved:
+            return resolved
+    return ""
+
+
+def build_drive_image_url(file_id: str) -> str:
+    identifier = str(file_id or "").strip()
+    if not identifier:
+        return ""
+    return f"https://drive.google.com/uc?export=view&id={identifier}"
+
+
+def generate_reel_preview_frame(video_path: Path, offset_seconds: float = 1.0) -> Path | None:
+    ffmpeg_bin = resolve_ffmpeg_binary()
+    if not ffmpeg_bin or not video_path.exists():
+        return None
+
+    preview_path = video_path.with_name(f"{video_path.stem}__preview.jpg")
+    attempts = [offset_seconds, 0.0] if offset_seconds > 0 else [0.0]
+
+    for attempt in attempts:
+        if preview_path.exists():
+            preview_path.unlink(missing_ok=True)
+        command = [
+            ffmpeg_bin,
+            "-y",
+            "-ss",
+            f"{attempt:.3f}",
+            "-i",
+            str(video_path),
+            "-frames:v",
+            "1",
+            "-q:v",
+            "2",
+            str(preview_path),
+        ]
+        try:
+            completed = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=30,
+            )
+        except Exception:
+            continue
+        if completed.returncode == 0 and preview_path.exists() and preview_path.stat().st_size > 0:
+            return preview_path
+
+    return None
 
 
 def infer_media_type(url: str, info: dict[str, Any]) -> str:
@@ -327,6 +392,7 @@ def build_instaloader_media_items(post: instaloader.Post) -> list[dict[str, Any]
                 "label": f"#{index + 1}",
                 "type": "video" if getattr(node, "is_video", False) else "image",
                 "source_url": getattr(node, "video_url", None) if getattr(node, "is_video", False) else getattr(node, "display_url", None),
+                "thumbnail_url": getattr(node, "display_url", None),
                 "width": normalize_media_dimension(node, "display_url_width"),
                 "height": normalize_media_dimension(node, "display_url_height"),
                 "duration_seconds": normalize_duration_seconds(getattr(node, "video_duration", None)),
@@ -338,6 +404,7 @@ def build_instaloader_media_items(post: instaloader.Post) -> list[dict[str, Any]
         "label": "#1",
         "type": "video" if getattr(post, "is_video", False) else "image",
         "source_url": getattr(post, "video_url", None) if getattr(post, "is_video", False) else getattr(post, "url", None),
+        "thumbnail_url": getattr(post, "url", None),
         "width": None,
         "height": None,
         "duration_seconds": normalize_duration_seconds(getattr(post, "video_duration", None)),
@@ -358,7 +425,7 @@ def build_instaloader_metadata(url: str, post: instaloader.Post, *, extractor: s
             published_at = date_utc.replace(tzinfo=timezone.utc).isoformat()
         except Exception:
             published_at = ""
-    return build_metadata_result(
+    result = build_metadata_result(
         media_type=media_type,
         creator_handle=creator_handle,
         caption=caption,
@@ -366,6 +433,8 @@ def build_instaloader_metadata(url: str, post: instaloader.Post, *, extractor: s
         extractor=extractor,
         media_items=build_instaloader_media_items(post),
     )
+    result["thumbnail_url"] = normalize_whitespace(getattr(post, "url", None) or "")
+    return result
 
 
 def build_ydl_options(download_dir: Path, *, force_browser_session: bool = False) -> dict[str, Any]:
@@ -618,8 +687,65 @@ def attach_media_filenames(media_items: list[dict[str, Any]], files: list[Downlo
             "type": item.get("type") or (file.type if file else "unknown"),
             "filename": file.filename if file else item.get("filename"),
             "filepath": file.filepath if file else item.get("filepath"),
+            "thumbnail_url": item.get("thumbnail_url"),
         })
     return enriched
+
+
+def find_first_file_by_type(files: list[DownloadedFile], file_type: str) -> DownloadedFile | None:
+    for item in files or []:
+        if item.type == file_type:
+            return item
+    return None
+
+
+def apply_durable_preview_urls(
+    metadata: dict[str, Any],
+    files: list[DownloadedFile],
+    drive_files: list[GoogleDriveFile],
+    preview_drive_file: GoogleDriveFile | None = None,
+) -> dict[str, Any]:
+    updated_items: list[dict[str, Any]] = []
+    drive_files_by_name = {entry.name: entry for entry in drive_files or []}
+    chosen_thumbnail = normalize_whitespace(metadata.get("thumbnail_url") or "")
+    preview_drive_url = build_drive_image_url(preview_drive_file.id) if preview_drive_file else ""
+
+    for index, item in enumerate(metadata.get("media_items", []) or []):
+        file = files[index] if index < len(files) else None
+        drive_file = drive_files_by_name.get(file.filename) if file else None
+        next_item = {**item}
+
+        if file and file.type == "image" and drive_file:
+            next_item["thumbnail_url"] = build_drive_image_url(drive_file.id) or next_item.get("thumbnail_url")
+            if not chosen_thumbnail:
+                chosen_thumbnail = normalize_whitespace(next_item.get("thumbnail_url") or "")
+
+        updated_items.append(next_item)
+
+    if preview_drive_url and updated_items:
+        updated_items[0]["thumbnail_url"] = preview_drive_url
+        chosen_thumbnail = preview_drive_url
+    elif not chosen_thumbnail:
+        chosen_thumbnail = derive_thumbnail_from_media_items(updated_items)
+
+    return {
+        **metadata,
+        "media_items": updated_items,
+        "thumbnail_url": chosen_thumbnail,
+    }
+
+
+def derive_thumbnail_from_media_items(media_items: list[dict[str, Any]]) -> str:
+    for item in media_items or []:
+        thumbnail_url = normalize_whitespace(item.get("thumbnail_url") or "")
+        if thumbnail_url:
+            return thumbnail_url
+    for item in media_items or []:
+        if item.get("type") == "image":
+            source_url = normalize_whitespace(item.get("source_url") or "")
+            if source_url:
+                return source_url
+    return ""
 
 
 def content_type_to_extension(content_type: str, fallback_extension: str = "") -> str:
@@ -658,6 +784,7 @@ def build_fastdl_media_items(download_links: list[dict[str, Any]]) -> list[dict[
             "filename": item.get("filename"),
             "filepath": item.get("filepath"),
             "source_url": item.get("source_url"),
+            "thumbnail_url": item.get("preview_url") or item.get("source_url"),
             "width": None,
             "height": None,
             "duration_seconds": None,
@@ -904,6 +1031,7 @@ def build_gallery_dl_media_items(files: list[DownloadedFile]) -> list[dict[str, 
             "filename": file.filename,
             "filepath": file.filepath,
             "source_url": None,
+            "thumbnail_url": None,
             "width": None,
             "height": None,
             "duration_seconds": None,
@@ -926,7 +1054,7 @@ def build_gallery_dl_metadata(
     caption = normalize_whitespace(info.get("description") or "") if info else ""
     published_at = normalize_published_at(info) if info else ""
 
-    return build_metadata_result(
+    result = build_metadata_result(
         media_type=media_type,
         creator_handle=creator_handle,
         caption=caption,
@@ -934,6 +1062,8 @@ def build_gallery_dl_metadata(
         extractor="gallery_dl",
         media_items=build_gallery_dl_media_items(files),
     )
+    result["thumbnail_url"] = normalize_whitespace(info.get("thumbnail") or "") if info else ""
+    return result
 
 
 def build_fastdl_shortcut_url(url: str) -> str:
@@ -1039,7 +1169,7 @@ def build_fastdl_metadata(
     caption = normalize_whitespace(info.get("description") or "") if info else ""
     published_at = normalize_published_at(info) if info else ""
     media_type = infer_fastdl_media_type(request, download_links)
-    return build_metadata_result(
+    result = build_metadata_result(
         media_type=media_type,
         creator_handle=creator_handle,
         caption=caption,
@@ -1047,6 +1177,12 @@ def build_fastdl_metadata(
         extractor="fastdl",
         media_items=build_fastdl_media_items(download_links),
     )
+    result["thumbnail_url"] = normalize_whitespace(
+        next((str(item.get("preview_url") or "").strip() for item in download_links if str(item.get("preview_url") or "").strip()), "")
+        or info.get("thumbnail")
+        or ""
+    )
+    return result
 
 
 async def fetch_instagram_page_html(url: str) -> str:
@@ -1148,6 +1284,7 @@ async def download_with_ytdlp(
             cleanup_download_dir(download_dir)
             raise InstagramDownloaderError(rejection_reason, 409)
     metadata["media_items"] = attach_media_filenames(metadata.get("media_items", []), files)
+    metadata["thumbnail_url"] = normalize_whitespace(metadata.get("thumbnail_url") or "") or derive_thumbnail_from_media_items(metadata["media_items"])
     if not files:
         raise InstagramDownloaderError("Download completed but no files were found.", 500)
 
@@ -1176,6 +1313,7 @@ async def download_with_instaloader(request: DownloadRequest) -> tuple[dict[str,
 
     files = collect_downloaded_files(download_dir, metadata["normalized_title"])
     metadata["media_items"] = attach_media_filenames(metadata.get("media_items", []), files)
+    metadata["thumbnail_url"] = normalize_whitespace(metadata.get("thumbnail_url") or "") or derive_thumbnail_from_media_items(metadata["media_items"])
     if not files:
         raise InstagramDownloaderError("Instaloader completed but no downloadable media files were created.", 502)
 
@@ -1221,6 +1359,7 @@ async def download_with_gallery_dl(request: DownloadRequest) -> tuple[dict[str, 
     metadata = build_gallery_dl_metadata(request, files, fallback_info=fallback_info)
     files = collect_downloaded_files(download_dir, metadata["normalized_title"])
     metadata["media_items"] = attach_media_filenames(metadata.get("media_items", []), files)
+    metadata["thumbnail_url"] = normalize_whitespace(metadata.get("thumbnail_url") or "") or derive_thumbnail_from_media_items(metadata["media_items"])
     return metadata, download_dir, files
 
 
@@ -1247,6 +1386,7 @@ async def download_with_fastdl(request: DownloadRequest) -> tuple[dict[str, Any]
         metadata["drive_subfolder_name"] = metadata["normalized_title"]
     files = collect_downloaded_files(download_dir, metadata["normalized_title"])
     metadata["media_items"] = attach_media_filenames(metadata.get("media_items", []), files)
+    metadata["thumbnail_url"] = normalize_whitespace(metadata.get("thumbnail_url") or "") or derive_thumbnail_from_media_items(metadata["media_items"])
     return metadata, download_dir, files
 
 
@@ -1297,20 +1437,43 @@ async def upload_instagram_files_to_drive(
     files: list[DownloadedFile],
     media_type: str,
     subfolder_name: str | None = None,
-) -> tuple[GoogleDriveFolder | None, list[GoogleDriveFile]]:
-    return await maybe_upload_to_drive(request, download_dir, files, media_type, subfolder_name=subfolder_name)
+    preview_file: Path | None = None,
+) -> tuple[GoogleDriveFolder | None, list[GoogleDriveFile], GoogleDriveFile | None]:
+    drive_folder, drive_files = await maybe_upload_to_drive(request, download_dir, files, media_type, subfolder_name=subfolder_name)
+    preview_drive_file = None
+    if request.google_drive and drive_folder and preview_file and preview_file.exists():
+        async with httpx.AsyncClient() as client:
+            try:
+                preview_drive_file = await upload_file_to_drive(
+                    client,
+                    request.google_drive.access_token,
+                    drive_folder.id,
+                    preview_file,
+                    preview_file.name,
+                )
+            except Exception:
+                preview_drive_file = None
+    return drive_folder, drive_files, preview_drive_file
 
 
 async def download_instagram_media(request: DownloadRequest) -> DownloadResponse:
     metadata, download_dir, files = await download_instagram_media_locally(request)
     request_media_type = metadata["media_type"]
-    drive_folder, drive_files = await upload_instagram_files_to_drive(
+    preview_file = None
+    if request_media_type == "reel":
+        primary_video = find_first_file_by_type(files, "video")
+        if primary_video:
+            preview_file = generate_reel_preview_frame(Path(primary_video.filepath))
+
+    drive_folder, drive_files, preview_drive_file = await upload_instagram_files_to_drive(
         request,
         download_dir,
         files,
         request_media_type,
         subfolder_name=metadata.get("drive_subfolder_name"),
+        preview_file=preview_file,
     )
+    metadata = apply_durable_preview_urls(metadata, files, drive_files, preview_drive_file)
 
     return DownloadResponse(
         success=True,
@@ -1326,6 +1489,7 @@ async def download_instagram_media(request: DownloadRequest) -> DownloadResponse
         creator_handle=metadata["creator_handle"],
         caption=metadata["caption"],
         published_at=metadata["published_at"],
+        thumbnail_url=metadata.get("thumbnail_url"),
         extractor=metadata.get("extractor"),
         review_state=metadata.get("review_state"),
         review_reason=metadata.get("review_reason"),
