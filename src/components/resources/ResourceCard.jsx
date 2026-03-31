@@ -2,7 +2,7 @@ import React from 'react';
 import { cn, formatUiLabel } from '@/lib/utils';
 import { format } from 'date-fns';
 import { getGenericCaptureStatusLabel, isGenericCaptureActive, isGenericCaptureFailed } from '@/lib/resource-capture';
-import { useResourceImageUrl } from '@/lib/drive-images';
+import { useResourceImage } from '@/lib/drive-images';
 import {
   Youtube, MessageSquare, Newspaper, GraduationCap, FileText, Globe, FileDown,
   ExternalLink, Star, Github, CheckSquare, Archive, ArchiveRestore, Clapperboard, Trash2, FolderOpen, AlertTriangle, RefreshCw
@@ -153,7 +153,7 @@ export default function ResourceCard({
   const safeMainTopic = asText(resource.main_topic);
   const safeTags = Array.isArray(resource.tags) ? resource.tags.filter((tag) => typeof tag === 'string' && tag.trim()) : [];
   const safeThumbnail = typeof resource.thumbnail === 'string' && resource.thumbnail.trim() ? resource.thumbnail : '';
-  const displayThumbnail = useResourceImageUrl(safeThumbnail);
+  const { imageUrl: displayThumbnail, onError: handleThumbnailError } = useResourceImage(resource);
   const driveUrl = resource.drive_folder_url || resource.drive_files?.[0]?.url || '';
   const showGenericCaptureStatus = !isInstagram && (isGenericCaptureActive(resource) || isGenericCaptureFailed(resource));
   const captureStatusLabel = getGenericCaptureStatusLabel(resource);
@@ -194,7 +194,7 @@ export default function ResourceCard({
             onArchiveToggle(resource);
           }}
           className={cn(
-            'absolute right-2 top-2 z-20 inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/15 bg-black/55 text-white/80 backdrop-blur-sm transition-all duration-200 opacity-0 group-hover:opacity-100',
+            'absolute right-2 top-10 z-20 inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/15 bg-black/55 text-white/80 backdrop-blur-sm transition-all duration-200 opacity-0 group-hover:opacity-100',
             archiveLoading
               ? 'cursor-not-allowed opacity-60'
               : 'hover:bg-black/75 hover:text-white hover:scale-110'
@@ -215,7 +215,7 @@ export default function ResourceCard({
             }
           }}
           className={cn(
-            'absolute top-2 z-20 inline-flex h-7 w-7 items-center justify-center rounded-full border border-red-500/15 bg-black/55 text-red-400/80 backdrop-blur-sm transition-all duration-200 opacity-0 group-hover:opacity-100 hover:bg-red-500/20 hover:text-red-300 hover:scale-110',
+            'absolute top-10 z-20 inline-flex h-7 w-7 items-center justify-center rounded-full border border-red-500/15 bg-black/55 text-red-400/80 backdrop-blur-sm transition-all duration-200 opacity-0 group-hover:opacity-100 hover:bg-red-500/20 hover:text-red-300 hover:scale-110',
             onArchiveToggle ? 'right-11' : 'right-2'
           )}
         >
@@ -224,7 +224,7 @@ export default function ResourceCard({
       )}
       <div className="relative h-36 overflow-hidden bg-secondary/30">
         {displayThumbnail ? (
-          <img src={displayThumbnail} alt={safeTitle} className="w-full h-full object-cover" />
+          <img src={displayThumbnail} alt={safeTitle} onError={handleThumbnailError} className="w-full h-full object-cover" />
         ) : (
           <FallbackPreview title={safeTitle} mainTopic={safeMainTopic} colorClass={cfg.color} url={resource.url} />
         )}
@@ -235,7 +235,7 @@ export default function ResourceCard({
         {resource.resource_score > 0 && (
           <div className={cn(
             'absolute top-2 flex items-center gap-0.5 bg-black/60 text-amber-400 text-[10px] px-1.5 py-0.5 rounded-full font-semibold',
-            !selectMode && onArchiveToggle ? 'right-11' : 'right-2',
+            'right-2',
           )}>
             <Star className="w-2.5 h-2.5 fill-amber-400" /> {resource.resource_score}
           </div>

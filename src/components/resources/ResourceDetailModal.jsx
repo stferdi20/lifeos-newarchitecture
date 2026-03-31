@@ -6,7 +6,7 @@ import { ExternalLink, Star, Trash2, Tag, Zap, Heart, Clock, Github, Archive, Ar
 import { LifeArea, Resource, retryResourceCapture } from '@/lib/resources-api';
 import { retryInstagramDownloadForResource } from '@/lib/instagram-downloader-api';
 import { getGenericCaptureStatusLabel, isGenericCaptureActive, isGenericCaptureFailed } from '@/lib/resource-capture';
-import { useResourceImageUrl } from '@/lib/drive-images';
+import { useResourceImage } from '@/lib/drive-images';
 import ReactMarkdown from 'react-markdown';
 import { cn, formatUiLabel } from '@/lib/utils';
 import { ResponsiveModal, ResponsiveModalContent, ResponsiveModalHeader, ResponsiveModalTitle } from '@/components/ui/responsive-modal';
@@ -177,7 +177,7 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
     setRating(resolvedResource?.user_rating || 0);
   }, [resolvedResource?.area_id, resolvedResource?.is_archived, resolvedResource?.user_rating]);
 
-  const displayThumbnail = useResourceImageUrl(resolvedResource?.thumbnail || '');
+  const { imageUrl: displayThumbnail, onError: handleThumbnailError } = useResourceImage(resolvedResource || {});
   if (!resolvedResource) return null;
   resource = resolvedResource;
 
@@ -261,7 +261,7 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
 
         <div className="space-y-4 px-4 pb-4 sm:px-0 sm:pb-0">
           {displayThumbnail && (
-            <img src={displayThumbnail} alt={resource.title} className="w-full h-48 object-cover rounded-xl" />
+            <img src={displayThumbnail} alt={resource.title} onError={handleThumbnailError} className="w-full h-48 object-cover rounded-xl" />
           )}
 
           {/* Meta row */}

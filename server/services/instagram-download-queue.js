@@ -227,6 +227,17 @@ function chooseFirstInstagramImageThumbnail(...sources) {
   return '';
 }
 
+function chooseFirstInstagramDriveImage(...sources) {
+  for (const source of sources) {
+    const files = Array.isArray(source) ? source : [];
+    for (const file of files) {
+      const previewUrl = buildDriveImagePreviewUrl(file);
+      if (previewUrl) return previewUrl;
+    }
+  }
+  return '';
+}
+
 function chooseInstagramThumbnail(download = {}, current = {}, normalized = {}) {
   const resourceType = String(
     download.media_type
@@ -236,6 +247,8 @@ function chooseInstagramThumbnail(download = {}, current = {}, normalized = {}) 
   );
   const preferred = [];
   if (['instagram_carousel', 'instagram_post'].includes(resourceType)) {
+    const firstDriveImage = chooseFirstInstagramDriveImage(download.drive_files, current.drive_files);
+    if (firstDriveImage) preferred.push(firstDriveImage);
     const firstImage = chooseFirstInstagramImageThumbnail(download.media_items, current.instagram_media_items);
     if (firstImage) preferred.push(firstImage);
   }
