@@ -961,16 +961,29 @@ export async function getInstagramDownloaderStatusForUser(userId) {
   let repaired = false;
   for (const resource of instagramResources) {
     const downloadStatus = String(resource.download_status || '');
+    const downloadStatusMessage = String(resource.download_status_message || '');
+    const driveFiles = Array.isArray(resource.drive_files) ? resource.drive_files : [];
+    const resourceType = String(resource.resource_type || '');
     const needsQueueRepair = ['queued', 'downloading', 'uploading'].includes(downloadStatus);
     const needsEnrichmentRepair = ['queued', 'analyzing'].includes(String(resource.instagram_enrichment_status || ''));
     const needsThumbnailRepair = downloadStatus === 'uploaded' && !normalizeUrlString(resource.thumbnail);
-    if (!needsQueueRepair && !needsEnrichmentRepair && !needsThumbnailRepair) continue;
+    const previewRetryNeeded = (
+      downloadStatus === 'failed'
+      && /too many values to unpack \(expected 2\)/i.test(downloadStatusMessage)
+    );
+    if (!needsQueueRepair && !needsEnrichmentRepair && !needsThumbnailRepair && !previewRetryNeeded) continue;
+
+    if (previewRetryNeeded) {
+      await retryInstagramDownloadForResource(userId, resource.id).catch(() => null);
+      repaired = true;
+      continue;
+    }
 
     if (needsThumbnailRepair) {
       const thumbnail = chooseInstagramThumbnail({
         thumbnail_url: '',
         media_items: resource.instagram_media_items || [],
-        drive_files: resource.drive_files || [],
+        drive_files: driveFiles,
       }, resource, resource);
       if (thumbnail) {
         await updateCompatEntity(userId, 'Resource', resource.id, mergeInstagramResourceState(resource, {
@@ -978,6 +991,15 @@ export async function getInstagramDownloaderStatusForUser(userId) {
           downloader_updated_at: new Date().toISOString(),
         })).catch(() => null);
         repaired = true;
+      }
+      if (
+        !thumbnail
+        && resourceType === 'instagram_reel'
+        && driveFiles.length > 0
+      ) {
+        await retryInstagramDownloadForResource(userId, resource.id).catch(() => null);
+        repaired = true;
+        continue;
       }
       if (!needsQueueRepair && !needsEnrichmentRepair) continue;
     }
