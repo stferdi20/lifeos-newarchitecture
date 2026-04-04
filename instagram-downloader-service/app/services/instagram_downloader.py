@@ -1,5 +1,8 @@
+import base64
 import hashlib
+import io
 import http.cookiejar
+import logging
 import mimetypes
 import os
 import re
@@ -15,6 +18,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 import browser_cookie3
 import httpx
 import instaloader
+from PIL import Image, ImageOps, UnidentifiedImageError
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright
 from yt_dlp import YoutubeDL
@@ -38,9 +42,13 @@ DRIVE_UPLOAD_API = "https://www.googleapis.com/upload/drive/v3/files"
 FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
 DEFAULT_ROOT_FOLDER = "Life OS"
 DEFAULT_RESOURCES_FOLDER = "Resources"
+logger = logging.getLogger(__name__)
 DEFAULT_INSTAGRAM_FOLDER = "Instagram Imports"
 FASTDL_SHORTCUT_BASE = "https://f-d.app/"
 DEFAULT_MAX_TRANSCRIPT_CHARS = 60000
+THUMBNAIL_MAX_BYTES = 50 * 1024
+THUMBNAIL_MAX_DIMENSIONS = [640, 560, 480, 420, 360, 320, 280, 240]
+THUMBNAIL_QUALITY_STEPS = [80, 75, 70, 65, 60, 55, 50, 45]
 MEDIA_TYPE_FOLDER_NAMES = {
     "reel": "Reels",
     "post": "Posts",
@@ -339,6 +347,95 @@ def generate_reel_preview_frame(video_path: Path, offset_seconds: float = 1.0) -
             return preview_path
 
     return None
+
+
+def select_thumbnail_source_file(
+    files: list[DownloadedFile],
+    *,
+    preview_file: Path | None = None,
+) -> Path | None:
+    if preview_file and preview_file.exists():
+        return preview_file
+
+    for item in files or []:
+        if item.type != "image":
+            continue
+        path = Path(item.filepath)
+        if path.exists():
+            return path
+
+    return None
+
+
+def _flatten_thumbnail_frame(image: Image.Image) -> Image.Image:
+    if image.mode in {"RGBA", "LA"}:
+        background = Image.new("RGBA", image.size, (255, 255, 255, 255))
+        background.alpha_composite(image.convert("RGBA"))
+        return background.convert("RGB")
+    if image.mode == "P":
+        return image.convert("RGBA").convert("RGB")
+    if image.mode not in {"RGB", "L"}:
+        return image.convert("RGB")
+    return image
+
+
+def compress_thumbnail_bytes(source_bytes: bytes, *, max_bytes: int = THUMBNAIL_MAX_BYTES) -> bytes:
+    if not source_bytes:
+        return b""
+
+    try:
+        with Image.open(io.BytesIO(source_bytes)) as original:
+            image = ImageOps.exif_transpose(original)
+            image.load()
+    except UnidentifiedImageError:
+        return b""
+    except Exception:
+        return b""
+
+    best_result = b""
+
+    for max_dimension in THUMBNAIL_MAX_DIMENSIONS:
+        candidate = _flatten_thumbnail_frame(image.copy())
+        candidate.thumbnail((max_dimension, max_dimension), Image.LANCZOS)
+
+        for quality in THUMBNAIL_QUALITY_STEPS:
+            buffer = io.BytesIO()
+            try:
+                candidate.save(
+                    buffer,
+                    format="WEBP",
+                    quality=quality,
+                    method=6,
+                    optimize=True,
+                )
+            except Exception:
+                continue
+
+            result = buffer.getvalue()
+            if result and (not best_result or len(result) < len(best_result)):
+                best_result = result
+            if result and len(result) <= max_bytes:
+                return result
+
+    return best_result
+
+
+def build_thumbnail_upload_name(source_name: str = "thumbnail.webp") -> str:
+    stem = sanitize_filename(Path(source_name or "thumbnail.webp").stem or "thumbnail")
+    return f"{stem}.webp"
+
+
+def make_thumbnail_payload(source_bytes: bytes, source_name: str = "thumbnail.webp") -> dict[str, str]:
+    thumbnail_bytes = compress_thumbnail_bytes(source_bytes)
+    if not thumbnail_bytes:
+        return {}
+
+    return {
+        "filename": build_thumbnail_upload_name(source_name),
+        "content_type": "image/webp",
+        "data_base64": base64.b64encode(thumbnail_bytes).decode("ascii"),
+        "size_bytes": str(len(thumbnail_bytes)),
+    }
 
 
 def infer_media_type(url: str, info: dict[str, Any]) -> str:
@@ -1467,6 +1564,10 @@ async def upload_instagram_files_to_drive(
                     preview_file.name,
                 )
             except Exception:
+                logger.exception("Failed to upload Instagram preview image to Drive", extra={
+                    "preview_file": str(preview_file),
+                    "drive_folder_id": drive_folder.id,
+                })
                 preview_drive_file = None
     return drive_folder, drive_files, preview_drive_file
 

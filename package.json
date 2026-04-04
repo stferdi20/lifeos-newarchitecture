@@ -7,7 +7,7 @@
     "dev": "concurrently -k \"npm:dev:web\" \"npm:dev:api\"",
     "dev:web": "vite",
     "dev:api": "node server/dev.js",
-    "dev:instagram-downloader": "cd 'instagram-downloader-service' && python3 -m uvicorn app.main:app --reload --host 127.0.0.1 --port 9001",
+    "dev:instagram-downloader": "cd 'instagram-downloader-service' && ./.venv/bin/python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 9001",
     "build": "vite build",
     "lint": "eslint . --quiet",
     "lint:fix": "eslint . --fix",
@@ -19,6 +19,7 @@
     "migrate:import:domains": "node scripts/import-domains-to-supabase.js",
     "migrate:verify:domains": "node scripts/verify-domains-migration.js",
     "reenrich:live": "node scripts/reenrich-resources-live.js",
+    "backfill:instagram-thumbnails": "node scripts/backfill-instagram-thumbnails.js",
     "test:resources": "node --test server/services/__tests__/*.test.js",
     "typecheck": "tsc -p ./jsconfig.json",
     "preview": "vite preview"

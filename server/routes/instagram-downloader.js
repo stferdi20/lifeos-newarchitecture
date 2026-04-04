@@ -4,6 +4,7 @@ import { zValidator } from '@hono/zod-validator';
 import { requireUser } from '../lib/supabase.js';
 import { HttpError } from '../lib/http.js';
 import { getServerEnv } from '../config/env.js';
+import { uploadInstagramThumbnailToStorage } from '../services/instagram-downloader.js';
 import {
   claimNextInstagramDownloadJob,
   completeInstagramDownloadJob,
@@ -63,6 +64,7 @@ const workerCompleteSchema = z.object({
     filename: z.string().nullable().optional(),
     filepath: z.string().nullable().optional(),
     source_url: z.string().nullable().optional(),
+    thumbnail_url: z.string().nullable().optional(),
     width: z.number().nullable().optional(),
     height: z.number().nullable().optional(),
     duration_seconds: z.number().nullable().optional(),
@@ -88,6 +90,7 @@ const workerCompleteSchema = z.object({
   creator_handle: z.string().optional(),
   caption: z.string().optional(),
   published_at: z.string().optional(),
+  thumbnail_url: z.string().optional(),
   extractor: z.string().optional(),
   review_state: z.string().optional(),
   review_reason: z.string().optional(),
@@ -103,11 +106,32 @@ const workerEnrichmentSchema = z.object({
   creator_handle: z.string().optional(),
   caption: z.string().optional(),
   published_at: z.string().optional(),
+  thumbnail_url: z.string().optional(),
+  media_items: z.array(z.object({
+    index: z.number().int().optional(),
+    label: z.string().optional(),
+    type: z.string().optional(),
+    filename: z.string().nullable().optional(),
+    filepath: z.string().nullable().optional(),
+    source_url: z.string().nullable().optional(),
+    thumbnail_url: z.string().nullable().optional(),
+    width: z.number().nullable().optional(),
+    height: z.number().nullable().optional(),
+    duration_seconds: z.number().nullable().optional(),
+  })).optional(),
 });
 
 const workerDownloadStateSchema = z.object({
   owner_user_id: z.string().min(1),
   status: z.enum(['uploading']),
+});
+
+const workerThumbnailUploadSchema = z.object({
+  owner_user_id: z.string().min(1),
+  resource_id: z.string().min(1),
+  filename: z.string().min(1).optional().default('thumbnail.webp'),
+  content_type: z.string().min(1).optional().default('image/webp'),
+  data_base64: z.string().min(1),
 });
 
 const genericCaptureCompleteSchema = z.object({
@@ -217,6 +241,19 @@ instagramDownloaderRoutes.post('/worker/resources/:resourceId/download-state', z
     resource = await updateInstagramResourceUploading(body.owner_user_id, c.req.param('resourceId'));
   }
   return c.json({ success: true, resource });
+});
+
+instagramDownloaderRoutes.post('/worker/thumbnails/upload', zValidator('json', workerThumbnailUploadSchema), async (c) => {
+  assertWorkerSecret(c);
+  const body = c.req.valid('json');
+  const result = await uploadInstagramThumbnailToStorage({
+    ownerUserId: body.owner_user_id,
+    resourceId: body.resource_id,
+    filename: body.filename,
+    contentType: body.content_type,
+    dataBase64: body.data_base64,
+  });
+  return c.json({ success: true, ...result, thumbnail_url: result.thumbnail_url || result.url || '' });
 });
 
 instagramDownloaderRoutes.post('/worker/jobs/:jobId/fail', zValidator('json', workerFailSchema), async (c) => {

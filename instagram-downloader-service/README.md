@@ -15,6 +15,7 @@ Local-first Python backend for:
 - returns structured JSON for the downloaded files
 - accepts `POST /youtube-transcript` with a YouTube URL
 - inspects subtitle tracks, downloads the best subtitle file, and returns normalized transcript text
+- compresses a card-sized thumbnail preview for Instagram reels and carousels, then sends it to the backend for Supabase storage
 
 ## Files
 
@@ -34,6 +35,7 @@ pip install -r requirements.txt
 ```
 
 For Instagram reel preview images, the local worker also expects `ffmpeg` to be installed and available on your machine.
+The thumbnail compressor uses `Pillow` and targets roughly `20-50 KB` per thumbnail after resize/compression.
 
 ## Run Locally
 
@@ -143,7 +145,10 @@ curl -X POST http://127.0.0.1:9001/youtube-transcript \
 ## Notes
 
 - The actual `yt-dlp` extraction and download logic lives in `app/services/instagram_downloader.py`.
+- The worker writes thumbnails to the backend, which stores them in the public `resource-thumbnails` Supabase bucket and keeps the resulting URL in `resource.thumbnail`.
 - If you want to change where files are stored, edit `build_request_download_dir()` in `app/services/instagram_downloader.py`.
+- The temporary `downloads/instagram-*` directories are expected to disappear after a job finishes. The worker cleans them up once upload completes.
+- If you need to repair old Instagram rows, run the repo-level `npm run backfill:instagram-thumbnails` script from the main project root.
 - Your existing web app should call the current Node backend route, not this service directly. The app-facing route is `POST /api/resources/instagram-download`.
 - The main backend now uses the same worker for queued Instagram downloads and queued YouTube transcript jobs.
 - If `LIFEOS_API_BASE_URL` and `INSTAGRAM_DOWNLOADER_SHARED_SECRET` are set, the worker polls the backend queue and processes both job types automatically.

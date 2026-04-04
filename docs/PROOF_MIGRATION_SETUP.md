@@ -60,6 +60,14 @@ In the Supabase Dashboard:
 1. Open `Storage`.
 2. Create a new bucket called `uploads`.
 3. Leave the bucket name as `uploads` so it matches the repo default.
+4. Create a second bucket called `resource-thumbnails`.
+5. Make `resource-thumbnails` public so Instagram cards can render thumbnails directly.
+
+If you are setting env vars manually, also add:
+
+```bash
+SUPABASE_STORAGE_BUCKET_RESOURCE_THUMBNAILS=resource-thumbnails
+```
 
 ## 5. Create one test auth user
 

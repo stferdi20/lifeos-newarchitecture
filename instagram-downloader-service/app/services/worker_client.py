@@ -1,3 +1,4 @@
+import base64
 import asyncio
 import logging
 import os
@@ -9,12 +10,17 @@ import httpx
 
 from app.schemas.download import DownloadRequest, DownloadResponse, YouTubeTranscriptRequest
 from app.services.instagram_downloader import (
+    cleanup_download_dir,
     apply_durable_preview_urls,
+    compress_thumbnail_bytes,
+    build_thumbnail_upload_name,
     find_first_file_by_type,
     generate_reel_preview_frame,
     InstagramDownloaderError,
     download_instagram_media_locally,
     fetch_youtube_transcript,
+    normalize_whitespace,
+    select_thumbnail_source_file,
     upload_instagram_files_to_drive,
 )
 
@@ -180,6 +186,72 @@ class WorkerLoop:
         )
         response.raise_for_status()
 
+    async def upload_thumbnail(self, client: httpx.AsyncClient, claimed_job: dict, thumbnail_path: str, thumbnail_bytes: bytes):
+        job = claimed_job.get("job") or {}
+        response = await client.post(
+            f"{self.api_base_url}/instagram-downloader/worker/thumbnails/upload",
+            headers={"x-downloader-secret": self.shared_secret},
+            json={
+                "owner_user_id": job["owner_user_id"],
+                "resource_id": job["resource_id"],
+                "filename": thumbnail_path,
+                "content_type": "image/webp",
+                "data_base64": base64.b64encode(thumbnail_bytes).decode("ascii"),
+            },
+            timeout=60.0,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def build_thumbnail_upload(self, client: httpx.AsyncClient, metadata: dict, files: list, preview_file):
+        candidate_path = select_thumbnail_source_file(files, preview_file=preview_file)
+        candidate_bytes = b""
+        candidate_name = "thumbnail.webp"
+
+        if candidate_path and candidate_path.exists():
+            candidate_bytes = candidate_path.read_bytes()
+            candidate_name = build_thumbnail_upload_name(candidate_path.name)
+        else:
+            for item in metadata.get("media_items", []) or []:
+                for key in ("thumbnail_url", "source_url"):
+                    candidate_url = normalize_whitespace(item.get(key) or "")
+                    if not candidate_url:
+                        continue
+                    if candidate_url.startswith("http://") or candidate_url.startswith("https://"):
+                        try:
+                            response = await client.get(candidate_url, timeout=30.0, follow_redirects=True)
+                            if response.is_success:
+                                candidate_bytes = response.content
+                                candidate_name = build_thumbnail_upload_name(candidate_url.rsplit("/", 1)[-1] or "thumbnail.webp")
+                                break
+                        except Exception:
+                            continue
+                if candidate_bytes:
+                    break
+
+        if not candidate_bytes and normalize_whitespace(metadata.get("thumbnail_url") or ""):
+            candidate_url = normalize_whitespace(metadata.get("thumbnail_url") or "")
+            if candidate_url.startswith("http://") or candidate_url.startswith("https://"):
+                try:
+                    response = await client.get(candidate_url, timeout=30.0, follow_redirects=True)
+                    if response.is_success:
+                        candidate_bytes = response.content
+                        candidate_name = build_thumbnail_upload_name(candidate_url.rsplit("/", 1)[-1] or "thumbnail.webp")
+                except Exception:
+                    candidate_bytes = b""
+
+        if not candidate_bytes:
+            return None
+
+        compressed_bytes = compress_thumbnail_bytes(candidate_bytes)
+        if not compressed_bytes:
+            return None
+
+        return {
+            "filename": candidate_name,
+            "bytes": compressed_bytes,
+        }
+
     async def process_claimed_job(self, client: httpx.AsyncClient, claimed_job: dict):
         job = claimed_job.get("job") or {}
         google_drive = claimed_job.get("google_drive") or {}
@@ -202,64 +274,81 @@ class WorkerLoop:
                 else:
                     await self.fail_job(client, job["id"], transcript.error or "YouTube transcript extraction failed.")
             else:
-                request = DownloadRequest(
-                    url=job["source_url"],
-                    google_drive=google_drive,
-                    include_analysis=job.get("include_analysis", True),
-                    download_base_dir=(claimed_job.get("settings") or {}).get("download_base_dir"),
-                )
-                metadata, download_dir, files = await download_instagram_media_locally(request)
-                enrichment_task = None
-                if job.get("include_analysis", True):
-                    enrichment_task = asyncio.create_task(
-                        self.enrich_instagram_resource(client, claimed_job, metadata)
+                download_dir = None
+                try:
+                    request = DownloadRequest(
+                        url=job["source_url"],
+                        google_drive=google_drive,
+                        include_analysis=job.get("include_analysis", True),
+                        download_base_dir=(claimed_job.get("settings") or {}).get("download_base_dir"),
                     )
+                    metadata, download_dir, files = await download_instagram_media_locally(request)
+                    enrichment_task = None
+                    if job.get("include_analysis", True):
+                        enrichment_task = asyncio.create_task(
+                            self.enrich_instagram_resource(client, claimed_job, metadata)
+                        )
+                    await self.update_instagram_download_state(client, claimed_job, "uploading")
+                    preview_file = None
+                    if metadata.get("media_type") == "reel":
+                        primary_video = find_first_file_by_type(files, "video")
+                        if primary_video:
+                            preview_file = generate_reel_preview_frame(Path(primary_video.filepath))
 
-                await self.update_instagram_download_state(client, claimed_job, "uploading")
-                preview_file = None
-                if metadata.get("media_type") == "reel":
-                    primary_video = find_first_file_by_type(files, "video")
-                    if primary_video:
-                        preview_file = generate_reel_preview_frame(Path(primary_video.filepath))
+                    drive_folder, drive_files, preview_drive_file = await upload_instagram_files_to_drive(
+                        request,
+                        download_dir,
+                        files,
+                        metadata["media_type"],
+                        subfolder_name=metadata.get("drive_subfolder_name"),
+                        preview_file=preview_file,
+                    )
+                    metadata = apply_durable_preview_urls(metadata, files, drive_files, preview_drive_file)
 
-                drive_folder, drive_files, preview_drive_file = await upload_instagram_files_to_drive(
-                    request,
-                    download_dir,
-                    files,
-                    metadata["media_type"],
-                    subfolder_name=metadata.get("drive_subfolder_name"),
-                    preview_file=preview_file,
-                )
-                metadata = apply_durable_preview_urls(metadata, files, drive_files, preview_drive_file)
+                    thumbnail_upload = await self.build_thumbnail_upload(client, metadata, files, preview_file)
+                    if thumbnail_upload:
+                        try:
+                            uploaded_thumbnail = await self.upload_thumbnail(
+                                client,
+                                claimed_job,
+                                thumbnail_upload["filename"],
+                                thumbnail_upload["bytes"],
+                            )
+                            metadata["thumbnail_url"] = uploaded_thumbnail.get("thumbnail_url") or metadata.get("thumbnail_url") or ""
+                        except Exception:
+                            logger.exception("Failed to upload compressed Instagram thumbnail", extra={"job_id": job.get("id"), "job_type": job_type})
 
-                enrichment_result = None
-                if enrichment_task:
-                    enrichment_result = await asyncio.gather(enrichment_task, return_exceptions=True)
-                    if enrichment_result and isinstance(enrichment_result[0], Exception):
-                        # The backend route persists enrichment failure state. Keep download completion independent.
-                        pass
+                    enrichment_result = None
+                    if enrichment_task:
+                        enrichment_result = await asyncio.gather(enrichment_task, return_exceptions=True)
+                        if enrichment_result and isinstance(enrichment_result[0], Exception):
+                            # The backend route persists enrichment failure state. Keep download completion independent.
+                            pass
 
-                download = DownloadResponse(
-                    success=True,
-                    input_url=job["source_url"],
-                    media_type=metadata["media_type"],
-                    media_type_label=metadata["media_type_label"],
-                    download_dir=str(download_dir),
-                    files=files,
-                    media_items=metadata.get("media_items", []),
-                    drive_folder=drive_folder,
-                    drive_files=drive_files,
-                    normalized_title=metadata["normalized_title"],
-                    creator_handle=metadata["creator_handle"],
-                    caption=metadata["caption"],
-                    published_at=metadata["published_at"],
-                    thumbnail_url=metadata.get("thumbnail_url"),
-                    extractor=metadata.get("extractor"),
-                    review_state=metadata.get("review_state"),
-                    review_reason=metadata.get("review_reason"),
-                    error=None,
-                )
-                await self.complete_job(client, job["id"], download)
+                    download = DownloadResponse(
+                        success=True,
+                        input_url=job["source_url"],
+                        media_type=metadata["media_type"],
+                        media_type_label=metadata["media_type_label"],
+                        download_dir=str(download_dir),
+                        files=files,
+                        media_items=metadata.get("media_items", []),
+                        drive_folder=drive_folder,
+                        drive_files=drive_files,
+                        normalized_title=metadata["normalized_title"],
+                        creator_handle=metadata["creator_handle"],
+                        caption=metadata["caption"],
+                        published_at=metadata["published_at"],
+                        thumbnail_url=metadata.get("thumbnail_url"),
+                        extractor=metadata.get("extractor"),
+                        review_state=metadata.get("review_state"),
+                        review_reason=metadata.get("review_reason"),
+                        error=None,
+                    )
+                    await self.complete_job(client, job["id"], download)
+                finally:
+                    if download_dir:
+                        cleanup_download_dir(download_dir)
         except InstagramDownloaderError as error:
             logger.exception("Worker job failed with InstagramDownloaderError", extra={"job_id": job.get("id"), "job_type": job_type})
             if job_type == RESOURCE_CAPTURE_JOB_TYPE:

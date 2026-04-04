@@ -1,5 +1,7 @@
+import { randomUUID } from 'node:crypto';
 import { getServerEnv } from '../config/env.js';
 import { HttpError } from '../lib/http.js';
+import { getServiceRoleClient } from '../lib/supabase.js';
 import { getGoogleAccessToken } from './google.js';
 
 function buildDownloaderHeaders() {
@@ -33,6 +35,7 @@ function toPublicDownloadResult(payload = {}) {
     creator_handle: payload.creator_handle || '',
     caption: payload.caption || '',
     published_at: payload.published_at || '',
+    thumbnail_url: payload.thumbnail_url || '',
     error: payload.error || null,
   };
 }
@@ -47,6 +50,76 @@ function toPublicYouTubeTranscriptResult(payload = {}) {
     error: payload.error || null,
     transcript_source: payload.transcript_source || 'worker_yt_dlp',
     selected_mode: payload.selected_mode || '',
+  };
+}
+
+function normalizeStorageSegment(value = '', fallback = 'thumbnail') {
+  const normalized = String(value || '')
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+  return normalized || fallback;
+}
+
+export function buildInstagramThumbnailStoragePath({
+  ownerUserId,
+  resourceId,
+  filename = 'thumbnail.webp',
+} = {}) {
+  const ownerSegment = normalizeStorageSegment(ownerUserId, 'user');
+  const resourceSegment = normalizeStorageSegment(resourceId, 'resource');
+  const fileName = normalizeStorageSegment(filename, 'thumbnail.webp');
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const fileStem = fileName.replace(/\.[^.]+$/, '') || 'thumbnail';
+  return `${ownerSegment}/${resourceSegment}/${timestamp}-${randomUUID().slice(0, 8)}-${fileStem}.webp`;
+}
+
+export async function uploadInstagramThumbnailToStorage({
+  ownerUserId,
+  resourceId,
+  filename,
+  contentType = 'image/webp',
+  dataBase64,
+  storageClient,
+  bucketName,
+} = {}) {
+  if (!ownerUserId || !resourceId) {
+    throw new HttpError(400, 'Thumbnail upload requires owner and resource identifiers.');
+  }
+
+  const thumbnailData = Buffer.from(String(dataBase64 || ''), 'base64');
+  if (!thumbnailData.length) {
+    throw new HttpError(400, 'Thumbnail upload body was empty.');
+  }
+
+  const env = getServerEnv();
+  const bucket = bucketName || env.SUPABASE_STORAGE_BUCKET_RESOURCE_THUMBNAILS || 'resource-thumbnails';
+  const admin = storageClient ? { storage: storageClient } : getServiceRoleClient();
+  const path = buildInstagramThumbnailStoragePath({
+    ownerUserId,
+    resourceId,
+    filename,
+  });
+
+  const upload = await admin.storage
+    .from(bucket)
+    .upload(path, thumbnailData, {
+      contentType,
+      upsert: true,
+      cacheControl: '31536000',
+    });
+
+  if (upload.error) {
+    throw new HttpError(500, upload.error.message);
+  }
+
+  const publicUrl = admin.storage.from(bucket).getPublicUrl(path)?.data?.publicUrl || '';
+  return {
+    bucket,
+    path,
+    url: publicUrl || '',
+    thumbnail_url: publicUrl || '',
   };
 }
 

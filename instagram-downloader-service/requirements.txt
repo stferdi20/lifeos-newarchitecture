@@ -7,3 +7,4 @@ httpx==0.28.1
 pydantic==2.11.3
 gallery-dl==1.31.10
 playwright==1.58.0
+Pillow==11.1.0

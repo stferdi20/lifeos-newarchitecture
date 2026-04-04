@@ -32,6 +32,7 @@ class InstagramMediaItem(BaseModel):
     filename: str | None = None
     filepath: str | None = None
     source_url: str | None = None
+    thumbnail_url: str | None = None
     width: int | None = None
     height: int | None = None
     duration_seconds: float | None = None
@@ -65,6 +66,7 @@ class DownloadResponse(BaseModel):
     creator_handle: str | None = None
     caption: str | None = None
     published_at: str | None = None
+    thumbnail_url: str | None = None
     extractor: str | None = None
     review_state: str | None = None
     review_reason: str | None = None

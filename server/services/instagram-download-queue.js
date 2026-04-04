@@ -238,7 +238,7 @@ function chooseFirstInstagramDriveImage(...sources) {
   return '';
 }
 
-function chooseInstagramThumbnail(download = {}, current = {}, normalized = {}) {
+export function chooseInstagramThumbnail(download = {}, current = {}, normalized = {}) {
   const resourceType = String(
     download.media_type
     || normalized.resource_type
@@ -1007,7 +1007,11 @@ export async function getInstagramDownloaderStatusForUser(userId) {
     const resourceType = String(resource.resource_type || '');
     const needsQueueRepair = ['queued', 'downloading', 'uploading'].includes(downloadStatus);
     const needsEnrichmentRepair = ['queued', 'analyzing'].includes(String(resource.instagram_enrichment_status || ''));
-    const needsThumbnailRepair = downloadStatus === 'uploaded' && !normalizeUrlString(resource.thumbnail);
+    const thumbnailValue = normalizeUrlString(resource.thumbnail);
+    const needsThumbnailRepair = (
+      ['', 'uploaded', 'downloaded', 'complete', 'completed'].includes(downloadStatus)
+      && (!thumbnailValue || /drive\.google|googleusercontent/i.test(thumbnailValue))
+    );
     const previewRetryNeeded = (
       downloadStatus === 'failed'
       && /too many values to unpack \(expected 2\)/i.test(downloadStatusMessage)

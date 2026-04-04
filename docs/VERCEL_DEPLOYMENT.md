@@ -13,8 +13,9 @@ Make sure these are ready first:
 1. Your Supabase project is working.
 2. Your SQL migrations have been run.
 3. Your `uploads` bucket exists.
-4. Your Google OAuth app exists.
-5. Your OpenRouter key is working.
+4. Your `resource-thumbnails` bucket exists.
+5. Your Google OAuth app exists.
+6. Your OpenRouter key is working.
 
 ## Vercel Env Vars
 
@@ -29,6 +30,7 @@ VITE_SUPABASE_PUBLISHABLE_KEY=
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
 SUPABASE_STORAGE_BUCKET_UPLOADS=uploads
+SUPABASE_STORAGE_BUCKET_RESOURCE_THUMBNAILS=resource-thumbnails
 APP_ORIGIN=
 
 OPENROUTER_API_KEY=
@@ -140,5 +142,6 @@ After deploy, check these in order:
 - `401` or empty data: check `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
 - Google connect fails: check `APP_ORIGIN` and `GOOGLE_OAUTH_REDIRECT_URI` in both Vercel and Google Cloud
 - uploads fail: make sure the `uploads` bucket exists
+- Instagram thumbnails fail: make sure the `resource-thumbnails` bucket exists and `SUPABASE_STORAGE_BUCKET_RESOURCE_THUMBNAILS` matches it
 - AI fails: check `OPENROUTER_API_KEY` first, then `OPENROUTER_MODEL_CHEAP` and `OPENROUTER_MODEL_STANDARD`; if fallback is expected, also check `GOOGLE_GEMINI_API_KEY`
 - finance or TCG lookup fails: check Vercel function logs for upstream timeout or provider outage
