@@ -13,6 +13,7 @@ const DEFAULT_TOP_LIMIT = 4;
 
 const CATEGORY_DEFAULTS = {
   ai: 'artificial intelligence',
+  ai_research: 'artificial intelligence research',
   tech: 'technology',
   startups: 'startup funding',
   crypto: 'cryptocurrency blockchain',
@@ -21,13 +22,15 @@ const CATEGORY_DEFAULTS = {
 
 const CATEGORY_PRIORITY = {
   ai: 1,
-  tech: 2,
-  startups: 3,
-  crypto: 4,
-  general: 5,
+  ai_research: 2,
+  tech: 3,
+  startups: 4,
+  crypto: 5,
+  general: 6,
 };
 
 const CATEGORY_RULES = [
+  { category: 'ai_research', keywords: ['research', 'paper', 'papers', 'benchmark', 'benchmarks', 'dataset', 'datasets', 'evaluation', 'evaluations', 'preprint', 'arxiv', 'alignment', 'reasoning', 'training', 'inference', 'google research', 'deepmind', 'bair', 'hugging face', 'open model'] },
   { category: 'ai', keywords: ['ai', 'artificial intelligence', 'machine learning', 'llm', 'anthropic', 'openai', 'chatgpt', 'claude', 'copilot'] },
   { category: 'crypto', keywords: ['crypto', 'bitcoin', 'ethereum', 'blockchain', 'token', 'web3', 'solana'] },
   { category: 'startups', keywords: ['startup', 'startups', 'funding', 'venture capital', 'seed', 'series a', 'series b', 'acquisition'] },
@@ -36,6 +39,7 @@ const CATEGORY_RULES = [
 
 const GENERIC_TREND_TAGS = new Set([
   'ai',
+  'ai research',
   'news',
   'tech',
   'technology',
@@ -46,6 +50,13 @@ const GENERIC_TREND_TAGS = new Set([
   'blockchain',
   'artificial intelligence',
   'machine learning',
+  'research',
+  'paper',
+  'papers',
+  'study',
+  'studies',
+  'models',
+  'model',
 ]);
 
 const STOPWORDS = new Set([
@@ -99,6 +110,57 @@ const FEED_SOURCES = {
       category: 'ai',
       priority: 8,
     },
+    {
+      id: 'mit-ai',
+      name: 'MIT Technology Review',
+      url: 'https://www.technologyreview.com/topic/artificial-intelligence/feed/',
+      category: 'ai',
+      priority: 9,
+    },
+  ],
+  ai_research: [
+    {
+      id: 'bair-blog',
+      name: 'BAIR Blog',
+      url: 'https://bair.berkeley.edu/blog/feed.xml',
+      category: 'ai_research',
+      priority: 10,
+    },
+    {
+      id: 'google-research',
+      name: 'Google Research',
+      url: 'https://research.google/blog/rss/',
+      category: 'ai_research',
+      priority: 10,
+    },
+    {
+      id: 'deepmind-blog',
+      name: 'Google DeepMind',
+      url: 'https://deepmind.google/blog/rss.xml',
+      category: 'ai_research',
+      priority: 9,
+    },
+    {
+      id: 'openai-news',
+      name: 'OpenAI',
+      url: 'https://openai.com/news/rss.xml',
+      category: 'ai_research',
+      priority: 8,
+    },
+    {
+      id: 'google-ai-blog',
+      name: 'Google AI Blog',
+      url: 'https://blog.google/technology/ai/rss/',
+      category: 'ai_research',
+      priority: 8,
+    },
+    {
+      id: 'huggingface-blog',
+      name: 'Hugging Face',
+      url: 'https://huggingface.co/blog/feed.xml',
+      category: 'ai_research',
+      priority: 7,
+    },
   ],
   tech: [
     {
@@ -121,6 +183,13 @@ const FEED_SOURCES = {
       url: 'https://thenextweb.com/feed',
       category: 'tech',
       priority: 7,
+    },
+    {
+      id: 'techmeme',
+      name: 'Techmeme',
+      url: 'https://www.techmeme.com/feed.xml',
+      category: 'tech',
+      priority: 10,
     },
   ],
   startups: [
@@ -145,6 +214,13 @@ const FEED_SOURCES = {
       category: 'startups',
       priority: 8,
     },
+    {
+      id: 'strictlyvc',
+      name: 'StrictlyVC',
+      url: 'https://www.strictlyvc.com/feed/',
+      category: 'startups',
+      priority: 9,
+    },
   ],
   crypto: [
     {
@@ -155,11 +231,18 @@ const FEED_SOURCES = {
       priority: 10,
     },
     {
+      id: 'the-block',
+      name: 'The Block',
+      url: 'https://www.theblock.co/rss.xml',
+      category: 'crypto',
+      priority: 10,
+    },
+    {
       id: 'cointelegraph',
       name: 'Cointelegraph',
       url: 'https://cointelegraph.com/rss',
       category: 'crypto',
-      priority: 9,
+      priority: 7,
     },
   ],
 };
@@ -366,6 +449,9 @@ function jaccardSimilarity(left = '', right = '') {
 
 function inferCategory(text = '', fallback = 'general') {
   const haystack = String(text || '').toLowerCase();
+  if (fallback === 'ai_research') {
+    return 'ai_research';
+  }
   for (const rule of CATEGORY_RULES) {
     if (rule.keywords.some((keyword) => haystack.includes(keyword))) {
       return rule.category;
@@ -383,6 +469,49 @@ function buildFallbackTags(article) {
     .filter((token) => !GENERIC_TREND_TAGS.has(token) && !STOPWORDS.has(token))
     .slice(0, 3);
   return tokens;
+}
+
+export function diversifyArticles(articles = [], limit = DEFAULT_LIMIT) {
+  const grouped = new Map();
+  const categoryOrder = ['ai', 'ai_research', 'tech', 'startups', 'crypto', 'general'];
+
+  for (const article of articles) {
+    const key = article.category || 'general';
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(article);
+  }
+
+  const result = [];
+  const perCategoryCap = Math.max(2, Math.ceil(limit / 2));
+  const usage = new Map();
+
+  while (result.length < limit) {
+    let addedThisRound = false;
+
+    for (const category of categoryOrder) {
+      const items = grouped.get(category) || [];
+      if (!items.length) continue;
+      const used = usage.get(category) || 0;
+      if (used >= perCategoryCap) continue;
+      result.push(items.shift());
+      usage.set(category, used + 1);
+      addedThisRound = true;
+      if (result.length >= limit) break;
+    }
+
+    if (!addedThisRound) break;
+  }
+
+  if (result.length < limit) {
+    const remainder = Array.from(grouped.values()).flat();
+    remainder.sort((left, right) => right.score - left.score);
+    for (const article of remainder) {
+      if (result.length >= limit) break;
+      if (!result.includes(article)) result.push(article);
+    }
+  }
+
+  return result.slice(0, limit);
 }
 
 function normalizeTags(node, article) {
@@ -646,7 +775,9 @@ async function gatherNewsArticles({ category = 'general', query = '', limit = DE
     droppedAggregate[key] += count;
   });
 
-  const sliced = deduped.articles.slice(0, limit);
+  const sliced = requestedCategory === 'general'
+    ? diversifyArticles(deduped.articles, limit)
+    : deduped.articles.slice(0, limit);
   const enriched = await summarizeMissingArticles(userId, sliced);
   const sourceCount = new Set(enriched.map((article) => article.source_name)).size;
   const partial = failures.length > 0;
@@ -723,6 +854,11 @@ export function buildTrendsFromArticles(articles = [], limit = 6) {
   }
 
   return Array.from(trendMap.values())
+    .filter((entry) => {
+      const category = pickTopCategory(entry.categoryCounts);
+      if (category !== 'ai_research') return true;
+      return Object.keys(entry.sourceBreakdown).length >= 2 || entry.articles.length >= 3;
+    })
     .sort((left, right) => {
       if (right.articles.length !== left.articles.length) return right.articles.length - left.articles.length;
       return right.recencyScore - left.recencyScore;

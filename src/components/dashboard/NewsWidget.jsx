@@ -8,6 +8,7 @@ import { cn, formatUiLabel } from '@/lib/utils';
 
 const catColors = {
   ai: 'text-violet-400 bg-violet-500/10',
+  ai_research: 'text-cyan-300 bg-cyan-500/10',
   tech: 'text-blue-400 bg-blue-500/10',
   startups: 'text-emerald-400 bg-emerald-500/10',
   crypto: 'text-amber-400 bg-amber-500/10',

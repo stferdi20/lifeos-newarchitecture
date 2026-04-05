@@ -88,8 +88,10 @@ AI News now uses deterministic RSS/news feeds as the source of truth instead of 
 - `/api/news` returns validated real articles with `title`, `summary`, `url`, `source_name`, `image_url`, `published_at`, `category`, and `is_ai_summary`
 - `/api/news/top` powers the dashboard widget with the same normalized article contract
 - `/api/trends` now builds trend cards from the same retrieved article pool
+- categories now include `ai`, `ai_research`, `tech`, `startups`, `crypto`, and `general`
 - invalid URLs, missing publish dates, stale items, and duplicate articles are dropped before anything reaches the UI
 - existing AI providers are used only as an optional summary fallback when a real article arrives without a usable summary
+- research-heavy coverage now has its own `AI Research` category backed by research/lab-style feeds
 
 No extra news-provider API key is required for this first pass because the service reads public source feeds directly.
 

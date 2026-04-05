@@ -1,13 +1,14 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { formatDistanceToNow } from 'date-fns';
-import { Newspaper, RefreshCw, Cpu, Rocket, Bitcoin, Globe } from 'lucide-react';
+import { Newspaper, RefreshCw, Cpu, Rocket, Bitcoin, Globe, Microscope } from 'lucide-react';
 import { fetchNews as fetchNewsApi } from '@/lib/news-api';
 import { cn, formatUiLabel } from '@/lib/utils';
 import { PageHeader } from '@/components/layout/page-header';
 
 const CATEGORIES = [
-  { key: 'ai', label: 'AI & ML', icon: Cpu, query: 'artificial intelligence' },
+  { key: 'ai', label: 'AI News', icon: Cpu, query: 'artificial intelligence' },
+  { key: 'ai_research', label: 'AI Research', icon: Microscope, query: 'artificial intelligence research' },
   { key: 'tech', label: 'Tech', icon: Globe, query: 'technology' },
   { key: 'startups', label: 'Startups', icon: Rocket, query: 'startup funding' },
   { key: 'crypto', label: 'Crypto & Web3', icon: Bitcoin, query: 'cryptocurrency blockchain' },
@@ -15,6 +16,7 @@ const CATEGORIES = [
 
 const catColors = {
   ai: 'text-violet-400 bg-violet-500/10 border-violet-500/20',
+  ai_research: 'text-cyan-300 bg-cyan-500/10 border-cyan-500/20',
   tech: 'text-blue-400 bg-blue-500/10 border-blue-500/20',
   startups: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
   crypto: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
@@ -66,7 +68,7 @@ export default function News() {
       <PageHeader
         icon={Newspaper}
         title="AI News Aggregator"
-        description="Stay informed. AI-curated news feed."
+        description="Source-backed AI, research, tech, startup, and crypto coverage."
         className="mb-6"
         actions={(
           <button
