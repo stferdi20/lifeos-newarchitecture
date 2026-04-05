@@ -18,6 +18,7 @@ import {
   retryResourceCapture,
 } from '@/lib/resources-api';
 import { retryInstagramDownloadForResource } from '@/lib/instagram-downloader-api';
+import { retryYouTubeTranscriptForResource } from '@/lib/youtube-transcript-api';
 import {
   getResourceProfileSnapshot,
   isResourceProfilingEnabled,
@@ -714,14 +715,22 @@ export default function Resources() {
   const retryResourceMutation = useMutation({
     mutationFn: async (targetResource) => {
       const isInstagram = ['instagram_reel', 'instagram_carousel', 'instagram_post'].includes(targetResource?.resource_type);
+      const isYouTube = targetResource?.resource_type === 'youtube';
       if (isInstagram) {
         return retryInstagramDownloadForResource(targetResource.id);
+      }
+      if (isYouTube) {
+        return retryYouTubeTranscriptForResource(targetResource.id);
       }
       return retryResourceCapture(targetResource.id);
     },
     onSuccess: (_, targetResource) => {
       invalidateResourceQueries();
-      queryClient.invalidateQueries({ queryKey: ['instagram-downloader-status'] });
+      if (targetResource?.resource_type === 'youtube') {
+        queryClient.invalidateQueries({ queryKey: ['youtube-transcript-status'] });
+      } else {
+        queryClient.invalidateQueries({ queryKey: ['instagram-downloader-status'] });
+      }
       queryClient.invalidateQueries({ queryKey: ['resource-detail', targetResource?.id] });
       toast.success('Retry queued.');
     },

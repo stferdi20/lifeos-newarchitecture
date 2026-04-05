@@ -84,7 +84,7 @@ These integrations are already proxied through your backend, so the browser stil
 
 ## YouTube Transcript Note
 
-YouTube now follows the same queue-backed worker pattern as Instagram.
+YouTube now follows its own queue-backed worker pattern and settings surface.
 
 Production order:
 
@@ -99,6 +99,7 @@ Important consequence:
 - Vercel does not need a public `yt-dlp` binary for this pattern
 - `INSTAGRAM_DOWNLOADER_BASE_URL` is only needed if you want direct backend-to-worker calls instead of the queue-backed worker flow
 - queue-backed YouTube backfill is still created even when direct worker calls are unavailable, so transcript recovery can resume later when the worker comes back online
+- the web app exposes YouTube transcript preferences and queue health in a separate Settings card, not inside the Instagram downloader panel
 
 ## Google OAuth Setup
 

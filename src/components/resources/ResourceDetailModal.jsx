@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ExternalLink, Star, Trash2, Tag, Zap, Heart, Clock, Github, Archive, ArchiveRestore, Lightbulb, CheckCircle2, Quote, Users, BookOpen, MessageSquareText, ArrowUpCircle, MessagesSquare, Clapperboard, Download, FolderOpen, RefreshCw, AlertTriangle, GraduationCap, FileText } from 'lucide-react';
 import { LifeArea, Resource, retryResourceCapture } from '@/lib/resources-api';
 import { retryInstagramDownloadForResource } from '@/lib/instagram-downloader-api';
+import { retryYouTubeTranscriptForResource } from '@/lib/youtube-transcript-api';
 import { getGenericCaptureStatusLabel, isGenericCaptureActive, isGenericCaptureFailed } from '@/lib/resource-capture';
 import { useResourceImage } from '@/lib/drive-images';
 import ReactMarkdown from 'react-markdown';
@@ -161,6 +162,15 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
     },
   });
 
+  const retryYouTubeMutation = useMutation({
+    mutationFn: () => retryYouTubeTranscriptForResource(resource.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['resources'] });
+      queryClient.invalidateQueries({ queryKey: ['youtube-transcript-status'] });
+      queryClient.invalidateQueries({ queryKey: ['resource-detail', resource.id] });
+    },
+  });
+
   const retryCaptureMutation = useMutation({
     mutationFn: () => retryResourceCapture(resource.id),
     onSuccess: () => {
@@ -204,9 +214,13 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
   const showInstagramEnrichmentProgress = isInstagram && isInstagramEnrichmentActive(resource) && !resource.summary;
   const showGenericCaptureStatus = !isInstagram && (isGenericCaptureActive(resource) || isGenericCaptureFailed(resource));
   const genericCaptureStatusText = getGenericCaptureStatusLabel(resource);
+  const showYouTubeRetryAction = isYouTube && ['queued', 'processing', 'error', 'failed', 'no_subtitles', 'subtitle_download_empty', 'subtitle_parse_empty', 'worker_unavailable', 'unauthorized'].includes(String(resource.youtube_transcript_status || ''));
   const showRetryAction = (isInstagram && (resource.download_status !== 'uploaded' || !(resource.drive_files?.length || resource.drive_folder_url)))
+    || showYouTubeRetryAction
     || showGenericCaptureStatus;
-  const retryActionPending = isInstagram ? retryInstagramMutation.isPending : retryCaptureMutation.isPending;
+  const retryActionPending = isInstagram
+    ? retryInstagramMutation.isPending
+    : (isYouTube ? retryYouTubeMutation.isPending : retryCaptureMutation.isPending);
   const instagramMediaTypeLabel = resource.instagram_media_type_label
     || (resource.resource_type === 'instagram_reel' ? 'Reel' : resource.resource_type === 'instagram_carousel' ? 'Carousel' : 'Post');
   const derivedSubreddit = (() => {
@@ -375,6 +389,10 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
                     onClick={() => {
                       if (isInstagram) {
                         retryInstagramMutation.mutate();
+                        return;
+                      }
+                      if (isYouTube) {
+                        retryYouTubeMutation.mutate();
                         return;
                       }
                       retryCaptureMutation.mutate();
@@ -635,6 +653,19 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
             <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3">
               <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-amber-300">Transcript Diagnostic</p>
               <p className="text-sm leading-relaxed text-amber-100">{resource.youtube_transcript_error}</p>
+              {showYouTubeRetryAction && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="mt-3 h-8 gap-1 text-xs border-amber-300/30"
+                  onClick={() => retryYouTubeMutation.mutate()}
+                  disabled={retryYouTubeMutation.isPending}
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${retryYouTubeMutation.isPending ? 'animate-spin' : ''}`} />
+                  Retry transcript
+                </Button>
+              )}
             </div>
           )}
 

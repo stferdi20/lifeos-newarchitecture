@@ -8,7 +8,6 @@ import { getGoogleAccessToken } from './google.js';
 import { requestInstagramDownload } from './instagram-downloader.js';
 import {
   normalizeYouTubeTranscriptResult,
-  shouldQueueYouTubeTranscriptBackfill,
   YOUTUBE_TRANSCRIPT_JOB_TYPE,
 } from './youtube-transcripts.js';
 
@@ -300,18 +299,6 @@ function chooseInstagramDisplayTitle({
   return metadataTitle || analysisTitle || current.title || fallback;
 }
 
-function buildQueuedTranscriptSummary() {
-  return 'Queued for YouTube transcript enrichment. It will upgrade automatically when your local downloader worker is online.';
-}
-
-function buildProcessingTranscriptSummary() {
-  return 'YouTube transcript is being fetched by your local downloader worker.';
-}
-
-function buildFailedTranscriptSummary(message = '') {
-  return message ? `YouTube transcript enrichment failed: ${message}` : 'YouTube transcript enrichment failed.';
-}
-
 function getJobType(job = {}) {
   return job?.payload?.job_type || INSTAGRAM_JOB_TYPE;
 }
@@ -559,7 +546,7 @@ async function recoverStaleInstagramProcessingJobs() {
   const workersById = new Map((workersRes.data || []).map((worker) => [worker.worker_id, worker]));
   const now = new Date().toISOString();
 
-  for (const row of jobsRes.data || []) {
+  for (const row of (jobsRes.data || []).filter((item) => (item.payload?.job_type || INSTAGRAM_JOB_TYPE) !== YOUTUBE_TRANSCRIPT_JOB_TYPE)) {
     const worker = row.worker_id ? workersById.get(row.worker_id) : null;
     const workerHeartbeatStale = !worker || isTimestampOlderThan(worker.last_heartbeat_at, recoveryThresholdMs);
     const jobStartedTooLongAgo = isTimestampOlderThan(row.started_at || row.updated_at || row.created_at, recoveryThresholdMs);
@@ -589,18 +576,6 @@ async function recoverStaleInstagramProcessingJobs() {
   }
 }
 
-export async function updateYouTubeTranscriptQueued(userId, resourceId, jobId) {
-  return updateCompatEntity(userId, 'Resource', resourceId, {
-    youtube_transcript_status: 'queued',
-    youtube_transcript_source: 'worker_yt_dlp',
-    youtube_transcript_error: 'Waiting for your local downloader worker to fetch subtitles.',
-    summary: buildQueuedTranscriptSummary(),
-    downloader_job_id: jobId,
-    downloader_mode: 'queue',
-    downloader_updated_at: new Date().toISOString(),
-  });
-}
-
 export async function updateInstagramResourceProcessing(userId, resourceId, workerId = '') {
   const current = await getCompatEntity(userId, 'Resource', resourceId);
   return updateCompatEntity(userId, 'Resource', resourceId, mergeInstagramResourceState(current, {
@@ -628,17 +603,6 @@ export async function updateInstagramResourceUploading(userId, resourceId) {
   }));
 }
 
-export async function updateYouTubeTranscriptProcessing(userId, resourceId, workerId = '') {
-  return updateCompatEntity(userId, 'Resource', resourceId, {
-    youtube_transcript_status: 'processing',
-    youtube_transcript_source: 'worker_yt_dlp',
-    youtube_transcript_error: '',
-    summary: buildProcessingTranscriptSummary(),
-    downloader_worker_id: workerId,
-    downloader_updated_at: new Date().toISOString(),
-  });
-}
-
 export async function updateInstagramResourceFailed(userId, resourceId, errorMessage) {
   const current = await getCompatEntity(userId, 'Resource', resourceId);
   const failureStatus = getInstagramFailureStatus(errorMessage);
@@ -650,16 +614,6 @@ export async function updateInstagramResourceFailed(userId, resourceId, errorMes
     instagram_review_reason: failureStatus === 'blocked' ? (errorMessage || '') : '',
     downloader_updated_at: new Date().toISOString(),
   }));
-}
-
-export async function updateYouTubeTranscriptFailed(userId, resourceId, errorMessage) {
-  return updateCompatEntity(userId, 'Resource', resourceId, {
-    youtube_transcript_status: 'error',
-    youtube_transcript_source: 'worker_yt_dlp',
-    youtube_transcript_error: errorMessage || 'YouTube transcript enrichment failed.',
-    summary: buildFailedTranscriptSummary(errorMessage),
-    downloader_updated_at: new Date().toISOString(),
-  });
 }
 
 async function buildInstagramEnrichmentPayload(userId, sourceUrl, current = {}, download = {}) {
@@ -842,54 +796,32 @@ export async function createYouTubeTranscriptJob(userId, {
   resourceId,
   url,
 }) {
-  return createInstagramDownloadJob(userId, {
+  const module = await import('./youtube-transcript-queue.js');
+  return module.createYouTubeTranscriptJob(userId, {
     resourceId,
     url,
-    driveFolderId: '',
-    projectId: '',
-    includeAnalysis: true,
-    jobType: YOUTUBE_TRANSCRIPT_JOB_TYPE,
   });
-}
-
-async function findExistingYouTubeTranscriptJob(userId, resourceId) {
-  const result = await getAdmin()
-    .from('instagram_download_jobs')
-    .select('*')
-    .eq('owner_user_id', userId)
-    .eq('resource_id', resourceId)
-    .order('created_at', { ascending: false })
-    .limit(20);
-
-  if (result.error) throw new HttpError(500, result.error.message);
-  return (result.data || [])
-    .map(normalizeJob)
-    .find((job) => job.job_type === YOUTUBE_TRANSCRIPT_JOB_TYPE && ['queued', 'processing'].includes(job.status)) || null;
 }
 
 export async function maybeQueueYouTubeTranscriptJobForResource(userId, resource = {}) {
-  if (!userId) return resource;
-  if (!shouldQueueYouTubeTranscriptBackfill(resource)) return resource;
-
-  const existingJob = await findExistingYouTubeTranscriptJob(userId, resource.id);
-  if (existingJob) {
-    return updateYouTubeTranscriptQueued(userId, resource.id, existingJob.id);
-  }
-
-  const sourceUrl = resource.source_url || resource.url || '';
-  if (!sourceUrl) return resource;
-
-  const job = await createYouTubeTranscriptJob(userId, {
-    resourceId: resource.id,
-    url: sourceUrl,
-  });
-
-  return updateYouTubeTranscriptQueued(userId, resource.id, job.id);
+  const module = await import('./youtube-transcript-queue.js');
+  return module.maybeQueueYouTubeTranscriptJobForResource(userId, resource);
 }
 
 export async function requeueFailedInstagramJobs(userId) {
   const now = new Date().toISOString();
   const result = await getAdmin()
+    .from('instagram_download_jobs')
+    .eq('owner_user_id', userId)
+    .eq('status', 'failed')
+    .select('*');
+
+  if (result.error) throw new HttpError(500, result.error.message);
+  const rows = (result.data || [])
+    .map(normalizeJob)
+    .filter((job) => job.job_type !== YOUTUBE_TRANSCRIPT_JOB_TYPE);
+
+  await Promise.all(rows.map((job) => getAdmin()
     .from('instagram_download_jobs')
     .update({
       status: 'queued',
@@ -899,12 +831,11 @@ export async function requeueFailedInstagramJobs(userId) {
       worker_id: null,
       updated_at: now,
     })
-    .eq('owner_user_id', userId)
-    .eq('status', 'failed')
-    .select('*');
+    .eq('id', job.id)
+    .select('*')
+    .single()
+    .catch((error) => { throw error; })));
 
-  if (result.error) throw new HttpError(500, result.error.message);
-  const rows = (result.data || []).map(normalizeJob);
   await Promise.all(rows.map((job) => updateInstagramResourceQueued(userId, job.resource_id, job.id).catch(() => null)));
   return rows;
 }
@@ -987,7 +918,9 @@ export async function getInstagramDownloaderStatusForUser(userId) {
       .limit(25);
 
     if (jobsRes.error) throw new HttpError(500, jobsRes.error.message);
-    return (jobsRes.data || []).map(normalizeJob);
+    return (jobsRes.data || [])
+      .map(normalizeJob)
+      .filter((job) => job.job_type !== YOUTUBE_TRANSCRIPT_JOB_TYPE);
   };
 
   let jobs = await fetchJobs();
@@ -1154,7 +1087,7 @@ export async function claimNextInstagramDownloadJob(workerId) {
 
   if (queued.error) throw new HttpError(500, queued.error.message);
 
-  for (const row of queued.data || []) {
+  for (const row of (queued.data || []).filter((item) => (item.payload?.job_type || INSTAGRAM_JOB_TYPE) !== YOUTUBE_TRANSCRIPT_JOB_TYPE)) {
     const claimed = await getAdmin()
       .from('instagram_download_jobs')
       .update({
@@ -1171,14 +1104,6 @@ export async function claimNextInstagramDownloadJob(workerId) {
     if (!claimed.data) continue;
 
     const job = normalizeJob(claimed.data);
-    if (job.job_type === YOUTUBE_TRANSCRIPT_JOB_TYPE) {
-      await updateYouTubeTranscriptProcessing(job.owner_user_id, job.resource_id, workerId).catch(() => null);
-      return {
-        job,
-        settings: await getInstagramDownloaderSettingsForUser(job.owner_user_id),
-        google_drive: null,
-      };
-    }
 
     await updateInstagramResourceProcessing(job.owner_user_id, job.resource_id, workerId).catch(() => null);
 
@@ -1306,11 +1231,7 @@ export async function failInstagramDownloadJob(jobId, errorMessage) {
   if (result.error) throw new HttpError(500, result.error.message);
 
   const job = normalizeJob(result.data);
-  if (job.job_type === YOUTUBE_TRANSCRIPT_JOB_TYPE) {
-    await updateYouTubeTranscriptFailed(job.owner_user_id, job.resource_id, job.last_error).catch(() => null);
-  } else {
-    await updateInstagramResourceFailed(job.owner_user_id, job.resource_id, job.last_error).catch(() => null);
-  }
+  await updateInstagramResourceFailed(job.owner_user_id, job.resource_id, job.last_error).catch(() => null);
   return job;
 }
 

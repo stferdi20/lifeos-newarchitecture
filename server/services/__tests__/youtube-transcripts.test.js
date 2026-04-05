@@ -5,6 +5,7 @@ import {
   normalizeYouTubeTranscriptResult,
   shouldQueueYouTubeTranscriptBackfill,
 } from '../youtube-transcripts.js';
+import { parsePreferredSubtitleLanguages } from '../youtube-transcript-queue.js';
 
 test('normalizeYouTubeTranscriptResult preserves transcript status details', () => {
   const result = normalizeYouTubeTranscriptResult({
@@ -45,4 +46,14 @@ test('shouldQueueYouTubeTranscriptBackfill queues youtube resources that still n
     url: 'https://example.com',
     content_source: 'html_text',
   }), false);
+});
+
+test('parsePreferredSubtitleLanguages keeps the preference list stable', () => {
+  assert.deepEqual(parsePreferredSubtitleLanguages('en, en-US,  es '), ['en', 'en-US', 'es']);
+});
+
+test('youtube transcript routes remain protected by auth', async () => {
+  const { default: app } = await import('../../app.js');
+  const res = await app.request('http://localhost/api/youtube-transcript/status');
+  assert.equal(res.status, 401);
 });

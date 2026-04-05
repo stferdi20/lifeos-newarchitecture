@@ -121,12 +121,13 @@ Helpful flags:
 - `--search <term>` / `--type <type>` / `--area-id <id>` / `--tag <tag>` for narrower scopes
 - `--include-instagram` only if you explicitly want to override the default non-IG safeguard
 
-YouTube transcript extraction now follows the same worker pattern as Instagram:
+YouTube transcript extraction now follows its own dedicated queue and settings panel:
 
 - if a transcript is immediately available, enrichment uses it right away
 - if not, the resource is saved and a queue-backed worker job is created
 - queue-backed backfill is created even when direct worker calls are unavailable, so recovery can still happen later
 - your local Python worker can later fetch the transcript and upgrade the resource automatically
+- the Settings page has a separate "YouTube Transcript System" card so YouTube jobs no longer appear inside the Instagram downloader panel
 
 Direct worker calls through `INSTAGRAM_DOWNLOADER_BASE_URL` are still supported, but they are no longer required for the same local-worker pattern that Instagram already uses.
 
@@ -165,7 +166,7 @@ INSTAGRAM_DOWNLOADER_BASE_URL=http://127.0.0.1:9001
 INSTAGRAM_DOWNLOADER_SHARED_SECRET=your-shared-secret
 ```
 
-That same worker now handles YouTube transcript extraction for the main backend. If your local worker is already polling the backend queue for Instagram jobs, YouTube transcript jobs will flow through the same worker without needing Vercel to reach your machine directly.
+That same worker now handles YouTube transcript extraction for the main backend, but YouTube transcript jobs live in their own queue and status surface. If your local worker is already polling the backend queue for Instagram jobs, it can also claim YouTube transcript jobs without needing Vercel to reach your machine directly.
 
 App-facing backend route:
 

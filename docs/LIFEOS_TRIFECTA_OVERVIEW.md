@@ -260,6 +260,7 @@ It currently includes:
 - account display and logout
 - Google connections
 - Instagram downloader status / automation controls
+- YouTube transcript status / automation controls
 
 ### Legacy and Redirected Pages
 
@@ -332,4 +333,3 @@ If you want the shortest possible description:
 - web app = full LifeOS control center
 - PWA = installable and mobile-friendly capture surface
 - menubar = instant macOS companion for tasks, calendar, and capture
-

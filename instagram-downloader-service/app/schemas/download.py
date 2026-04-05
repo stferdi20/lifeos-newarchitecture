@@ -75,6 +75,8 @@ class DownloadResponse(BaseModel):
 
 class YouTubeTranscriptRequest(BaseModel):
     url: str = Field(min_length=1)
+    preferred_subtitle_languages: list[str] = Field(default_factory=list)
+    prefer_manual_captions: bool = True
 
 
 class YouTubeTranscriptResponse(BaseModel):

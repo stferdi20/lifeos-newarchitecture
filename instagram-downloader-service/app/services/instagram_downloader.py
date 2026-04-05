@@ -1626,14 +1626,48 @@ def rank_subtitle_language(language: str) -> int:
     return 20
 
 
-def choose_best_subtitle_track(subtitles: dict[str, Any] | None, automatic_captions: dict[str, Any] | None) -> tuple[str, str] | None:
-    manual_entries = sorted((subtitles or {}).keys(), key=rank_subtitle_language, reverse=True)
-    auto_entries = sorted((automatic_captions or {}).keys(), key=rank_subtitle_language, reverse=True)
+def language_matches_preference(language: str, preference: str) -> bool:
+    normalized_language = str(language or "").lower().replace("_", "-")
+    normalized_preference = str(preference or "").lower().replace("_", "-")
+    if not normalized_language or not normalized_preference:
+        return False
+    return normalized_language == normalized_preference or normalized_language.startswith(f"{normalized_preference}-")
 
-    if manual_entries:
-        return ("manual", manual_entries[0])
-    if auto_entries:
-        return ("auto", auto_entries[0])
+
+def choose_best_subtitle_track(
+    subtitles: dict[str, Any] | None,
+    automatic_captions: dict[str, Any] | None,
+    preferred_languages: list[str] | None = None,
+    prefer_manual_captions: bool = True,
+) -> tuple[str, str] | None:
+    manual_entries = list((subtitles or {}).keys())
+    auto_entries = list((automatic_captions or {}).keys())
+    preferred = [str(language or "").strip() for language in (preferred_languages or []) if str(language or "").strip()]
+
+    def pick(entries: list[str]) -> str | None:
+        if not entries:
+            return None
+        for preference in preferred:
+            for language in entries:
+                if language_matches_preference(language, preference):
+                    return language
+        ranked = sorted(entries, key=rank_subtitle_language, reverse=True)
+        return ranked[0] if ranked else None
+
+    if prefer_manual_captions:
+        manual = pick(manual_entries)
+        if manual:
+            return ("manual", manual)
+        auto = pick(auto_entries)
+        if auto:
+            return ("auto", auto)
+    else:
+        auto = pick(auto_entries)
+        if auto:
+            return ("auto", auto)
+        manual = pick(manual_entries)
+        if manual:
+            return ("manual", manual)
     return None
 
 
@@ -1754,7 +1788,12 @@ async def fetch_youtube_transcript(request: YouTubeTranscriptRequest) -> YouTube
             error=str(error) or "Failed to inspect YouTube subtitles.",
         )
 
-    selected = choose_best_subtitle_track(info.get("subtitles"), info.get("automatic_captions"))
+    selected = choose_best_subtitle_track(
+        info.get("subtitles"),
+        info.get("automatic_captions"),
+        preferred_languages=request.preferred_subtitle_languages,
+        prefer_manual_captions=request.prefer_manual_captions,
+    )
     if not selected:
         return YouTubeTranscriptResponse(
             success=False,

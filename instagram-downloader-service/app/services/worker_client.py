@@ -79,7 +79,7 @@ class WorkerLoop:
                 await self.task
             self.task = None
 
-    async def heartbeat(self, client: httpx.AsyncClient):
+    async def heartbeat(self, client: httpx.AsyncClient, current_job_id: str | None = None):
         await client.post(
             f"{self.api_base_url}/instagram-downloader/worker/heartbeat",
             headers={"x-downloader-secret": self.shared_secret},
@@ -91,7 +91,24 @@ class WorkerLoop:
                     "hostname": socket.gethostname(),
                     "download_root": os.getenv("INSTAGRAM_DOWNLOADER_DOWNLOAD_ROOT", "./downloads"),
                 },
-                "current_job_id": self.current_job_id,
+                "current_job_id": current_job_id,
+            },
+            timeout=20.0,
+        )
+
+    async def heartbeat_youtube(self, client: httpx.AsyncClient, current_job_id: str | None = None):
+        await client.post(
+            f"{self.api_base_url}/youtube-transcript/worker/heartbeat",
+            headers={"x-downloader-secret": self.shared_secret},
+            json={
+                "worker_id": self.worker_id,
+                "label": self.worker_label,
+                "version": WORKER_VERSION,
+                "metadata": {
+                    "hostname": socket.gethostname(),
+                    "download_root": os.getenv("INSTAGRAM_DOWNLOADER_DOWNLOAD_ROOT", "./downloads"),
+                },
+                "current_job_id": current_job_id,
             },
             timeout=20.0,
         )
@@ -99,6 +116,19 @@ class WorkerLoop:
     async def claim_job(self, client: httpx.AsyncClient):
         response = await client.post(
             f"{self.api_base_url}/instagram-downloader/worker/claim",
+            headers={
+                "x-downloader-secret": self.shared_secret,
+                "x-worker-id": self.worker_id,
+            },
+            timeout=30.0,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        return payload.get("job")
+
+    async def claim_youtube_transcript_job(self, client: httpx.AsyncClient):
+        response = await client.post(
+            f"{self.api_base_url}/youtube-transcript/worker/claim",
             headers={
                 "x-downloader-secret": self.shared_secret,
                 "x-worker-id": self.worker_id,
@@ -131,9 +161,27 @@ class WorkerLoop:
         )
         response.raise_for_status()
 
+    async def complete_youtube_transcript_job(self, client: httpx.AsyncClient, job_id: str, transcript):
+        response = await client.post(
+            f"{self.api_base_url}/youtube-transcript/worker/jobs/{job_id}/complete",
+            headers={"x-downloader-secret": self.shared_secret},
+            json=transcript.model_dump(),
+            timeout=60.0,
+        )
+        response.raise_for_status()
+
     async def fail_job(self, client: httpx.AsyncClient, job_id: str, error_message: str):
         response = await client.post(
             f"{self.api_base_url}/instagram-downloader/worker/jobs/{job_id}/fail",
+            headers={"x-downloader-secret": self.shared_secret},
+            json={"error": error_message},
+            timeout=30.0,
+        )
+        response.raise_for_status()
+
+    async def fail_youtube_transcript_job(self, client: httpx.AsyncClient, job_id: str, error_message: str):
+        response = await client.post(
+            f"{self.api_base_url}/youtube-transcript/worker/jobs/{job_id}/fail",
             headers={"x-downloader-secret": self.shared_secret},
             json={"error": error_message},
             timeout=30.0,
@@ -257,22 +305,37 @@ class WorkerLoop:
         google_drive = claimed_job.get("google_drive") or {}
         job_type = (job.get("payload") or {}).get("job_type") or INSTAGRAM_JOB_TYPE
         self.current_job_id = job.get("id")
-        await self.heartbeat(client)
-        heartbeat_task = asyncio.create_task(self._heartbeat_while_processing(client))
+
+        async def send_heartbeat():
+            await self.heartbeat(
+                client,
+                self.current_job_id if job_type != YOUTUBE_TRANSCRIPT_JOB_TYPE else None,
+            )
+            await self.heartbeat_youtube(
+                client,
+                self.current_job_id if job_type == YOUTUBE_TRANSCRIPT_JOB_TYPE else None,
+            )
+
+        await send_heartbeat()
+        heartbeat_task = asyncio.create_task(self._heartbeat_while_processing(client, send_heartbeat))
 
         try:
             if job_type == RESOURCE_CAPTURE_JOB_TYPE:
                 await self.complete_resource_capture_job(client, job["id"])
             elif job_type == YOUTUBE_TRANSCRIPT_JOB_TYPE:
+                settings = claimed_job.get("settings") or {}
                 transcript = await fetch_youtube_transcript(
                     YouTubeTranscriptRequest(
                         url=job["source_url"],
+                        preferred_subtitle_languages=[
+                            language.strip()
+                            for language in str(settings.get("preferred_subtitle_languages") or "").split(",")
+                            if language.strip()
+                        ],
+                        prefer_manual_captions=bool(settings.get("prefer_manual_captions", True)),
                     )
                 )
-                if transcript.success:
-                    await self.complete_job(client, job["id"], transcript)
-                else:
-                    await self.fail_job(client, job["id"], transcript.error or "YouTube transcript extraction failed.")
+                await self.complete_youtube_transcript_job(client, job["id"], transcript)
             else:
                 download_dir = None
                 try:
@@ -353,12 +416,16 @@ class WorkerLoop:
             logger.exception("Worker job failed with InstagramDownloaderError", extra={"job_id": job.get("id"), "job_type": job_type})
             if job_type == RESOURCE_CAPTURE_JOB_TYPE:
                 await self.fail_resource_capture_job(client, job["id"], error.message)
+            elif job_type == YOUTUBE_TRANSCRIPT_JOB_TYPE:
+                await self.fail_youtube_transcript_job(client, job["id"], error.message)
             else:
                 await self.fail_job(client, job["id"], error.message)
         except Exception as error:
             logger.exception("Worker job failed", extra={"job_id": job.get("id"), "job_type": job_type})
             if job_type == RESOURCE_CAPTURE_JOB_TYPE:
                 await self.fail_resource_capture_job(client, job["id"], str(error))
+            elif job_type == YOUTUBE_TRANSCRIPT_JOB_TYPE:
+                await self.fail_youtube_transcript_job(client, job["id"], str(error))
             else:
                 await self.fail_job(client, job["id"], str(error))
         finally:
@@ -366,13 +433,13 @@ class WorkerLoop:
             with suppress(asyncio.CancelledError):
                 await heartbeat_task
             self.current_job_id = None
-            await self.heartbeat(client)
+            await send_heartbeat()
 
-    async def _heartbeat_while_processing(self, client: httpx.AsyncClient):
+    async def _heartbeat_while_processing(self, client: httpx.AsyncClient, heartbeat_fn):
         while self.running and self.current_job_id:
             await asyncio.sleep(self.heartbeat_interval)
             try:
-                await self.heartbeat(client)
+                await heartbeat_fn()
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -382,10 +449,16 @@ class WorkerLoop:
         async with httpx.AsyncClient() as client:
             while self.running:
                 try:
-                    await self.heartbeat(client)
+                    await self.heartbeat(client, None)
+                    await self.heartbeat_youtube(client, None)
                     claimed_job = await self.claim_job(client)
                     if claimed_job:
                         await self.process_claimed_job(client, claimed_job)
+                        continue
+
+                    claimed_youtube_job = await self.claim_youtube_transcript_job(client)
+                    if claimed_youtube_job:
+                        await self.process_claimed_job(client, claimed_youtube_job)
                         continue
 
                     claimed_capture_job = await self.claim_resource_capture_job(client)

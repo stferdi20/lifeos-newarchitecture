@@ -3,6 +3,7 @@ import { LogOut, Settings as SettingsIcon, UserRound } from 'lucide-react';
 import { PageHeader } from '@/components/layout/page-header';
 import GoogleConnectionsPanel from '@/components/google/GoogleConnectionsPanel';
 import InstagramDownloaderPanel from '@/components/settings/InstagramDownloaderPanel';
+import YouTubeTranscriptPanel from '@/components/settings/YouTubeTranscriptPanel';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/AuthContext';
 
@@ -51,6 +52,8 @@ export default function Settings() {
           Automation
         </h2>
         <InstagramDownloaderPanel />
+        <div className="h-2" />
+        <YouTubeTranscriptPanel />
       </div>
     </div>
   );
