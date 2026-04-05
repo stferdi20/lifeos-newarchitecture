@@ -10,17 +10,17 @@ import {
 } from 'lucide-react';
 
 const typeConfig = {
-  youtube:        { icon: Youtube,       color: 'text-red-400',    bg: 'bg-red-500/10',    label: 'YouTube' },
-  reddit:         { icon: MessageSquare, color: 'text-orange-400', bg: 'bg-orange-500/10', label: 'Reddit' },
-  article:        { icon: Newspaper,     color: 'text-sky-400',    bg: 'bg-sky-500/10',    label: 'Article' },
-  website:        { icon: Globe,         color: 'text-cyan-400',   bg: 'bg-cyan-500/10',   label: 'Website' },
-  research_paper: { icon: GraduationCap, color: 'text-violet-400', bg: 'bg-violet-500/10', label: 'Paper' },
-  pdf:            { icon: FileDown,      color: 'text-amber-400',  bg: 'bg-amber-500/10',  label: 'PDF' },
-  note:           { icon: FileText,      color: 'text-emerald-400',bg: 'bg-emerald-500/10',label: 'Note' },
-  github_repo:    { icon: Github,        color: 'text-white',      bg: 'bg-white/10',      label: 'GitHub' },
-  instagram_reel: { icon: Clapperboard,  color: 'text-pink-300',   bg: 'bg-pink-500/10',   label: 'IG Reel' },
-  instagram_post: { icon: Clapperboard,  color: 'text-pink-200',   bg: 'bg-pink-500/10',   label: 'IG Post' },
-  instagram_carousel: { icon: Clapperboard, color: 'text-fuchsia-300', bg: 'bg-fuchsia-500/10', label: 'IG Carousel' },
+  youtube:        { icon: Youtube,       color: 'text-red-400',    bg: 'bg-red-500/10',    label: 'YouTube', tintRgb: '239, 68, 68' },
+  reddit:         { icon: MessageSquare, color: 'text-orange-400', bg: 'bg-orange-500/10', label: 'Reddit', tintRgb: '249, 115, 22' },
+  article:        { icon: Newspaper,     color: 'text-sky-400',    bg: 'bg-sky-500/10',    label: 'Article', tintRgb: '56, 189, 248' },
+  website:        { icon: Globe,         color: 'text-cyan-400',   bg: 'bg-cyan-500/10',   label: 'Website', tintRgb: '34, 211, 238' },
+  research_paper: { icon: GraduationCap, color: 'text-violet-400', bg: 'bg-violet-500/10', label: 'Paper', tintRgb: '167, 139, 250' },
+  pdf:            { icon: FileDown,      color: 'text-amber-400',  bg: 'bg-amber-500/10',  label: 'PDF', tintRgb: '251, 191, 36' },
+  note:           { icon: FileText,      color: 'text-emerald-400',bg: 'bg-emerald-500/10',label: 'Note', tintRgb: '52, 211, 153' },
+  github_repo:    { icon: Github,        color: 'text-white',      bg: 'bg-white/10',      label: 'GitHub', tintRgb: '229, 231, 235' },
+  instagram_reel: { icon: Clapperboard,  color: 'text-pink-300',   bg: 'bg-pink-500/10',   label: 'IG Reel', tintRgb: '244, 114, 182' },
+  instagram_post: { icon: Clapperboard,  color: 'text-pink-200',   bg: 'bg-pink-500/10',   label: 'IG Post', tintRgb: '251, 182, 206' },
+  instagram_carousel: { icon: Clapperboard, color: 'text-fuchsia-300', bg: 'bg-fuchsia-500/10', label: 'IG Carousel', tintRgb: '232, 121, 249' },
 };
 
 const GRADIENTS = [
@@ -45,6 +45,29 @@ const CAPTURE_STATUS_COLORS = {
   processing: 'border-sky-500/20 bg-sky-500/10 text-sky-200',
   failed: 'border-red-500/20 bg-red-500/10 text-red-200',
   completed: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200',
+};
+
+const CARD_TYPOGRAPHY = {
+  title: 'font-semibold tracking-tight text-[15px] leading-tight',
+  titleCompact: 'text-[13px] leading-tight',
+  meta: 'text-[10px] text-muted-foreground/80',
+  metaCompact: 'text-[9px]',
+  eyebrow: 'text-[10px] uppercase tracking-[0.16em] text-muted-foreground/55',
+  eyebrowCompact: 'text-[9px] tracking-[0.12em]',
+  badge: 'text-[10px] font-medium',
+  badgeCompact: 'text-[9px]',
+  stat: 'text-[10px] font-semibold',
+  statCompact: 'text-[9px]',
+  previewLabel: 'text-[10px] font-semibold uppercase tracking-wider text-foreground/65',
+  previewLabelCompact: 'text-[9px]',
+  previewBody: 'text-[12px] leading-6 text-foreground/85',
+  previewBodyCompact: 'text-[11px] leading-5',
+  warning: 'text-[11px] leading-relaxed text-amber-100/80',
+  warningCompact: 'text-[10px] leading-5',
+  footer: 'text-[10px] tracking-[0.16em] text-muted-foreground/80 uppercase',
+  footerCompact: 'text-[9px] tracking-[0.12em]',
+  quietFooter: 'text-[10px] tracking-[0.16em] text-muted-foreground/60 uppercase',
+  quietFooterCompact: 'text-[9px] tracking-[0.12em]',
 };
 
 function hashStr(s) {
@@ -171,7 +194,9 @@ function FallbackPreview({ title, mainTopic, colorClass, url }) {
         <span className={cn('text-base font-bold flex', colorClass)}>{initials}</span>
       </div>
       {safeTopic && (
-        <span className="text-[10px] text-white/50 font-medium tracking-wide uppercase truncate max-w-[80%]">{safeTopic}</span>
+        <span className={cn(CARD_TYPOGRAPHY.badge, 'text-white/50 uppercase tracking-wide truncate max-w-[80%]')}>
+          {safeTopic}
+        </span>
       )}
     </div>
   );
@@ -213,31 +238,32 @@ function getPreviewItem(resource) {
   return null;
 }
 
-function getCardChrome({ layoutMode, featured = false }) {
+function getCardChrome({ layoutMode, tintRgb, featured = false }) {
+  const tint = tintRgb || '125, 211, 252';
   if (layoutMode === 'gallery') {
     return {
       surface: 'rgba(18, 22, 31, 0.9)',
       borderGradient: featured
-        ? 'linear-gradient(135deg, rgba(244, 114, 182, 0.34), rgba(125, 211, 252, 0.26) 42%, rgba(251, 191, 36, 0.3) 100%)'
-        : 'linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(125, 211, 252, 0.2) 38%, rgba(244, 114, 182, 0.16) 72%, rgba(251, 191, 36, 0.18) 100%)',
+        ? `linear-gradient(135deg, rgba(${tint}, 0.38), rgba(255, 255, 255, 0.16) 38%, rgba(${tint}, 0.18) 72%, rgba(${tint}, 0.28) 100%)`
+        : `linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(${tint}, 0.22) 38%, rgba(${tint}, 0.14) 72%, rgba(${tint}, 0.2) 100%)`,
       boxShadow: featured
-        ? '0 24px 58px -30px rgba(15, 23, 42, 0.72), 0 0 0 1px rgba(255,255,255,0.04), 0 0 36px rgba(125, 211, 252, 0.10)'
-        : '0 18px 40px -28px rgba(15, 23, 42, 0.62), 0 0 0 1px rgba(255,255,255,0.03), 0 0 28px rgba(125, 211, 252, 0.06)',
+        ? `0 24px 58px -30px rgba(15, 23, 42, 0.72), 0 0 0 1px rgba(255,255,255,0.04), 0 0 36px rgba(${tint}, 0.12)`
+        : `0 18px 40px -28px rgba(15, 23, 42, 0.62), 0 0 0 1px rgba(255,255,255,0.03), 0 0 28px rgba(${tint}, 0.08)`,
     };
   }
 
   if (layoutMode === 'magazine') {
     return {
       surface: 'rgba(20, 23, 30, 0.94)',
-      borderGradient: 'linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(192, 132, 252, 0.1) 46%, rgba(125, 211, 252, 0.08) 100%)',
-      boxShadow: '0 8px 22px -22px rgba(15, 23, 42, 0.28), 0 0 0 1px rgba(255,255,255,0.02), 0 0 18px rgba(125, 211, 252, 0.04)',
+      borderGradient: `linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(${tint}, 0.1) 46%, rgba(${tint}, 0.08) 100%)`,
+      boxShadow: `0 8px 22px -22px rgba(15, 23, 42, 0.28), 0 0 0 1px rgba(255,255,255,0.02), 0 0 18px rgba(${tint}, 0.05)`,
     };
   }
 
   return {
     surface: 'rgba(24, 28, 37, 0.96)',
-    borderGradient: 'linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(125, 211, 252, 0.11) 52%, rgba(244, 114, 182, 0.09) 100%)',
-    boxShadow: '0 10px 26px -24px rgba(15, 23, 42, 0.32), 0 0 0 1px rgba(255,255,255,0.02)',
+    borderGradient: `linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(${tint}, 0.12) 52%, rgba(${tint}, 0.1) 100%)`,
+    boxShadow: `0 10px 26px -24px rgba(15, 23, 42, 0.32), 0 0 0 1px rgba(${tint}, 0.08)`,
   };
 }
 
@@ -289,6 +315,7 @@ export default function ResourceCard({
   const isMagazine = layoutMode === 'magazine';
   const isCompactDensity = gridDensity === 'compact';
   const isCompactGrid = isGrid && isCompactDensity;
+  const isCompactCard = isCompactDensity;
   const isCompactGallery = false;
   const isCompactMagazine = false;
   const isFreeflow = !isGrid;
@@ -320,7 +347,7 @@ export default function ResourceCard({
   const mediaObjectPosition = isFreeflow && thumbnailAspectRatio && thumbnailAspectRatio < 1
     ? 'center top'
     : 'center center';
-  const chrome = getCardChrome({ layoutMode, featured: isFeatured });
+  const chrome = getCardChrome({ layoutMode, tintRgb: cfg.tintRgb, featured: isFeatured });
   const cardClassName = cn(
     'relative rounded-2xl overflow-hidden transition-all duration-300 group cursor-pointer isolate',
     isGrid && 'bg-card border border-border/50',
@@ -335,7 +362,10 @@ export default function ResourceCard({
     className,
   );
   const cardStyle = isGrid
-    ? undefined
+    ? {
+        borderColor: `rgba(${cfg.tintRgb || '148, 163, 184'}, 0.24)`,
+        boxShadow: `0 10px 26px -24px rgba(15, 23, 42, 0.28), 0 0 0 1px rgba(${cfg.tintRgb || '148, 163, 184'}, 0.05)`,
+      }
     : {
         background: `linear-gradient(${chrome.surface}, ${chrome.surface}) padding-box, ${chrome.borderGradient} border-box`,
         boxShadow: chrome.boxShadow,
@@ -376,8 +406,8 @@ export default function ResourceCard({
             )}
             style={{
               background: isGallery
-                ? 'radial-gradient(circle at top left, rgba(255,255,255,0.08), transparent 32%), radial-gradient(circle at bottom right, rgba(125,211,252,0.1), transparent 34%)'
-                : 'radial-gradient(circle at top left, rgba(255,255,255,0.05), transparent 28%), radial-gradient(circle at bottom right, rgba(196,181,253,0.05), transparent 32%)',
+                ? `radial-gradient(circle at top left, rgba(255,255,255,0.08), transparent 32%), radial-gradient(circle at bottom right, rgba(${cfg.tintRgb || '125, 211, 252'},0.12), transparent 34%)`
+                : `radial-gradient(circle at top left, rgba(255,255,255,0.05), transparent 28%), radial-gradient(circle at bottom right, rgba(${cfg.tintRgb || '125, 211, 252'},0.06), transparent 32%)`,
             }}
           />
           <div
@@ -470,23 +500,23 @@ export default function ResourceCard({
           isGrid && 'bg-gradient-to-t from-black/60 to-transparent',
         )} />
         <div className={cn(
-          'absolute top-2 left-2 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium',
-          isCompactGrid && 'gap-0.5 px-1.5 text-[9px]',
-          isCompactGallery && 'gap-0.5 px-2 py-0.5 text-[9px]',
-          isCompactMagazine && 'gap-0.5 px-1.5 py-0.5 text-[9px]',
+          'absolute top-2 left-2 flex items-center gap-1 px-2 py-0.5 rounded-full',
+          CARD_TYPOGRAPHY.badge,
+          isCompactCard && 'gap-0.5 px-1.5',
+          isCompactCard && CARD_TYPOGRAPHY.badgeCompact,
           cfg.bg,
           cfg.color,
-          isGallery && 'shadow-md shadow-black/20 px-2.5 py-1 text-[10px]',
+          isGallery && 'shadow-md shadow-black/20 px-2.5 py-1',
           isMagazine && 'opacity-80',
         )}>
           <Icon className="w-3 h-3" /> {isInstagram ? `IG ${instagramMediaTypeLabel}` : cfg.label}
         </div>
         {resource.resource_score > 0 && (
           <div className={cn(
-            'absolute top-2 flex items-center gap-0.5 bg-black/60 text-amber-400 text-[10px] px-1.5 py-0.5 rounded-full font-semibold',
-            isCompactGrid && 'px-1 py-0.5 text-[9px]',
-            isCompactGallery && 'px-1 py-0.5 text-[9px]',
-            isCompactMagazine && 'px-1 py-0.5 text-[9px]',
+            'absolute top-2 flex items-center gap-0.5 bg-black/60 text-amber-400 px-1.5 py-0.5 rounded-full',
+            CARD_TYPOGRAPHY.stat,
+            isCompactCard && 'px-1 py-0.5',
+            isCompactCard && CARD_TYPOGRAPHY.statCompact,
             'right-2',
             isGallery && 'bg-black/70 shadow-md shadow-black/20',
             isMagazine && 'bg-black/45 text-amber-300',
@@ -498,7 +528,8 @@ export default function ResourceCard({
         {resource.status && resource.status !== 'unknown' && STATUS_COLORS[resource.status] && (
           <div className="absolute bottom-2 left-2">
             <span className={cn(
-              'text-[10px] tracking-widest font-semibold px-2 py-0.5 rounded-full border',
+              'px-2 py-0.5 rounded-full border',
+              CARD_TYPOGRAPHY.stat,
               STATUS_COLORS[resource.status],
               isGallery && 'bg-black/40',
               isMagazine && 'opacity-80',
@@ -512,26 +543,28 @@ export default function ResourceCard({
       {isMagazine ? (
         <div className={cn('p-3.5', isCompactMagazine && 'p-3', bodySpacingClass)}>
           <div className={cn('space-y-1.5', isCompactMagazine && 'space-y-1')}>
-            <div className={cn('flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/55', isCompactMagazine && 'gap-1.5 text-[9px] tracking-[0.14em]')}>
+            <div className={cn('flex items-center gap-2', CARD_TYPOGRAPHY.eyebrow, isCompactCard && 'gap-1.5', isCompactCard && CARD_TYPOGRAPHY.eyebrowCompact)}>
               <span>{isInstagram ? `IG ${instagramMediaTypeLabel}` : cfg.label}</span>
               {area && <span>{area.name}</span>}
               {resource.is_archived && <span>Archived</span>}
             </div>
-            <h3 className={cn('line-clamp-2 text-[14px] font-medium tracking-tight text-foreground/90 group-hover:text-foreground', isCompactMagazine && 'text-[13px] leading-tight')}>
+            <h3 className={cn('line-clamp-2 text-foreground/90 group-hover:text-foreground', CARD_TYPOGRAPHY.title, isCompactCard && CARD_TYPOGRAPHY.titleCompact)}>
               {safeTitle}
             </h3>
             {(safeAuthor || instagramAuthorHandle) && (
-              <p className={cn('text-[10px] text-muted-foreground/70', isCompactMagazine && 'text-[9px]')}>
+              <p className={cn('text-muted-foreground/70', CARD_TYPOGRAPHY.meta, isCompactCard && CARD_TYPOGRAPHY.metaCompact)}>
                 {instagramAuthorHandle ? `@${instagramAuthorHandle}` : `by ${safeAuthor}`}
               </p>
             )}
           </div>
 
           {showGenericCaptureStatus && (
-            <div className={cn('flex items-center gap-2 text-[9px] text-muted-foreground/65', isCompactMagazine && 'gap-1.5 text-[8px]')}>
+            <div className={cn('flex items-center gap-2 text-muted-foreground/65', CARD_TYPOGRAPHY.meta, isCompactCard && 'gap-1.5', isCompactCard && CARD_TYPOGRAPHY.metaCompact)}>
               <span className={cn(
-                'inline-flex items-center rounded-full border px-1.5 py-0.5 font-medium tracking-wide',
-                isCompactMagazine && 'px-1 py-0.5',
+                'inline-flex items-center rounded-full border px-1.5 py-0.5 tracking-wide',
+                CARD_TYPOGRAPHY.badge,
+                isCompactCard && 'px-1 py-0.5',
+                isCompactCard && CARD_TYPOGRAPHY.badgeCompact,
                 CAPTURE_STATUS_COLORS[resource.capture_status] || CAPTURE_STATUS_COLORS.queued,
               )}>
                 {captureStatusLabel}
@@ -543,7 +576,7 @@ export default function ResourceCard({
           )}
 
           {magazineSummary && (
-            <p className={cn('line-clamp-3 text-[12px] leading-6 text-foreground/68', isCompactMagazine && 'text-[11px] leading-5')}>
+            <p className={cn('line-clamp-3 text-foreground/68', CARD_TYPOGRAPHY.previewBody, isCompactCard && CARD_TYPOGRAPHY.previewBodyCompact)}>
               {magazineSummary}
             </p>
           )}
@@ -551,14 +584,14 @@ export default function ResourceCard({
           {resource.enrichment_warning && (
             <div className={cn('flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-2.5 py-2', isCompactMagazine && 'gap-1.5 px-2 py-1.5')}>
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300" />
-              <p className={cn('line-clamp-2 text-[10px] leading-relaxed text-amber-100/80', isCompactMagazine && 'text-[9px] leading-5')}>
+              <p className={cn('line-clamp-2', CARD_TYPOGRAPHY.warning, isCompactCard && CARD_TYPOGRAPHY.warningCompact)}>
                 {resource.enrichment_warning}
               </p>
             </div>
           )}
 
           <div className={cn('flex items-center justify-between border-t border-border/20 pt-2', isCompactMagazine && 'pt-1.5')}>
-            <div className={cn('flex items-center gap-2 text-[9px] tracking-[0.14em] text-muted-foreground/60 uppercase', isCompactMagazine && 'gap-1.5 text-[8px] tracking-[0.1em]')}>
+            <div className={cn('flex items-center gap-2', CARD_TYPOGRAPHY.quietFooter, isCompactCard && 'gap-1.5', isCompactCard && CARD_TYPOGRAPHY.quietFooterCompact)}>
               <span>{resource.created_date ? format(new Date(resource.created_date), 'MMM d, yyyy') : ''}</span>
               {isGitHub && resource.github_stars != null && (
                 <span>{resource.github_stars.toLocaleString()} stars</span>
@@ -591,27 +624,26 @@ export default function ResourceCard({
       ) : (
         <div className={cn('p-4', isCompactGrid && 'p-3 space-y-2.5', isCompactGallery && 'p-3.5', bodySpacingClass)}>
           <h3 className={cn(
-            'font-semibold tracking-tight text-[15px] group-hover:text-primary transition-colors',
-            isCompactGrid && 'text-[13px] leading-tight',
-            isCompactGallery && 'text-[14px] leading-tight',
-            isGallery && !isCompactGallery && 'text-[14px] leading-tight',
-            isFeatured && !isGallery ? 'line-clamp-3 text-[17px] leading-tight' : 'line-clamp-3',
+            'group-hover:text-primary transition-colors line-clamp-3',
+            CARD_TYPOGRAPHY.title,
+            isCompactCard && CARD_TYPOGRAPHY.titleCompact,
           )}>
             {safeTitle}
           </h3>
 
           {showGenericCaptureStatus && (
-            <div className={cn('flex flex-wrap items-center gap-1.5', (isCompactGrid || isCompactGallery) && 'gap-1')}>
+            <div className={cn('flex flex-wrap items-center gap-1.5', isCompactCard && 'gap-1')}>
               <span className={cn(
-                'inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium tracking-wide',
-                isCompactGrid && 'px-1 py-0.5 text-[9px]',
-                isCompactGallery && 'px-1.5 py-0.5 text-[9px]',
+                'inline-flex items-center rounded-full border px-1.5 py-0.5 tracking-wide',
+                CARD_TYPOGRAPHY.badge,
+                isCompactCard && 'px-1 py-0.5',
+                isCompactCard && CARD_TYPOGRAPHY.badgeCompact,
                 CAPTURE_STATUS_COLORS[resource.capture_status] || CAPTURE_STATUS_COLORS.queued,
               )}>
                 {captureStatusLabel}
               </span>
               {resource.capture_status_message && (
-                <span className={cn('line-clamp-1 text-[10px] text-muted-foreground', (isCompactGrid || isCompactGallery) && 'text-[9px]')}>
+                <span className={cn('line-clamp-1 text-muted-foreground', CARD_TYPOGRAPHY.meta, isCompactCard && CARD_TYPOGRAPHY.metaCompact)}>
                   {resource.capture_status_message}
                 </span>
               )}
@@ -619,23 +651,23 @@ export default function ResourceCard({
           )}
 
           {(safeAuthor || instagramAuthorHandle) && (
-            <p className={cn('text-[10px] text-muted-foreground/80', (isCompactGrid || isCompactGallery) && 'text-[9px]')}>
+            <p className={cn(CARD_TYPOGRAPHY.meta, isCompactCard && CARD_TYPOGRAPHY.metaCompact)}>
               {instagramAuthorHandle ? `@${instagramAuthorHandle}` : `by ${safeAuthor}`}
             </p>
           )}
 
           {isInstagram && (
-            <div className={cn('flex flex-wrap items-center gap-1.5', (isCompactGrid || isCompactGallery) && 'gap-1')}>
-              <span className={cn('rounded-full bg-fuchsia-500/10 px-1.5 py-0.5 text-[10px] text-fuchsia-100/90', (isCompactGrid || isCompactGallery) && 'px-1 py-0.5 text-[9px]')}>
+            <div className={cn('flex flex-wrap items-center gap-1.5', isCompactCard && 'gap-1')}>
+              <span className={cn('rounded-full bg-fuchsia-500/10 px-1.5 py-0.5 text-fuchsia-100/90', CARD_TYPOGRAPHY.badge, isCompactCard && 'px-1 py-0.5', isCompactCard && CARD_TYPOGRAPHY.badgeCompact)}>
                 {instagramMediaTypeLabel}
               </span>
               {resource.instagram_media_items?.length > 0 && (
-                <span className={cn('rounded-full bg-pink-500/10 px-1.5 py-0.5 text-[10px] text-pink-200/90', (isCompactGrid || isCompactGallery) && 'px-1 py-0.5 text-[9px]')}>
+                <span className={cn('rounded-full bg-pink-500/10 px-1.5 py-0.5 text-pink-200/90', CARD_TYPOGRAPHY.badge, isCompactCard && 'px-1 py-0.5', isCompactCard && CARD_TYPOGRAPHY.badgeCompact)}>
                   {resource.instagram_media_items.length} Media
                 </span>
               )}
               {needsReview && (
-                <span className={cn('rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-200/90', (isCompactGrid || isCompactGallery) && 'px-1 py-0.5 text-[9px]')}>
+                <span className={cn('rounded-full bg-amber-500/10 px-1.5 py-0.5 text-amber-200/90', CARD_TYPOGRAPHY.badge, isCompactCard && 'px-1 py-0.5', isCompactCard && CARD_TYPOGRAPHY.badgeCompact)}>
                   Needs Review
                 </span>
               )}
@@ -646,8 +678,10 @@ export default function ResourceCard({
                   rel="noreferrer"
                   onClick={(e) => e.stopPropagation()}
                   className={cn(
-                    'inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-200 transition-colors hover:bg-emerald-500/20',
-                    (isCompactGrid || isCompactGallery) && 'px-1 py-0.5 text-[9px]',
+                    'inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-emerald-200 transition-colors hover:bg-emerald-500/20',
+                    CARD_TYPOGRAPHY.badge,
+                    isCompactCard && 'px-1 py-0.5',
+                    isCompactCard && CARD_TYPOGRAPHY.badgeCompact,
                   )}
                 >
                   <FolderOpen className="h-3 w-3" />
@@ -658,28 +692,29 @@ export default function ResourceCard({
           )}
 
           {isGitHub && resource.github_stars != null && (
-            <div className={cn('flex items-center gap-1', (isCompactGrid || isCompactGallery) && 'gap-0.5')}>
+            <div className={cn('flex items-center gap-1', isCompactCard && 'gap-0.5')}>
               <Star className="h-3 w-3 fill-amber-400/90 text-amber-400" />
-              <span className={cn('text-xs text-muted-foreground/80', isGallery && 'text-[10px]', (isCompactGrid || isCompactGallery) && 'text-[10px]')}>{resource.github_stars.toLocaleString()} stars</span>
+              <span className={cn(CARD_TYPOGRAPHY.stat, 'text-muted-foreground/80', isCompactCard && CARD_TYPOGRAPHY.statCompact)}>
+                {resource.github_stars.toLocaleString()} stars
+              </span>
             </div>
           )}
 
           {previewItem && (
             <div className={cn(
               'rounded-xl border border-border/40 bg-card/60 px-3 py-2.5 shadow-sm shadow-black/10',
-              isCompactGrid && 'px-2.5 py-2',
-              isCompactGallery && 'px-2.5 py-2',
+              isCompactCard && 'px-2.5 py-2',
               isFeatured && 'bg-card/70',
             )}>
-              <p className={cn('text-[10px] font-semibold uppercase tracking-wider text-foreground/65', (isCompactGrid || isCompactGallery) && 'text-[9px]')}>
+              <p className={cn(CARD_TYPOGRAPHY.previewLabel, isCompactCard && CARD_TYPOGRAPHY.previewLabelCompact)}>
                 {previewItem.label}
               </p>
               <p className={cn(
-                'mt-1.5 leading-6 text-foreground/85',
-                isCompactGrid && 'mt-1 text-[11px] leading-5',
-                isCompactGallery && 'mt-1 text-[11px] leading-5',
+                'mt-1.5',
+                isCompactCard && 'mt-1',
+                CARD_TYPOGRAPHY.previewBody,
+                isCompactCard && CARD_TYPOGRAPHY.previewBodyCompact,
                 previewClampClass,
-                isGallery ? 'text-[12px]' : isFeatured ? 'text-[13px]' : 'text-[12px]',
               )}>
                 {previewItem.text}
               </p>
@@ -687,34 +722,34 @@ export default function ResourceCard({
           )}
 
           {resource.enrichment_warning && (
-            <div className={cn('flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2', (isCompactGrid || isCompactGallery) && 'gap-1.5 px-2.5 py-1.5')}>
+            <div className={cn('flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2', isCompactCard && 'gap-1.5 px-2.5 py-1.5')}>
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300" />
-              <p className={cn('line-clamp-2 text-[11px] leading-relaxed text-amber-100/80', (isCompactGrid || isCompactGallery) && 'text-[10px] leading-5')}>
+              <p className={cn('line-clamp-2', CARD_TYPOGRAPHY.warning, isCompactCard && CARD_TYPOGRAPHY.warningCompact)}>
                 {resource.enrichment_warning}
               </p>
             </div>
           )}
 
-          <div className={cn('flex items-center gap-1 flex-wrap', (isCompactGrid || isCompactGallery) && 'gap-0.5')}>
+          <div className={cn('flex items-center gap-1 flex-wrap', isCompactCard && 'gap-0.5')}>
             {area && (
-              <span className={cn('inline-flex items-center gap-0.5 rounded-full bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-medium text-violet-400/80', (isCompactGrid || isCompactGallery) && 'px-1 py-0.5 text-[9px]')}>
+              <span className={cn('inline-flex items-center gap-0.5 rounded-full bg-violet-500/10 px-1.5 py-0.5 text-violet-400/80', CARD_TYPOGRAPHY.badge, isCompactCard && 'px-1 py-0.5', isCompactCard && CARD_TYPOGRAPHY.badgeCompact)}>
                 <span>{area.icon}</span> {area.name}
               </span>
             )}
             {safeMainTopic && (
-              <span className={cn('inline-block rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary/80', (isCompactGrid || isCompactGallery) && 'px-1 py-0.5 text-[9px]')}>
+              <span className={cn('inline-block rounded-full bg-primary/10 px-1.5 py-0.5 text-primary/80', CARD_TYPOGRAPHY.badge, isCompactCard && 'px-1 py-0.5', isCompactCard && CARD_TYPOGRAPHY.badgeCompact)}>
                 {safeMainTopic}
               </span>
             )}
             {resource.is_archived && (
-              <span className={cn('inline-block rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-400/80', (isCompactGrid || isCompactGallery) && 'px-1 py-0.5 text-[9px]')}>
+              <span className={cn('inline-block rounded-full bg-amber-500/10 px-1.5 py-0.5 text-amber-400/80', CARD_TYPOGRAPHY.badge, isCompactCard && 'px-1 py-0.5', isCompactCard && CARD_TYPOGRAPHY.badgeCompact)}>
                 Archived
               </span>
             )}
           </div>
 
           {galleryTags.length > 0 && (
-            <div className={cn('flex items-center gap-1.5 flex-wrap', (isCompactGrid || isCompactGallery) && 'gap-1')}>
+            <div className={cn('flex items-center gap-1.5 flex-wrap', isCompactCard && 'gap-1')}>
               {galleryTags.map(tag => (
                 <button
                   key={tag}
@@ -724,29 +759,30 @@ export default function ResourceCard({
                     onTagClick?.(tag);
                   }}
                   className={cn(
-                    'rounded-full bg-secondary/80 px-1.5 py-0.5 text-[10px] text-muted-foreground/80 transition-colors hover:bg-primary/10 hover:text-primary focus:outline-none focus:ring-1 focus:ring-primary/50',
-                    (isCompactGrid || isCompactGallery) && 'px-1 py-0.5 text-[9px]',
+                    'rounded-full bg-secondary/80 px-1.5 py-0.5 text-muted-foreground/80 transition-colors hover:bg-primary/10 hover:text-primary focus:outline-none focus:ring-1 focus:ring-primary/50',
+                    CARD_TYPOGRAPHY.badge,
+                    isCompactCard && 'px-1 py-0.5',
+                    isCompactCard && CARD_TYPOGRAPHY.badgeCompact,
                   )}
                 >
                   #{tag}
                 </button>
               ))}
               {galleryTagOverflow > 0 && (
-                <span className={cn('text-[10px] text-muted-foreground', (isCompactGrid || isCompactGallery) && 'text-[9px]')}>+{galleryTagOverflow}</span>
+                <span className={cn('text-muted-foreground', CARD_TYPOGRAPHY.badge, isCompactCard && CARD_TYPOGRAPHY.badgeCompact)}>+{galleryTagOverflow}</span>
               )}
             </div>
           )}
 
-          <div className={cn('flex items-center justify-between border-t border-border/30 pt-2', (isCompactGrid || isCompactGallery) && 'pt-1.5')}>
+          <div className={cn('flex items-center justify-between border-t border-border/30 pt-2', isCompactCard && 'pt-1.5')}>
             <span className={cn(
-              'text-[10px] tracking-[0.16em] text-muted-foreground/80 uppercase',
-              isGallery && 'text-[9px] tracking-[0.12em]',
-              (isCompactGrid || isCompactGallery) && 'text-[9px] tracking-[0.12em]',
+              CARD_TYPOGRAPHY.footer,
+              isCompactCard && CARD_TYPOGRAPHY.footerCompact,
               isFeatured && 'text-foreground/65',
             )}>
               {resource.created_date ? format(new Date(resource.created_date), 'MMM d, yyyy') : ''}
             </span>
-            <div className={cn('flex items-center gap-1.5', (isCompactGrid || isCompactGallery) && 'gap-1')}>
+            <div className={cn('flex items-center gap-1.5', isCompactCard && 'gap-1')}>
               {showRetryButton && (
                 <button
                   type="button"
@@ -759,7 +795,7 @@ export default function ResourceCard({
                   }}
                   className={cn(
                     'inline-flex h-6 w-6 items-center justify-center rounded-md border border-border/60 text-muted-foreground/70 transition-colors hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60',
-                    (isCompactGrid || isCompactGallery) && 'h-5 w-5',
+                    isCompactCard && 'h-5 w-5',
                   )}
                 >
                   <RefreshCw className={cn('h-3 w-3', retryLoading && 'animate-spin')} />
