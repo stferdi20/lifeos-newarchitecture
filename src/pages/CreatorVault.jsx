@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Users, Search, Trash2, ExternalLink, Plus } from 'lucide-react';
 import { CreatorInspo } from '@/lib/creator-api';
@@ -23,17 +23,44 @@ const PLATFORM_CONFIG = {
 function CreatorCard({ creator, onDelete }) {
   const cfg = PLATFORM_CONFIG[creator.platform] || PLATFORM_CONFIG.other;
   const profileUrl = cfg.urlBase ? `${cfg.urlBase}${creator.handle}` : null;
+  const [imageFailed, setImageFailed] = useState(false);
+  const cleanedHandle = String(creator.handle || '').replace(/^@/, '').trim();
+  const monogram = cleanedHandle
+    .split(/[\s._-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(part => part[0]?.toUpperCase())
+    .join('') || cfg.icon;
+  const showProfileImage = Boolean(creator.profile_picture_url) && !imageFailed;
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [creator.profile_picture_url]);
 
   return (
     <div className="group rounded-xl bg-secondary/20 border border-border/30 hover:border-border/50 p-4 transition-all">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
-          {creator.profile_picture_url ? (
-            <img src={creator.profile_picture_url} alt={creator.handle}
-              className="w-10 h-10 rounded-xl object-cover shrink-0 border border-border/30" />
+          {showProfileImage ? (
+            <img
+              src={creator.profile_picture_url}
+              alt={creator.handle}
+              onError={() => setImageFailed(true)}
+              className="w-10 h-10 rounded-xl object-cover shrink-0 border border-border/30"
+            />
           ) : (
-            <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0 border', cfg.color)}>
-              {cfg.icon}
+            <div className={cn(
+              'w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border overflow-hidden',
+              cfg.color,
+            )}>
+              <div className="flex h-full w-full flex-col items-center justify-center bg-gradient-to-br from-white/10 via-white/5 to-transparent">
+                <span className="text-xs font-semibold tracking-[0.18em] leading-none">
+                  {monogram}
+                </span>
+                <span className="mt-0.5 text-[8px] leading-none opacity-70">
+                  {cfg.label.slice(0, 2).toUpperCase()}
+                </span>
+              </div>
             </div>
           )}
           <div className="min-w-0">
