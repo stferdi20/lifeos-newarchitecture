@@ -1,5 +1,6 @@
 import { HttpError } from '../lib/http.js';
 import { getServiceRoleClient } from '../lib/supabase.js';
+import { getMediaDuplicateMatch as getServerMediaDuplicateMatch } from './media-duplicates.js';
 
 export const GENERIC_COMPAT_ENTITIES = new Set([
   'Habit',
@@ -148,6 +149,40 @@ async function fetchRows(userId, entityType) {
   return (result.data || []).map(normalizeStoredRecord);
 }
 
+async function createCompatEntityRecord(userId, entityType, payload = {}, existingRows = null) {
+  const admin = getServiceRoleClient();
+  const record = withEntityMetadata(payload);
+
+  if (entityType === 'MediaEntry') {
+    const rows = existingRows || await fetchRows(userId, entityType);
+    const duplicate = getServerMediaDuplicateMatch(record, rows);
+
+    if (duplicate?.entry) {
+      return {
+        ...duplicate.entry,
+        deduped: true,
+        duplicate_of: duplicate.entry.id,
+        duplicate_match_type: duplicate.matchType,
+      };
+    }
+  }
+
+  const result = await admin
+    .from('legacy_entity_records')
+    .upsert({
+      entity_type: entityType,
+      owner_user_id: userId,
+      record_id: record.id,
+      data: record,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'entity_type,owner_user_id,record_id' })
+    .select('record_id,data,created_at,updated_at')
+    .single();
+
+  if (result.error) throw new HttpError(500, result.error.message);
+  return normalizeStoredRecord(result.data);
+}
+
 export async function listCompatEntities(userId, entityType, options = {}) {
   assertEntity(entityType);
   const filter = options.filter || {};
@@ -181,48 +216,49 @@ export async function getCompatEntity(userId, entityType, recordId) {
 
 export async function createCompatEntity(userId, entityType, payload = {}) {
   assertEntity(entityType);
-  const admin = getServiceRoleClient();
-  const record = withEntityMetadata(payload);
-
-  const result = await admin
-    .from('legacy_entity_records')
-    .upsert({
-      entity_type: entityType,
-      owner_user_id: userId,
-      record_id: record.id,
-      data: record,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'entity_type,owner_user_id,record_id' })
-    .select('record_id,data,created_at,updated_at')
-    .single();
-
-  if (result.error) throw new HttpError(500, result.error.message);
-  return normalizeStoredRecord(result.data);
+  return createCompatEntityRecord(userId, entityType, payload);
 }
 
 export async function bulkCreateCompatEntities(userId, entityType, payload = []) {
   assertEntity(entityType);
-  const admin = getServiceRoleClient();
-  const now = new Date().toISOString();
-  const records = (Array.isArray(payload) ? payload : [])
-    .map((entry) => withEntityMetadata(entry))
-    .map((entry) => ({
-      entity_type: entityType,
-      owner_user_id: userId,
-      record_id: entry.id,
-      data: entry,
-      updated_at: now,
-    }));
+  const entries = Array.isArray(payload) ? payload : [];
+  if (!entries.length) return [];
 
-  if (!records.length) return [];
+  if (entityType !== 'MediaEntry') {
+    const admin = getServiceRoleClient();
+    const now = new Date().toISOString();
+    const records = entries
+      .map((entry) => withEntityMetadata(entry))
+      .map((entry) => ({
+        entity_type: entityType,
+        owner_user_id: userId,
+        record_id: entry.id,
+        data: entry,
+        updated_at: now,
+      }));
 
-  const result = await admin
-    .from('legacy_entity_records')
-    .upsert(records, { onConflict: 'entity_type,owner_user_id,record_id' })
-    .select('record_id,data,created_at,updated_at');
+    const result = await admin
+      .from('legacy_entity_records')
+      .upsert(records, { onConflict: 'entity_type,owner_user_id,record_id' })
+      .select('record_id,data,created_at,updated_at');
 
-  if (result.error) throw new HttpError(500, result.error.message);
-  return (result.data || []).map(normalizeStoredRecord);
+    if (result.error) throw new HttpError(500, result.error.message);
+    return (result.data || []).map(normalizeStoredRecord);
+  }
+
+  const created = [];
+  const existingRows = await fetchRows(userId, entityType);
+
+  for (const entry of entries) {
+    const record = await createCompatEntityRecord(userId, entityType, entry, existingRows);
+    created.push(record);
+
+    if (record?.id && !record?.deduped) {
+      existingRows.unshift(record);
+    }
+  }
+
+  return created;
 }
 
 export async function updateCompatEntity(userId, entityType, recordId, payload = {}) {

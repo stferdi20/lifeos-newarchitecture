@@ -1,4 +1,4 @@
-import { EXPECTED_MEDIA_BACKEND_VERSION } from './mediaBackendVersion';
+import { EXPECTED_MEDIA_BACKEND_VERSION } from './mediaBackendVersion.js';
 
 export const MEDIA_PAGE_SIZE = 60;
 export const INITIAL_MEDIA_RENDER_COUNT = 24;
@@ -245,6 +245,155 @@ export function buildMediaExactQuery(typeFilter, statusFilter) {
 
 export function normalizeMediaSearch(value) {
   return value.trim().toLowerCase();
+}
+
+function normalizeMediaDuplicateText(value = '') {
+  return String(value || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/['"`]/g, '')
+    .replace(/\b(?:season|series|book|volume|vol\.?|part)\s+\d+\b/gi, ' ')
+    .replace(/\s*\((?:19|20)\d{2}\)\s*$/g, '')
+    .replace(/\s+(?:19|20)\d{2}\s*$/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function normalizeMediaDuplicateId(value = '') {
+  const raw = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/['"`]/g, '');
+
+  if (!raw) return '';
+
+  const parts = raw.split(':').map((part) => part.trim()).filter(Boolean);
+  const idPart = parts.length > 1 ? parts[parts.length - 1] : raw;
+
+  return idPart
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function normalizeMediaDuplicateTitle(value = '') {
+  return normalizeMediaDuplicateText(value);
+}
+
+export function getMediaEntryCanonicalYear(entry = {}) {
+  const candidates = [
+    entry?.year_released,
+    entry?.year_consumed,
+  ];
+
+  for (const candidate of candidates) {
+    if (candidate == null || candidate === '') continue;
+
+    const numeric = typeof candidate === 'number'
+      ? candidate
+      : Number.parseInt(String(candidate).slice(0, 4), 10);
+
+    if (Number.isFinite(numeric) && numeric > 0) {
+      return numeric;
+    }
+  }
+
+  return null;
+}
+
+export function getMediaDuplicateProviderKey(entry = {}) {
+  const provider = normalizeMediaDuplicateText(entry?.primary_provider || entry?.provider || '');
+  const externalId = normalizeMediaDuplicateId(entry?.external_id || '');
+
+  if (!provider || !externalId) {
+    return '';
+  }
+
+  return `${provider}:${externalId}`;
+}
+
+function getMediaDuplicateExternalIdKey(entry = {}) {
+  const externalId = normalizeMediaDuplicateId(entry?.external_id || '');
+  if (!externalId) return '';
+
+  const mediaType = normalizeMediaDuplicateText(entry?.media_type || '');
+  return mediaType ? `${mediaType}:${externalId}` : externalId;
+}
+
+export function getMediaDuplicateTitleKey(entry = {}) {
+  const mediaType = normalizeMediaDuplicateText(entry?.media_type || '');
+  const title = normalizeMediaDuplicateTitle(entry?.title || '');
+
+  if (!mediaType || !title) return '';
+  return `${mediaType}:${title}`;
+}
+
+export function getMediaDuplicateMatch(candidate, existingEntries = []) {
+  const normalizedCandidate = normalizeMediaEntry(candidate);
+  const entries = normalizeMediaEntries(existingEntries);
+
+  if (!normalizedCandidate) return null;
+
+  const providerKey = getMediaDuplicateProviderKey(normalizedCandidate);
+  if (providerKey) {
+    const providerMatch = entries.find((entry) => getMediaDuplicateProviderKey(entry) === providerKey);
+    if (providerMatch) {
+      return {
+        entry: providerMatch,
+        matchType: 'provider',
+      };
+    }
+  }
+
+  const externalIdKey = getMediaDuplicateExternalIdKey(normalizedCandidate);
+  if (externalIdKey) {
+    const externalMatch = entries.find((entry) => getMediaDuplicateExternalIdKey(entry) === externalIdKey);
+    if (externalMatch) {
+      return {
+        entry: externalMatch,
+        matchType: 'external_id',
+      };
+    }
+  }
+
+  const titleKey = getMediaDuplicateTitleKey(normalizedCandidate);
+  if (!titleKey) return null;
+
+  const titleMatches = entries.filter((entry) => getMediaDuplicateTitleKey(entry) === titleKey);
+  if (!titleMatches.length) return null;
+
+  const candidateYear = getMediaEntryCanonicalYear(normalizedCandidate);
+  if (candidateYear != null) {
+    const yearMatch = titleMatches.find((entry) => getMediaEntryCanonicalYear(entry) === candidateYear);
+    if (yearMatch) {
+      return {
+        entry: yearMatch,
+        matchType: 'title_year',
+      };
+    }
+  }
+
+  return {
+    entry: titleMatches[0],
+    matchType: 'title',
+  };
+}
+
+export function getMediaDuplicateLabel(match) {
+  if (!match) return '';
+
+  switch (match.matchType) {
+    case 'provider':
+      return 'Already saved';
+    case 'external_id':
+      return 'Already saved';
+    case 'title_year':
+      return 'Already saved';
+    default:
+      return 'Already saved';
+  }
 }
 
 export function matchesMediaLibraryFilters(entry, { typeFilter = 'all', statusFilter = 'all', searchQuery = '' } = {}) {

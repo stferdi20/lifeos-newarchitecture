@@ -2,13 +2,22 @@ import React, { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, Sparkles, CheckCircle2, XCircle, ListPlus, ArrowRight, Wand2, AlertTriangle, SearchCheck } from 'lucide-react';
+import { Loader2, Sparkles, CheckCircle2, XCircle, ListPlus, ArrowRight, Wand2, AlertTriangle, SearchCheck, BadgeCheck } from 'lucide-react';
 import { MediaEntry } from '@/lib/media-api';
 import { cn } from '@/lib/utils';
 import { TYPE_CONFIG, getStatusOptions } from './mediaConfig';
 import { resolveBulkMediaMatch } from './searchMedia';
 import { enrichMediaEntry } from './enrichMedia';
-import { getPreferredPlayedOn, mergeDefinedMediaFields, mergeProviderMediaFields, needsMediaReenrichment, normalizeMediaEntry } from './mediaUtils';
+import {
+  getMediaDuplicateLabel,
+  getMediaDuplicateMatch,
+  getPreferredPlayedOn,
+  mergeDefinedMediaFields,
+  mergeProviderMediaFields,
+  needsMediaReenrichment,
+  normalizeMediaEntries,
+  normalizeMediaEntry,
+} from './mediaUtils';
 import { ResponsiveModal, ResponsiveModalContent, ResponsiveModalHeader, ResponsiveModalTitle } from '@/components/ui/responsive-modal';
 
 const SEARCH_CONCURRENCY = 4;
@@ -27,7 +36,13 @@ async function runWithConcurrency(items, worker, concurrency = SEARCH_CONCURRENC
   await Promise.all(workers);
 }
 
-export default function BulkAddMediaModal({ open, onClose, onCreated }) {
+export default function BulkAddMediaModal({
+  open,
+  onClose,
+  onCreated,
+  existingEntries = [],
+  onOpenExisting,
+}) {
   const [titleText, setTitleText] = useState('');
   const [mediaType, setMediaType] = useState('movie');
   const [status, setStatus] = useState('plan_to_watch');
@@ -35,6 +50,7 @@ export default function BulkAddMediaModal({ open, onClose, onCreated }) {
   const [phase, setPhase] = useState('input');
   const [results, setResults] = useState([]);
   const [enrichMode, setEnrichMode] = useState('always');
+  const normalizedExistingEntries = useMemo(() => normalizeMediaEntries(existingEntries), [existingEntries]);
 
   const parseTitles = (text) => {
     return text
@@ -50,9 +66,21 @@ export default function BulkAddMediaModal({ open, onClose, onCreated }) {
     [results],
   );
   const canSubmitReview = reviewItems.length > 0 && reviewItems.every((item) => item.selectedChoice);
-  const allDone = results.length > 0 && results.every((item) => item.status === 'success' || item.status === 'error');
+  const allDone = results.length > 0 && results.every((item) => (
+    item.status === 'success'
+    || item.status === 'duplicate'
+    || item.status === 'error'
+  ));
   const successCount = results.filter(r => r.status === 'success').length;
   const failedCount = results.filter((result) => result.status === 'error').length;
+  const duplicateCount = results.filter((result) => result.status === 'duplicate').length;
+  const getDuplicateMatch = (entry) => getMediaDuplicateMatch(entry, normalizedExistingEntries);
+
+  const openDuplicateEntry = (entry) => {
+    if (!entry) return;
+    onOpenExisting?.(entry);
+    onClose();
+  };
 
   const buildManualEntry = (title) => ({
     title,
@@ -132,8 +160,32 @@ export default function BulkAddMediaModal({ open, onClose, onCreated }) {
 
         entryToCreate = finalizeEntryForCreate(entryToCreate);
 
+        const duplicateMatch = getDuplicateMatch(entryToCreate);
+        if (duplicateMatch?.entry) {
+          updateResultAt(index, (result) => ({
+            ...result,
+            status: 'duplicate',
+            duplicateEntry: duplicateMatch.entry,
+            duplicateReason: getMediaDuplicateLabel(duplicateMatch),
+            errorMessage: '',
+          }));
+          return;
+        }
+
         updateResultAt(index, (result) => ({ ...result, status: 'saving', finalEntry: entryToCreate }));
         const created = await MediaEntry.create(entryToCreate);
+
+        if (created?.deduped) {
+          updateResultAt(index, (result) => ({
+            ...result,
+            status: 'duplicate',
+            duplicateEntry: created,
+            duplicateReason: getMediaDuplicateLabel({ matchType: created.duplicate_match_type || 'title' }),
+            errorMessage: '',
+          }));
+          return;
+        }
+
         successTotal += 1;
         updateResultAt(index, (result) => ({
           ...result,
@@ -435,6 +487,7 @@ export default function BulkAddMediaModal({ open, onClose, onCreated }) {
                   <div key={i} className={cn(
                     'rounded-lg border px-3 py-2 text-sm',
                     r.status === 'success' && 'bg-emerald-500/5 border-emerald-500/20',
+                    r.status === 'duplicate' && 'bg-emerald-500/5 border-emerald-500/20',
                     r.status === 'error' && 'bg-red-500/5 border-red-500/20',
                     r.status === 'loading' && 'bg-violet-500/5 border-violet-500/20',
                     r.status === 'saving' && 'bg-violet-500/5 border-violet-500/20',
@@ -445,6 +498,7 @@ export default function BulkAddMediaModal({ open, onClose, onCreated }) {
                     <div className="flex items-center gap-2">
                       {(r.status === 'loading' || r.status === 'saving' || r.status === 'enriching') && <Loader2 className="w-3.5 h-3.5 text-violet-400 animate-spin shrink-0" />}
                       {r.status === 'success' && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />}
+                      {r.status === 'duplicate' && <BadgeCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />}
                       {r.status === 'error' && <XCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />}
                       {r.status === 'review' && <AlertTriangle className="w-3.5 h-3.5 text-amber-300 shrink-0" />}
                       {r.status === 'pending' && <div className="w-3.5 h-3.5 rounded-full border-2 border-muted-foreground/20 shrink-0" />}
@@ -508,6 +562,28 @@ export default function BulkAddMediaModal({ open, onClose, onCreated }) {
                         Added, but enrichment could not complete: {r.errorMessage}
                       </p>
                     )}
+
+                    {r.status === 'duplicate' && (
+                      <div className="mt-2 flex items-center justify-between gap-2 rounded-md bg-black/10 px-2 py-2 text-xs text-emerald-100">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <BadgeCheck className="h-3.5 w-3.5 shrink-0 text-emerald-300" />
+                          <span className="truncate">
+                            {r.duplicateReason || 'Already saved'}
+                          </span>
+                        </div>
+                        {r.duplicateEntry && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-7 border-emerald-500/20 bg-emerald-500/10 px-2 text-[11px] text-emerald-100 hover:bg-emerald-500/20"
+                            onClick={() => openDuplicateEntry(r.duplicateEntry)}
+                          >
+                            Open saved
+                          </Button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -540,7 +616,7 @@ export default function BulkAddMediaModal({ open, onClose, onCreated }) {
               {allDone && (
                 <div className="flex items-center justify-between gap-2 pt-2">
                   <span className="text-xs text-muted-foreground">
-                    {successCount}/{results.length} added successfully
+                    {successCount}/{results.length} added successfully{duplicateCount ? ` · ${duplicateCount} already saved` : ''}
                   </span>
                   <div className="flex items-center gap-2">
                     {failedCount > 0 && (

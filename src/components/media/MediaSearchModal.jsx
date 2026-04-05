@@ -1,10 +1,18 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Input } from '@/components/ui/input';
-import { Search, Loader2, Film, Tv, Sword, BookOpen, Gamepad2, BookMarked, Layers, AlertTriangle, Sparkles } from 'lucide-react';
+import { Search, Loader2, Film, Tv, Sword, BookOpen, Gamepad2, BookMarked, Layers, AlertTriangle, Sparkles, BadgeCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getMediaTypeHealthMessage, searchMediaByType } from './searchMedia';
 import { enrichMediaEntry } from './enrichMedia';
-import { getPreferredPlayedOn, mergeProviderMediaFields, needsMediaReenrichment, normalizeMediaEntry } from './mediaUtils';
+import {
+  getMediaDuplicateLabel,
+  getMediaDuplicateMatch,
+  getPreferredPlayedOn,
+  mergeProviderMediaFields,
+  needsMediaReenrichment,
+  normalizeMediaEntry,
+  normalizeMediaEntries,
+} from './mediaUtils';
 import { ResponsiveModal, ResponsiveModalContent, ResponsiveModalHeader, ResponsiveModalTitle } from '@/components/ui/responsive-modal';
 import { MediaEntry } from '@/lib/media-api';
 import { toast } from 'sonner';
@@ -23,7 +31,14 @@ function getActionError(error, fallbackMessage) {
   return error instanceof Error ? error.message : fallbackMessage;
 }
 
-export default function MediaSearchModal({ open, onClose, onCreated, mediaHealth = null }) {
+export default function MediaSearchModal({
+  open,
+  onClose,
+  onCreated,
+  mediaHealth = null,
+  existingEntries = [],
+  onOpenExisting,
+}) {
   const [activeType, setActiveType] = useState('movie');
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
@@ -36,6 +51,9 @@ export default function MediaSearchModal({ open, onClose, onCreated, mediaHealth
   const [pendingFallbackEntry, setPendingFallbackEntry] = useState(null);
   const requestIdRef = useRef(0);
   const backendHealthMessage = getMediaTypeHealthMessage(activeType, mediaHealth);
+  const normalizedExistingEntries = useMemo(() => normalizeMediaEntries(existingEntries), [existingEntries]);
+
+  const getDuplicateMatch = (entry) => getMediaDuplicateMatch(entry, normalizedExistingEntries);
 
   const handleQueryChange = (val) => {
     setQuery(val);
@@ -75,19 +93,39 @@ export default function MediaSearchModal({ open, onClose, onCreated, mediaHealth
     requestIdRef.current += 1;
   };
 
+  const openDuplicateEntry = (entry) => {
+    if (!entry) return;
+    onOpenExisting?.(entry);
+    handleClose();
+  };
+
   const handleManualAdd = async () => {
     if (!manualTitle.trim()) return;
+
+    const manualEntry = normalizeMediaEntry({
+      title: manualTitle.trim(),
+      media_type: activeType,
+      status: 'plan_to_watch',
+      year_consumed: new Date().getFullYear(),
+    });
+    const duplicateMatch = getDuplicateMatch(manualEntry);
+    if (duplicateMatch?.entry) {
+      toast.info('That title is already saved. Opening the existing entry.');
+      openDuplicateEntry(duplicateMatch.entry);
+      return;
+    }
 
     setSavingKey(`manual:${activeType}`);
     setActionError('');
 
     try {
-      const created = await MediaEntry.create({
-        title: manualTitle.trim(),
-        media_type: activeType,
-        status: 'plan_to_watch',
-        year_consumed: new Date().getFullYear(),
-      });
+      const created = await MediaEntry.create(manualEntry);
+
+      if (created?.deduped) {
+        toast.info('That title was already saved. Opening the existing entry.');
+        openDuplicateEntry(created);
+        return;
+      }
 
       onCreated?.(created);
       toast.success(`Added "${created.title}" as a manual ${activeType} entry.`);
@@ -144,7 +182,21 @@ export default function MediaSearchModal({ open, onClose, onCreated, mediaHealth
         }
       }
 
+      const duplicateMatch = getDuplicateMatch(nextEntry);
+      if (duplicateMatch?.entry) {
+        toast.info('That media is already saved. Opening the existing entry.');
+        openDuplicateEntry(duplicateMatch.entry);
+        return;
+      }
+
       const created = await MediaEntry.create(nextEntry);
+
+      if (created?.deduped) {
+        toast.info('That media was already saved. Opening the existing entry.');
+        openDuplicateEntry(created);
+        return;
+      }
+
       onCreated?.(created);
       toast.success(`Added "${created.title}".`);
       resetAfterCreate();
@@ -318,44 +370,78 @@ export default function MediaSearchModal({ open, onClose, onCreated, mediaHealth
             </div>
           )}
           {results.map((r, i) => (
-            <div key={String(r.external_id || r.title || i)} className="flex items-center gap-3 p-3 rounded-xl bg-secondary/20 hover:bg-secondary/40 transition-colors border border-border/30">
-              {r.poster_url ? (
-                <img src={r.poster_url} alt={r.title} className="w-10 h-14 object-cover rounded-lg shrink-0 bg-secondary" />
-              ) : (
-                <div className="w-10 h-14 rounded-lg bg-secondary/60 flex items-center justify-center shrink-0">
-                  <Film className="w-4 h-4 text-muted-foreground" />
-                </div>
-              )}
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{r.title}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {r.year_released && <span>{r.year_released}</span>}
-                  {r.studio_author && <span className="ml-2">{r.studio_author}</span>}
-                  {r.genres?.length > 0 && <span className="ml-2">{r.genres.slice(0, 2).join(', ')}</span>}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => createFromSuggestion(r)}
-                disabled={Boolean(savingKey)}
-                className="shrink-0 rounded-lg bg-primary/10 px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/20 disabled:opacity-50"
-              >
-                {savingKey === String(r.external_id || r.title || '') ? (
-                  <span className="flex items-center gap-2">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    Enriching
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-2">
-                    <Sparkles className="h-3.5 w-3.5" />
-                    Add
-                  </span>
-                )}
-              </button>
-            </div>
+            <MediaSearchResultRow
+              key={String(r.external_id || r.title || i)}
+              result={r}
+              duplicateMatch={getDuplicateMatch(r)}
+              onAdd={() => createFromSuggestion(r)}
+              onOpenExisting={openDuplicateEntry}
+              savingKey={savingKey}
+            />
           ))}
         </div>
       </ResponsiveModalContent>
     </ResponsiveModal>
+  );
+}
+
+function MediaSearchResultRow({ result, duplicateMatch, onAdd, onOpenExisting, savingKey }) {
+  const isDuplicate = Boolean(duplicateMatch?.entry);
+  const actionLabel = isDuplicate ? 'Open saved' : 'Add';
+  const actionKey = String(result.external_id || result.title || '');
+
+  return (
+    <div className="flex items-center gap-3 p-3 rounded-xl bg-secondary/20 hover:bg-secondary/40 transition-colors border border-border/30">
+      {result.poster_url ? (
+        <img
+          src={result.poster_url}
+          alt={result.title}
+          className="w-10 h-14 object-cover rounded-lg shrink-0 bg-secondary"
+        />
+      ) : (
+        <div className="w-10 h-14 rounded-lg bg-secondary/60 flex items-center justify-center shrink-0">
+          <Film className="w-4 h-4 text-muted-foreground" />
+        </div>
+      )}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-medium truncate">{result.title}</p>
+          {isDuplicate && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-200">
+              <BadgeCheck className="h-3 w-3" />
+              {getMediaDuplicateLabel(duplicateMatch)}
+            </span>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          {result.year_released && <span>{result.year_released}</span>}
+          {result.studio_author && <span className="ml-2">{result.studio_author}</span>}
+          {result.genres?.length > 0 && <span className="ml-2">{result.genres.slice(0, 2).join(', ')}</span>}
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={() => (isDuplicate ? onOpenExisting?.(duplicateMatch.entry) : onAdd())}
+        disabled={Boolean(savingKey)}
+        className={cn(
+          'shrink-0 rounded-lg px-3 py-2 text-xs font-medium transition-colors disabled:opacity-50',
+          isDuplicate
+            ? 'bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20'
+            : 'bg-primary/10 text-primary hover:bg-primary/20',
+        )}
+      >
+        {savingKey === actionKey ? (
+          <span className="flex items-center gap-2">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            {isDuplicate ? 'Opening' : 'Enriching'}
+          </span>
+        ) : (
+          <span className="flex items-center gap-2">
+            {isDuplicate ? <BadgeCheck className="h-3.5 w-3.5" /> : <Sparkles className="h-3.5 w-3.5" />}
+            {actionLabel}
+          </span>
+        )}
+      </button>
+    </div>
   );
 }

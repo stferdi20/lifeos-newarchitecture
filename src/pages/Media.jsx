@@ -53,7 +53,19 @@ const STATUS_FILTERS = [
   { key: 'dropped', label: 'Dropped' },
 ];
 
-const MEDIA_SUMMARY_FIELDS = ['id', 'media_type', 'status', 'year_consumed'];
+const MEDIA_DUPLICATE_FIELDS = [
+  'id',
+  'title',
+  'media_type',
+  'status',
+  'year_consumed',
+  'year_released',
+  'external_id',
+  'source_url',
+  'primary_provider',
+  'secondary_providers',
+  'created_date',
+];
 const MEDIA_ENTRY_FIELDS = [
   'id',
   'title',
@@ -142,7 +154,7 @@ export default function Media() {
   const { data: summaryEntries = [], isLoading: summaryLoading } = useQuery({
     queryKey: ['mediaSummary'],
     queryFn: async () => normalizeMediaEntries(
-      await MediaEntry.list('-created_date', 5000, 0, MEDIA_SUMMARY_FIELDS),
+      await MediaEntry.list('-created_date', 5000, 0, MEDIA_DUPLICATE_FIELDS),
     ),
     initialData: [],
     staleTime: 1000 * 60 * 10,
@@ -360,6 +372,16 @@ export default function Media() {
     queryClient.invalidateQueries({ queryKey: ['mediaSummary'] });
     queryClient.invalidateQueries({ queryKey: ['mediaYearly'] });
   }, [normalizedSearchQuery, queryClient, selectedYear, statusFilter, typeFilter]);
+
+  const handleOpenExistingMedia = useCallback((entry) => {
+    const normalizedEntry = normalizeMediaEntry(entry);
+    if (!normalizedEntry?.id) return;
+
+    setShowSearch(false);
+    setShowBulkAdd(false);
+    setSelectedEntry(normalizedEntry);
+    setShowDetail(true);
+  }, []);
 
   const handleCardClick = useCallback((entry) => {
     const normalizedEntry = normalizeMediaEntry(entry);
@@ -834,6 +856,8 @@ export default function Media() {
             onClose={() => setShowSearch(false)}
             onCreated={handleMediaCreated}
             mediaHealth={mediaHealthQuery.data}
+            existingEntries={summaryEntries}
+            onOpenExisting={handleOpenExistingMedia}
           />
         )}
       </Suspense>
@@ -843,6 +867,8 @@ export default function Media() {
           <BulkAddMediaModal
             open={showBulkAdd}
             onClose={() => setShowBulkAdd(false)}
+            existingEntries={summaryEntries}
+            onOpenExisting={handleOpenExistingMedia}
             onCreated={() => {
               queryClient.invalidateQueries({ queryKey: ['mediaSummary'] });
               queryClient.invalidateQueries({ queryKey: ['mediaLibrary'] });
