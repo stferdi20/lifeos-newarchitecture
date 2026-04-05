@@ -6,6 +6,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
 import { listBoardWorkspaces } from '@/lib/projects-api';
 import { CardResource, LifeArea, ProjectResource, Resource, reEnrichResources, retryResourceCapture } from '@/lib/resources-api';
 import { retryInstagramDownloadForResource } from '@/lib/instagram-downloader-api';
