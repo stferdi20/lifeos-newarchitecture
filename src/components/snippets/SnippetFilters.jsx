@@ -43,8 +43,8 @@ export default function SnippetFilters({
   onReset,
 }) {
   return (
-    <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4 sm:p-5">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.6fr)_repeat(4,minmax(0,1fr))_auto]">
+    <div className="self-start rounded-3xl border border-white/10 bg-white/[0.03] p-4 sm:p-5">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(17rem,1.45fr)_repeat(4,minmax(11rem,1fr))_auto]">
         <Input
           id={searchInputId}
           value={search}
@@ -107,12 +107,7 @@ export default function SnippetFilters({
           </SelectContent>
         </Select>
 
-        <Button
-          type="button"
-          variant="outline"
-          onClick={onReset}
-          className="border-white/10 bg-transparent sm:col-span-2 lg:col-span-1"
-        >
+        <Button type="button" variant="outline" onClick={onReset} className="border-white/10 bg-transparent sm:col-span-2 xl:col-span-1">
           Reset
         </Button>
       </div>
