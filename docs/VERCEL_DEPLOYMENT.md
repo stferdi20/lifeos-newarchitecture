@@ -51,6 +51,8 @@ GOOGLE_OAUTH_STATE_SECRET=
 GOOGLE_TOKEN_ENCRYPTION_KEY=
 INSTAGRAM_DOWNLOADER_BASE_URL=
 INSTAGRAM_DOWNLOADER_SHARED_SECRET=
+YOUTUBE_TRANSCRIPT_WORKER_BASE_URL=
+YOUTUBE_TRANSCRIPT_WORKER_SHARED_SECRET=
 YTDLP_BIN=yt-dlp
 YTDLP_TIMEOUT_MS=20000
 ```
@@ -99,7 +101,7 @@ Important consequence:
 - if your local Python worker is already polling the backend for Instagram jobs, it can also process YouTube transcript jobs
 - Vercel does not need a public `yt-dlp` binary for this pattern
 - the worker does not need `yt-dlp` to succeed in the common path, but keeping it installed still gives you a rescue path for edge cases
-- `INSTAGRAM_DOWNLOADER_BASE_URL` is only needed if you want direct backend-to-worker calls instead of the queue-backed worker flow
+- `YOUTUBE_TRANSCRIPT_WORKER_BASE_URL` is only needed if you want direct backend-to-worker calls instead of the queue-backed worker flow
 - queue-backed YouTube backfill is still created even when direct worker calls are unavailable, so transcript recovery can resume later when the worker comes back online
 - the web app exposes YouTube transcript preferences and queue health in a separate Settings card, not inside the Instagram downloader panel
 

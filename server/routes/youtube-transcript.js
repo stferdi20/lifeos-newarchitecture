@@ -49,9 +49,10 @@ const settingsSchema = z.object({
 });
 
 function assertWorkerSecret(c) {
-  const expected = getServerEnv().INSTAGRAM_DOWNLOADER_SHARED_SECRET;
+  const env = getServerEnv();
+  const expected = env.YOUTUBE_TRANSCRIPT_WORKER_SHARED_SECRET || env.INSTAGRAM_DOWNLOADER_SHARED_SECRET;
   if (!expected) {
-    throw new HttpError(500, 'Instagram downloader shared secret is not configured.');
+    throw new HttpError(500, 'YouTube transcript worker shared secret is not configured.');
   }
 
   const provided = c.req.header('x-downloader-secret') || '';

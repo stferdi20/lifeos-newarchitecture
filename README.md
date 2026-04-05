@@ -75,9 +75,15 @@ INSTAGRAM_DOWNLOADER_BASE_URL=
 INSTAGRAM_DOWNLOADER_SHARED_SECRET=
 INSTAGRAM_DOWNLOADER_TIMEOUT_MS=120000
 INSTAGRAM_DOWNLOADER_STATUS_STALE_MS=90000
+YOUTUBE_TRANSCRIPT_WORKER_BASE_URL=
+YOUTUBE_TRANSCRIPT_WORKER_SHARED_SECRET=
+YOUTUBE_TRANSCRIPT_WORKER_TIMEOUT_MS=120000
+YOUTUBE_TRANSCRIPT_WORKER_STATUS_STALE_MS=90000
 YTDLP_BIN=yt-dlp
 YTDLP_TIMEOUT_MS=20000
 ```
+
+The `YOUTUBE_TRANSCRIPT_WORKER_*` names are the preferred settings for YouTube transcript access. The legacy `INSTAGRAM_DOWNLOADER_*` values still work as fallbacks for existing setups.
 
 OpenRouter is the primary backend LLM provider for resource enrichment. Gemini and Hugging Face remain available as fallbacks when their keys are configured.
 
@@ -131,7 +137,7 @@ YouTube transcript extraction now follows its own dedicated queue and settings p
 - your local Python worker can later fetch the transcript and upgrade the resource automatically
 - the Settings page has a separate "YouTube Transcript System" card so YouTube jobs no longer appear inside the Instagram downloader panel
 
-Direct worker calls through `INSTAGRAM_DOWNLOADER_BASE_URL` are still supported, but they are no longer required for the same local-worker pattern that Instagram already uses.
+Direct worker calls through `YOUTUBE_TRANSCRIPT_WORKER_BASE_URL` are supported, but they are no longer required for the same local-worker pattern that Instagram already uses.
 
 Generic URL capture now also supports an async queue-backed flow:
 
@@ -164,8 +170,8 @@ For Instagram reel preview images, make sure `ffmpeg` is installed on the Mac ru
 Then point the existing backend at it:
 
 ```bash
-INSTAGRAM_DOWNLOADER_BASE_URL=http://127.0.0.1:9001
-INSTAGRAM_DOWNLOADER_SHARED_SECRET=your-shared-secret
+YOUTUBE_TRANSCRIPT_WORKER_BASE_URL=http://127.0.0.1:9001
+YOUTUBE_TRANSCRIPT_WORKER_SHARED_SECRET=your-shared-secret
 ```
 
 That same worker now handles YouTube transcript extraction for the main backend, but YouTube transcript jobs live in their own queue and status surface. If your local worker is already polling the backend queue for Instagram jobs, it can also claim YouTube transcript jobs without needing Vercel to reach your machine directly.

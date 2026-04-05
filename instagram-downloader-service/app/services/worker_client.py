@@ -44,7 +44,10 @@ class WorkerLoop:
 
     @property
     def shared_secret(self) -> str:
-        return os.getenv("INSTAGRAM_DOWNLOADER_SHARED_SECRET", "").strip()
+        return (
+            os.getenv("YOUTUBE_TRANSCRIPT_WORKER_SHARED_SECRET", "").strip()
+            or os.getenv("INSTAGRAM_DOWNLOADER_SHARED_SECRET", "").strip()
+        )
 
     @property
     def poll_interval(self) -> float:

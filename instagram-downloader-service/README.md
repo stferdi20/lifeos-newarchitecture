@@ -49,6 +49,7 @@ Optional environment variables:
 ```bash
 INSTAGRAM_DOWNLOADER_DOWNLOAD_ROOT=./downloads
 INSTAGRAM_DOWNLOADER_SHARED_SECRET=
+YOUTUBE_TRANSCRIPT_WORKER_SHARED_SECRET=
 INSTAGRAM_COOKIES_FROM_BROWSER=
 INSTAGRAM_COOKIEFILE=
 INSTALOADER_USERNAME=
@@ -152,4 +153,4 @@ curl -X POST http://127.0.0.1:9001/youtube-transcript \
 - If you need to repair old Instagram rows, run the repo-level `npm run backfill:instagram-thumbnails` script from the main project root.
 - Your existing web app should call the current Node backend route, not this service directly. The app-facing route is `POST /api/resources/instagram-download`.
 - The main backend now uses the same worker for queued Instagram downloads and queued YouTube transcript jobs.
-- If `LIFEOS_API_BASE_URL` and `INSTAGRAM_DOWNLOADER_SHARED_SECRET` are set, the worker polls the backend queue and processes both job types automatically.
+- If `LIFEOS_API_BASE_URL` and `YOUTUBE_TRANSCRIPT_WORKER_SHARED_SECRET` are set, the worker polls the backend queue and processes both job types automatically. The legacy `INSTAGRAM_DOWNLOADER_SHARED_SECRET` still works as a fallback.

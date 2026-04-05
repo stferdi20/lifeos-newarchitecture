@@ -17,6 +17,19 @@ function buildDownloaderHeaders() {
   return headers;
 }
 
+function buildYouTubeTranscriptHeaders() {
+  const env = getServerEnv();
+  const headers = {
+    'Content-Type': 'application/json',
+  };
+
+  if (env.YOUTUBE_TRANSCRIPT_WORKER_SHARED_SECRET) {
+    headers['x-downloader-secret'] = env.YOUTUBE_TRANSCRIPT_WORKER_SHARED_SECRET;
+  }
+
+  return headers;
+}
+
 function toPublicDownloadResult(payload = {}) {
   return {
     success: Boolean(payload.success),
@@ -174,15 +187,15 @@ export async function requestYouTubeTranscript({
   fetchImpl = fetch,
 }) {
   const env = getServerEnv();
-  if (!env.INSTAGRAM_DOWNLOADER_BASE_URL) {
+  if (!env.YOUTUBE_TRANSCRIPT_WORKER_BASE_URL) {
     throw new HttpError(500, 'YouTube transcript worker is not configured.');
   }
 
-  const response = await fetchImpl(`${env.INSTAGRAM_DOWNLOADER_BASE_URL.replace(/\/+$/, '')}/youtube-transcript`, {
+  const response = await fetchImpl(`${env.YOUTUBE_TRANSCRIPT_WORKER_BASE_URL.replace(/\/+$/, '')}/youtube-transcript`, {
     method: 'POST',
-    headers: buildDownloaderHeaders(),
+    headers: buildYouTubeTranscriptHeaders(),
     body: JSON.stringify({ url }),
-    signal: AbortSignal.timeout(Math.max(env.INSTAGRAM_DOWNLOADER_TIMEOUT_MS || 120000, 1000)),
+    signal: AbortSignal.timeout(Math.max(env.YOUTUBE_TRANSCRIPT_WORKER_TIMEOUT_MS || 120000, 1000)),
   }).catch((error) => {
     throw new HttpError(502, `YouTube transcript worker is unavailable: ${error instanceof Error ? error.message : String(error)}`);
   });

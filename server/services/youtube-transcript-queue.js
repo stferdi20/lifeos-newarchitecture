@@ -93,7 +93,11 @@ function isTimestampOlderThan(value, thresholdMs) {
 
 function getStatusStaleMs() {
   const env = getServerEnv();
-  return Math.max(Number(env.YOUTUBE_TRANSCRIPT_STATUS_STALE_MS || env.INSTAGRAM_DOWNLOADER_STATUS_STALE_MS || 90000), 10000);
+  return Math.max(Number(
+    env.YOUTUBE_TRANSCRIPT_WORKER_STATUS_STALE_MS
+    || env.INSTAGRAM_DOWNLOADER_STATUS_STALE_MS
+    || 90000,
+  ), 10000);
 }
 
 function getProcessingRecoveryThresholdMs() {
