@@ -249,6 +249,10 @@ function getCardChrome({ layoutMode, tintRgb, featured = false }) {
       boxShadow: featured
         ? `0 24px 58px -30px rgba(15, 23, 42, 0.72), 0 0 0 1px rgba(255,255,255,0.04), 0 0 36px rgba(${tint}, 0.12)`
         : `0 18px 40px -28px rgba(15, 23, 42, 0.62), 0 0 0 1px rgba(255,255,255,0.03), 0 0 28px rgba(${tint}, 0.08)`,
+      innerGlow: featured
+        ? `radial-gradient(circle at top left, rgba(${tint}, 0.16), transparent 42%), radial-gradient(circle at 82% 12%, rgba(255,255,255,0.06), transparent 28%), linear-gradient(180deg, rgba(255,255,255,0.03), rgba(${tint}, 0.05) 46%, rgba(0,0,0,0) 100%)`
+        : `radial-gradient(circle at top left, rgba(${tint}, 0.11), transparent 40%), radial-gradient(circle at 84% 10%, rgba(255,255,255,0.05), transparent 26%), linear-gradient(180deg, rgba(255,255,255,0.025), rgba(${tint}, 0.035) 42%, rgba(0,0,0,0) 100%)`,
+      highlightBorder: `linear-gradient(180deg, rgba(255,255,255,0.12), rgba(${tint}, 0.1) 36%, rgba(255,255,255,0.02) 100%)`,
     };
   }
 
@@ -257,6 +261,8 @@ function getCardChrome({ layoutMode, tintRgb, featured = false }) {
       surface: 'rgba(20, 23, 30, 0.94)',
       borderGradient: `linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(${tint}, 0.1) 46%, rgba(${tint}, 0.08) 100%)`,
       boxShadow: `0 8px 22px -22px rgba(15, 23, 42, 0.28), 0 0 0 1px rgba(255,255,255,0.02), 0 0 18px rgba(${tint}, 0.05)`,
+      innerGlow: `radial-gradient(circle at top left, rgba(${tint}, 0.08), transparent 40%), linear-gradient(180deg, rgba(255,255,255,0.02), rgba(${tint}, 0.025) 40%, rgba(0,0,0,0) 100%)`,
+      highlightBorder: `linear-gradient(180deg, rgba(255,255,255,0.08), rgba(${tint}, 0.06) 38%, rgba(255,255,255,0.015) 100%)`,
     };
   }
 
@@ -264,6 +270,8 @@ function getCardChrome({ layoutMode, tintRgb, featured = false }) {
     surface: 'rgba(24, 28, 37, 0.96)',
     borderGradient: `linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(${tint}, 0.12) 52%, rgba(${tint}, 0.1) 100%)`,
     boxShadow: `0 10px 26px -24px rgba(15, 23, 42, 0.32), 0 0 0 1px rgba(${tint}, 0.08)`,
+    innerGlow: `radial-gradient(circle at top left, rgba(${tint}, 0.06), transparent 38%), linear-gradient(180deg, rgba(255,255,255,0.018), rgba(${tint}, 0.02) 40%, rgba(0,0,0,0) 100%)`,
+    highlightBorder: `linear-gradient(180deg, rgba(255,255,255,0.07), rgba(${tint}, 0.05) 38%, rgba(255,255,255,0.01) 100%)`,
   };
 }
 
@@ -363,8 +371,9 @@ export default function ResourceCard({
   );
   const cardStyle = isGrid
     ? {
+        background: `linear-gradient(180deg, rgba(255,255,255,0.015), rgba(${cfg.tintRgb || '148, 163, 184'}, 0.03) 42%, rgba(24, 28, 37, 0.98) 100%)`,
         borderColor: `rgba(${cfg.tintRgb || '148, 163, 184'}, 0.24)`,
-        boxShadow: `0 10px 26px -24px rgba(15, 23, 42, 0.28), 0 0 0 1px rgba(${cfg.tintRgb || '148, 163, 184'}, 0.05)`,
+        boxShadow: `inset 0 1px 0 rgba(255,255,255,0.03), 0 10px 26px -24px rgba(15, 23, 42, 0.28), 0 0 0 1px rgba(${cfg.tintRgb || '148, 163, 184'}, 0.05)`,
       }
     : {
         background: `linear-gradient(${chrome.surface}, ${chrome.surface}) padding-box, ${chrome.borderGradient} border-box`,
@@ -405,9 +414,7 @@ export default function ResourceCard({
               selected && 'opacity-40',
             )}
             style={{
-              background: isGallery
-                ? `radial-gradient(circle at top left, rgba(255,255,255,0.08), transparent 32%), radial-gradient(circle at bottom right, rgba(${cfg.tintRgb || '125, 211, 252'},0.12), transparent 34%)`
-                : `radial-gradient(circle at top left, rgba(255,255,255,0.05), transparent 28%), radial-gradient(circle at bottom right, rgba(${cfg.tintRgb || '125, 211, 252'},0.06), transparent 32%)`,
+              background: chrome.innerGlow,
             }}
           />
           <div
@@ -418,6 +425,31 @@ export default function ResourceCard({
               isMagazine && 'border-white/[0.03]',
               selected && 'border-transparent',
             )}
+            style={{
+              background: chrome.highlightBorder,
+              maskImage: 'linear-gradient(180deg, black, transparent 72%)',
+              WebkitMaskImage: 'linear-gradient(180deg, black, transparent 72%)',
+            }}
+          />
+        </>
+      )}
+      {isGrid && !selected && (
+        <>
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 rounded-[inherit] opacity-100"
+            style={{
+              background: `radial-gradient(circle at top left, rgba(${cfg.tintRgb || '148, 163, 184'}, 0.08), transparent 34%), linear-gradient(180deg, rgba(255,255,255,0.018), rgba(${cfg.tintRgb || '148, 163, 184'}, 0.025) 36%, rgba(0,0,0,0) 100%)`,
+            }}
+          />
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-px rounded-[inherit]"
+            style={{
+              background: `linear-gradient(180deg, rgba(255,255,255,0.08), rgba(${cfg.tintRgb || '148, 163, 184'}, 0.05) 34%, rgba(255,255,255,0.01) 100%)`,
+              maskImage: 'linear-gradient(180deg, black, transparent 72%)',
+              WebkitMaskImage: 'linear-gradient(180deg, black, transparent 72%)',
+            }}
           />
         </>
       )}
