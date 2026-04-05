@@ -104,7 +104,8 @@ Daily digest notes:
 - digests are stored in a dedicated `news_digests` table with one row per `(digest_date, category)`
 - the cron runner is protected by `CRON_SECRET`, using `x-cron-secret: <secret>` or `Authorization: Bearer <secret>`
 - both `GET` and `POST` digest-run requests accept an optional target date so reruns/backfills stay idempotent against the same `(digest_date, category)` rows
-- `vercel.json` now schedules the digest runner once daily at `00:10 UTC`
+- `vercel.json` now schedules the digest runner once daily at `21:10 UTC`, which is about `7:10 AM` in Melbourne during the current `AEST (UTC+10)` period
+- because the schedule is fixed in UTC, it will drift to about `8:10 AM` in Melbourne during `AEDT (UTC+11)` daylight saving months
 - the dashboard picks "yesterday" using the viewer's browser timezone, then reads the closest available digest on or before that date
 
 Sequential live re-enrichment for deployed resources is available with:
