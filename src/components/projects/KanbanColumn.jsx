@@ -1,36 +1,88 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useRef, useEffect, useMemo, useState } from 'react';
 import { Droppable } from '@hello-pangea/dnd';
 import { cn } from '@/lib/utils';
 import { ListTodo, Plus } from 'lucide-react';
 import KanbanCard from './KanbanCard';
 
 export default function KanbanColumn({ list, cards, projects, onAddCard, onEditCard }) {
-  const [visibleCount, setVisibleCount] = useState(15);
-  const loadMoreRef = useRef(null);
-
-  const renderedCards = useMemo(() => cards.slice(0, visibleCount), [cards, visibleCount]);
-  const canRevealMore = renderedCards.length < cards.length;
+  const columnRef = useRef(null);
+  const rafRef = useRef(null);
+  const [columnMetrics, setColumnMetrics] = useState({
+    top: 0,
+    viewportHeight: 0,
+    scrollY: 0,
+  });
+  const estimatedCardHeight = 172;
+  const overscanCards = 3;
 
   useEffect(() => {
-    setVisibleCount(15);
-  }, [list.id]); // Reset when list identity changes
+    if (typeof window === 'undefined') return undefined;
 
-  useEffect(() => {
-    const node = loadMoreRef.current;
-    if (!node || typeof IntersectionObserver !== 'function') return;
-
-    const observer = new IntersectionObserver((entries) => {
-      const firstEntry = entries[0];
-      if (!firstEntry?.isIntersecting) return;
-
-      if (canRevealMore) {
-        setVisibleCount((count) => Math.min(count + 15, cards.length));
+    const updateMetrics = () => {
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
       }
-    }, { rootMargin: '400px' });
 
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [canRevealMore, cards.length]);
+      rafRef.current = window.requestAnimationFrame(() => {
+        const rect = columnRef.current?.getBoundingClientRect();
+        setColumnMetrics({
+          top: rect ? rect.top + window.scrollY : 0,
+          viewportHeight: window.innerHeight,
+          scrollY: window.scrollY,
+        });
+      });
+    };
+
+    updateMetrics();
+    window.addEventListener('scroll', updateMetrics, { passive: true });
+    window.addEventListener('resize', updateMetrics);
+
+    const resizeObserver = typeof ResizeObserver === 'function' && columnRef.current
+      ? new ResizeObserver(() => updateMetrics())
+      : null;
+
+    if (resizeObserver && columnRef.current) {
+      resizeObserver.observe(columnRef.current);
+    }
+
+    return () => {
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+      }
+      window.removeEventListener('scroll', updateMetrics);
+      window.removeEventListener('resize', updateMetrics);
+      resizeObserver?.disconnect();
+    };
+  }, [cards.length, list.id]);
+
+  const visibleRange = useMemo(() => {
+    if (!cards.length || !columnMetrics.viewportHeight) {
+      const endIndex = Math.min(cards.length, 18);
+      return {
+        startIndex: 0,
+        endIndex,
+        topSpacerHeight: 0,
+        bottomSpacerHeight: Math.max(0, (cards.length - endIndex) * estimatedCardHeight),
+      };
+    }
+
+    const relativeTop = Math.max(0, columnMetrics.scrollY - columnMetrics.top);
+    const relativeBottom = relativeTop + columnMetrics.viewportHeight;
+    const startIndex = Math.max(0, Math.floor(relativeTop / estimatedCardHeight) - overscanCards);
+    const endIndex = Math.min(cards.length, Math.ceil(relativeBottom / estimatedCardHeight) + overscanCards);
+
+    return {
+      startIndex,
+      endIndex,
+      topSpacerHeight: startIndex * estimatedCardHeight,
+      bottomSpacerHeight: Math.max(0, (cards.length - endIndex) * estimatedCardHeight),
+    };
+  }, [cards.length, columnMetrics.scrollY, columnMetrics.top, columnMetrics.viewportHeight]);
+
+  const renderedCards = useMemo(
+    () => cards.slice(visibleRange.startIndex, visibleRange.endIndex),
+    [cards, visibleRange.endIndex, visibleRange.startIndex],
+  );
 
   return (
     <div className="flex-1 min-w-[280px] max-w-[340px] flex flex-col">
@@ -45,7 +97,10 @@ export default function KanbanColumn({ list, cards, projects, onAddCard, onEditC
       <Droppable droppableId={list.id} type="CARD">
         {(provided, snapshot) => (
           <div
-            ref={provided.innerRef}
+            ref={(node) => {
+              columnRef.current = node;
+              provided.innerRef(node);
+            }}
             {...provided.droppableProps}
             className={cn(
               'flex-1 flex flex-col rounded-xl p-2 min-h-[200px]',
@@ -53,6 +108,10 @@ export default function KanbanColumn({ list, cards, projects, onAddCard, onEditC
               snapshot.isDraggingOver ? 'bg-blue-400/5 ring-2 ring-blue-400/40' : 'bg-secondary/10'
             )}
           >
+            {visibleRange.topSpacerHeight > 0 && (
+              <div style={{ height: visibleRange.topSpacerHeight }} />
+            )}
+
             {renderedCards.map((card, index) => (
               <KanbanCard
                 key={card.id}
@@ -60,14 +119,12 @@ export default function KanbanColumn({ list, cards, projects, onAddCard, onEditC
                 projects={projects}
                 onEdit={onEditCard}
                 listId={list.id}
-                index={index}
+                index={visibleRange.startIndex + index}
               />
             ))}
-            
-            {canRevealMore && (
-              <div ref={loadMoreRef} className="h-10 flex items-center justify-center">
-                <div className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
-              </div>
+
+            {visibleRange.bottomSpacerHeight > 0 && (
+              <div style={{ height: visibleRange.bottomSpacerHeight }} />
             )}
             
             {provided.placeholder}

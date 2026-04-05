@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BookOpen, Search, FileText, Sparkles, CheckSquare, Loader2 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -23,6 +22,7 @@ import { PageHeader, PageActionRow } from '@/components/layout/page-header';
 import { MobileActionOverflow } from '@/components/layout/MobileActionOverflow';
 import { MobileFilterDrawer } from '@/components/layout/MobileFilterDrawer';
 import { PageLoader } from '@/components/ui/page-loader';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 const RESOURCE_LAYOUT_STORAGE_KEY = 'lifeos.resources.layout-mode';
 const DEFAULT_RESOURCE_LAYOUT_MODE = 'gallery';
@@ -57,6 +57,7 @@ export default function Resources() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const location = useLocation();
+  const isMobile = useIsMobile();
 
   const urlParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const initialProject = urlParams.get('projectId') || null;
@@ -79,7 +80,6 @@ export default function Resources() {
     const storedValue = window.localStorage.getItem(RESOURCE_LAYOUT_STORAGE_KEY);
     return normalizeLayoutMode(storedValue);
   });
-  const [visibleCount, setVisibleCount] = useState(24);
   const [reenrichProgress, setReenrichProgress] = useState({
     scope: null,
     total: 0,
@@ -87,7 +87,14 @@ export default function Resources() {
     updated: 0,
     failed: 0,
   });
-  const loadMoreRef = useRef(null);
+  const listRef = useRef(null);
+  const rafRef = useRef(null);
+  const [listMetrics, setListMetrics] = useState({
+    width: 0,
+    top: 0,
+    viewportHeight: 0,
+    scrollY: 0,
+  });
 
   useEffect(() => {
     try {
@@ -182,33 +189,119 @@ export default function Resources() {
     });
   }, [resources, search, typeFilter, areaFilter, archivedFilter, projectResourceIds, tagFilter]);
 
-  useEffect(() => {
-    setVisibleCount(24);
-  }, [search, typeFilter, areaFilter, archivedFilter, projectFilter, tagFilter]);
+  const layoutColumnCount = useMemo(() => {
+    if (typeof window === 'undefined') return 1;
+    const viewportWidth = window.innerWidth;
+    if (layoutMode === 'grid') {
+      if (viewportWidth >= 1280) return 4;
+      if (viewportWidth >= 1024) return 3;
+      if (viewportWidth >= 640) return 2;
+      return 1;
+    }
+
+    if (viewportWidth >= 1280) return 4;
+    if (viewportWidth >= 1024) return 3;
+    if (viewportWidth >= 640) return 2;
+    return 1;
+  }, [layoutMode, listMetrics.width]);
+
+  const estimatedResourceHeight = useMemo(() => {
+    if (layoutMode === 'grid') return isMobile ? 360 : 390;
+    if (layoutMode === 'gallery') return isMobile ? 420 : 470;
+    return isMobile ? 320 : 360;
+  }, [isMobile, layoutMode]);
+
+  const totalRows = useMemo(
+    () => Math.ceil(filteredResources.length / layoutColumnCount),
+    [filteredResources.length, layoutColumnCount],
+  );
+
+  const overscanRows = isMobile ? 2 : 3;
+
+  const visibleRange = useMemo(() => {
+    if (!filteredResources.length) {
+      return { startIndex: 0, endIndex: 0, topSpacerHeight: 0, bottomSpacerHeight: 0 };
+    }
+
+    if (!listMetrics.viewportHeight || !estimatedResourceHeight) {
+      const fallbackCount = Math.min(filteredResources.length, 24);
+      const rowsShown = Math.ceil(fallbackCount / layoutColumnCount);
+      return {
+        startIndex: 0,
+        endIndex: fallbackCount,
+        topSpacerHeight: 0,
+        bottomSpacerHeight: Math.max(0, (totalRows - rowsShown) * estimatedResourceHeight),
+      };
+    }
+
+    const relativeTop = Math.max(0, listMetrics.scrollY - listMetrics.top);
+    const relativeBottom = relativeTop + listMetrics.viewportHeight;
+    const startRow = Math.max(0, Math.floor(relativeTop / estimatedResourceHeight) - overscanRows);
+    const endRow = Math.min(totalRows, Math.ceil(relativeBottom / estimatedResourceHeight) + overscanRows);
+
+    return {
+      startIndex: startRow * layoutColumnCount,
+      endIndex: Math.min(filteredResources.length, endRow * layoutColumnCount),
+      topSpacerHeight: startRow * estimatedResourceHeight,
+      bottomSpacerHeight: Math.max(0, (totalRows - endRow) * estimatedResourceHeight),
+    };
+  }, [
+    estimatedResourceHeight,
+    filteredResources.length,
+    layoutColumnCount,
+    listMetrics.scrollY,
+    listMetrics.top,
+    listMetrics.viewportHeight,
+    overscanRows,
+    totalRows,
+  ]);
 
   const renderedResources = useMemo(
-    () => filteredResources.slice(0, visibleCount),
-    [filteredResources, visibleCount]
+    () => filteredResources.slice(visibleRange.startIndex, visibleRange.endIndex),
+    [filteredResources, visibleRange.endIndex, visibleRange.startIndex],
   );
-  
-  const canRevealMore = renderedResources.length < filteredResources.length;
 
   useEffect(() => {
-    const node = loadMoreRef.current;
-    if (!node || typeof IntersectionObserver !== 'function') return;
+    if (typeof window === 'undefined') return undefined;
 
-    const observer = new IntersectionObserver((entries) => {
-      const firstEntry = entries[0];
-      if (!firstEntry?.isIntersecting) return;
-
-      if (canRevealMore) {
-        setVisibleCount((count) => Math.min(count + 24, filteredResources.length));
+    const updateMetrics = () => {
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
       }
-    }, { rootMargin: '400px' });
 
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [canRevealMore, filteredResources.length]);
+      rafRef.current = window.requestAnimationFrame(() => {
+        const node = listRef.current;
+        const rect = node?.getBoundingClientRect();
+        setListMetrics({
+          width: rect?.width || 0,
+          top: rect ? rect.top + window.scrollY : 0,
+          viewportHeight: window.innerHeight,
+          scrollY: window.scrollY,
+        });
+      });
+    };
+
+    updateMetrics();
+    window.addEventListener('scroll', updateMetrics, { passive: true });
+    window.addEventListener('resize', updateMetrics);
+
+    const resizeObserver = typeof ResizeObserver === 'function' && listRef.current
+      ? new ResizeObserver(() => updateMetrics())
+      : null;
+
+    if (resizeObserver && listRef.current) {
+      resizeObserver.observe(listRef.current);
+    }
+
+    return () => {
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+      }
+      window.removeEventListener('scroll', updateMetrics);
+      window.removeEventListener('resize', updateMetrics);
+      resizeObserver?.disconnect();
+    };
+  }, [filteredResources.length, layoutMode]);
 
   const selectedResources = useMemo(
     () => resources.filter((resource) => selectedIds.has(resource.id)),
@@ -727,8 +820,12 @@ export default function Resources() {
         </div>
       </div>
 
-      <motion.div
-        layout
+      <div
+        ref={listRef}
+        style={{
+          paddingTop: visibleRange.topSpacerHeight,
+          paddingBottom: visibleRange.bottomSpacerHeight,
+        }}
         className={cn(
           layoutMode === 'grid'
             ? 'grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
@@ -737,41 +834,28 @@ export default function Resources() {
               : 'columns-1 gap-4 sm:columns-2 lg:columns-3 xl:columns-4',
         )}
       >
-        <AnimatePresence mode="popLayout">
-          {renderedResources.map(r => (
-            <motion.div
-              layout
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              transition={{ duration: 0.2 }}
-              key={r.id}
-              className={cn(layoutMode !== 'grid' && 'mb-5 w-full break-inside-avoid')}
-            >
-              <ResourceCard
-                resource={r}
-                onClick={handleCardClick}
-                onArchiveToggle={handleArchiveToggle}
-                onDelete={(id) => deleteDirectMutation.mutate(id)}
-                onRetry={(resource) => retryResourceMutation.mutate(resource)}
-                onTagClick={handleTagClick}
-                areas={areas}
-                selectMode={selectMode}
-                selected={selectedIds.has(r.id)}
-                layoutMode={layoutMode}
-                archiveLoading={archiveToggleMutation.isPending && archiveToggleMutation.variables?.resourceId === r.id}
-                retryLoading={retryResourceMutation.isPending && retryResourceMutation.variables?.id === r.id}
-              />
-            </motion.div>
-          ))}
-        </AnimatePresence>
-      </motion.div>
-
-      {canRevealMore && (
-        <div ref={loadMoreRef} className="h-12 flex items-center justify-center">
-          <div className="w-5 h-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
-        </div>
-      )}
+        {renderedResources.map(r => (
+          <div
+            key={r.id}
+            className={cn(layoutMode !== 'grid' && 'mb-5 w-full break-inside-avoid')}
+          >
+            <ResourceCard
+              resource={r}
+              onClick={handleCardClick}
+              onArchiveToggle={handleArchiveToggle}
+              onDelete={(id) => deleteDirectMutation.mutate(id)}
+              onRetry={(resource) => retryResourceMutation.mutate(resource)}
+              onTagClick={handleTagClick}
+              areas={areas}
+              selectMode={selectMode}
+              selected={selectedIds.has(r.id)}
+              layoutMode={layoutMode}
+              archiveLoading={archiveToggleMutation.isPending && archiveToggleMutation.variables?.resourceId === r.id}
+              retryLoading={retryResourceMutation.isPending && retryResourceMutation.variables?.id === r.id}
+            />
+          </div>
+        ))}
+      </div>
 
       {filteredResources.length === 0 && (
         <div className="rounded-2xl border border-dashed border-border bg-card/60 p-12 text-center">

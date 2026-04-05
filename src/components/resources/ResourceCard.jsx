@@ -166,7 +166,7 @@ function FallbackPreview({ title, mainTopic, colorClass, url }) {
 
   return (
     <div className={cn('w-full h-full bg-gradient-to-br flex flex-col items-center justify-center gap-2 p-4', grad)}>
-      <div className="w-12 h-12 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/10 flex items-center justify-center">
+      <div className="w-12 h-12 rounded-2xl bg-white/10 border border-white/10 flex items-center justify-center">
         <span className={cn('text-base font-bold flex', colorClass)}>{initials}</span>
       </div>
       {safeTopic && (
@@ -288,7 +288,7 @@ export default function ResourceCard({
     : 'center center';
   const cardClassName = cn(
     'relative rounded-2xl bg-card border border-border/50 overflow-hidden transition-all duration-300 group cursor-pointer',
-    isGallery && 'rounded-[1.85rem] border-border/40 bg-card/88 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.62)] backdrop-blur-sm hover:border-border/70 hover:shadow-[0_30px_64px_-30px_rgba(15,23,42,0.68)] hover:-translate-y-2',
+    isGallery && 'rounded-[1.85rem] border-border/40 bg-card/88 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.62)] hover:border-border/70 hover:shadow-[0_30px_64px_-30px_rgba(15,23,42,0.68)] hover:-translate-y-2',
     isMagazine && 'rounded-[1.45rem] border-border/25 bg-card/92 shadow-[0_8px_22px_-22px_rgba(15,23,42,0.28)] hover:border-border/40 hover:shadow-[0_14px_30px_-24px_rgba(15,23,42,0.3)] hover:-translate-y-0.5',
     selectMode && 'select-none',
     selected && 'ring-2 ring-primary border-primary/40',
@@ -334,7 +334,7 @@ export default function ResourceCard({
             onArchiveToggle(resource);
           }}
           className={cn(
-            'absolute right-2 top-10 z-20 inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/15 bg-black/55 text-white/80 backdrop-blur-sm transition-all duration-200 opacity-0 group-hover:opacity-100',
+            'absolute right-2 top-10 z-20 inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/15 bg-black/70 text-white/80 transition-all duration-200 opacity-0 group-hover:opacity-100',
             archiveLoading
               ? 'cursor-not-allowed opacity-60'
               : 'hover:bg-black/75 hover:text-white hover:scale-110'
@@ -355,7 +355,7 @@ export default function ResourceCard({
             }
           }}
           className={cn(
-            'absolute top-10 z-20 inline-flex h-7 w-7 items-center justify-center rounded-full border border-red-500/15 bg-black/55 text-red-400/80 backdrop-blur-sm transition-all duration-200 opacity-0 group-hover:opacity-100 hover:bg-red-500/20 hover:text-red-300 hover:scale-110',
+            'absolute top-10 z-20 inline-flex h-7 w-7 items-center justify-center rounded-full border border-red-500/15 bg-black/70 text-red-400/80 transition-all duration-200 opacity-0 group-hover:opacity-100 hover:bg-red-500/20 hover:text-red-300 hover:scale-110',
             onArchiveToggle ? 'right-11' : 'right-2'
           )}
         >
@@ -411,7 +411,7 @@ export default function ResourceCard({
             <span className={cn(
               'text-[10px] tracking-widest font-semibold px-2 py-0.5 rounded-full border',
               STATUS_COLORS[resource.status],
-              isGallery && 'bg-black/30 backdrop-blur-sm',
+              isGallery && 'bg-black/40',
               isMagazine && 'opacity-80',
             )}>
               {formatUiLabel(resource.status)}
