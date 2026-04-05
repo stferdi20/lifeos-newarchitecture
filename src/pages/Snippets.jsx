@@ -299,11 +299,11 @@ export default function Snippets() {
         title="Snippets"
         description="A fast personal library for reusable text and image snippets across the webapp and menubar."
         actions={(
-          <PageActionRow>
+          <PageActionRow className="sm:flex-nowrap sm:overflow-x-auto sm:justify-end">
             <Button
               type="button"
               variant="outline"
-              className="gap-2 border-white/10 bg-transparent"
+              className="shrink-0 gap-2 border-white/10 bg-transparent whitespace-nowrap"
               onClick={() => {
                 setEditingSnippet(null);
                 setIsEditorOpen(true);
@@ -312,15 +312,15 @@ export default function Snippets() {
               <Sparkles className="h-4 w-4" />
               New snippet
             </Button>
-            <Button type="button" variant="outline" className="gap-2 border-white/10 bg-transparent" onClick={() => setViewMode((current) => current === 'grid' ? 'list' : 'grid')}>
+            <Button type="button" variant="outline" className="shrink-0 gap-2 border-white/10 bg-transparent whitespace-nowrap" onClick={() => setViewMode((current) => current === 'grid' ? 'list' : 'grid')}>
               {viewMode === 'grid' ? <List className="h-4 w-4" /> : <LayoutGrid className="h-4 w-4" />}
               {viewMode === 'grid' ? 'List view' : 'Grid view'}
             </Button>
-            <Button type="button" className="gap-2" onClick={handleQuickPasteCreate} disabled={isClipboardBusy}>
+            <Button type="button" className="shrink-0 gap-2 whitespace-nowrap" onClick={handleQuickPasteCreate} disabled={isClipboardBusy}>
               <ClipboardPaste className="h-4 w-4" />
               {isQuickCreating ? 'Saving...' : 'Paste snippet'}
             </Button>
-            <Button type="button" variant="outline" className="gap-2 border-white/10 bg-transparent" onClick={handleQuickUploadImage} disabled={isUploadingImage}>
+            <Button type="button" variant="outline" className="shrink-0 gap-2 border-white/10 bg-transparent whitespace-nowrap" onClick={handleQuickUploadImage} disabled={isUploadingImage}>
               <Upload className="h-4 w-4" />
               {isUploadingImage ? 'Uploading...' : 'Upload image'}
             </Button>
@@ -340,7 +340,7 @@ export default function Snippets() {
         )}
       />
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px] lg:items-start">
         <SnippetFilters
           searchInputId="snippet-search-input"
           search={search}
@@ -361,9 +361,9 @@ export default function Snippets() {
             setWorkspaceFilter('all');
             setSortOrder('-last_copied_at');
           }}
-        />
+          />
 
-        <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-white/[0.05] to-white/[0.02] p-4">
+        <div className="self-start rounded-3xl border border-white/10 bg-gradient-to-br from-white/[0.05] to-white/[0.02] p-4">
           <div className="space-y-3 text-sm text-muted-foreground">
             <div className="flex items-center gap-2 text-foreground/85">
               <Sparkles className="h-4 w-4 text-amber-300" />
