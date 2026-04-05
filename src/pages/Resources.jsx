@@ -25,12 +25,18 @@ import { PageLoader } from '@/components/ui/page-loader';
 import { useIsMobile } from '@/hooks/use-mobile';
 
 const RESOURCE_LAYOUT_STORAGE_KEY = 'lifeos.resources.layout-mode';
+const RESOURCE_GRID_DENSITY_STORAGE_KEY = 'lifeos.resources.grid-density';
 const DEFAULT_RESOURCE_LAYOUT_MODE = 'gallery';
+const DEFAULT_RESOURCE_GRID_DENSITY = 'normal';
 
 function normalizeLayoutMode(value) {
   if (value === 'grid' || value === 'gallery' || value === 'magazine') return value;
   if (value === 'freeflow') return 'gallery';
   return DEFAULT_RESOURCE_LAYOUT_MODE;
+}
+
+function normalizeGridDensity(value) {
+  return value === 'compact' ? 'compact' : DEFAULT_RESOURCE_GRID_DENSITY;
 }
 
 async function fetchResourceLinks(entityApi, resourceId) {
@@ -80,6 +86,11 @@ export default function Resources() {
     const storedValue = window.localStorage.getItem(RESOURCE_LAYOUT_STORAGE_KEY);
     return normalizeLayoutMode(storedValue);
   });
+  const [gridDensity, setGridDensity] = useState(() => {
+    if (typeof window === 'undefined') return DEFAULT_RESOURCE_GRID_DENSITY;
+    const storedValue = window.localStorage.getItem(RESOURCE_GRID_DENSITY_STORAGE_KEY);
+    return normalizeGridDensity(storedValue);
+  });
   const [reenrichProgress, setReenrichProgress] = useState({
     scope: null,
     total: 0,
@@ -98,11 +109,19 @@ export default function Resources() {
 
   useEffect(() => {
     try {
-    window.localStorage.setItem(RESOURCE_LAYOUT_STORAGE_KEY, layoutMode);
+      window.localStorage.setItem(RESOURCE_LAYOUT_STORAGE_KEY, layoutMode);
     } catch {
       // Ignore storage failures and keep the view usable.
     }
   }, [layoutMode]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(RESOURCE_GRID_DENSITY_STORAGE_KEY, gridDensity);
+    } catch {
+      // Ignore storage failures and keep the view usable.
+    }
+  }, [gridDensity]);
 
   const { data: resources = [], isLoading: resourcesLoading } = useQuery({
     queryKey: ['resources'],
@@ -192,7 +211,9 @@ export default function Resources() {
   const layoutColumnCount = useMemo(() => {
     if (typeof window === 'undefined') return 1;
     const viewportWidth = window.innerWidth;
+    const isCompactGrid = layoutMode === 'grid' && gridDensity === 'compact';
     if (layoutMode === 'grid') {
+      if (isCompactGrid && viewportWidth >= 1536) return 5;
       if (viewportWidth >= 1280) return 4;
       if (viewportWidth >= 1024) return 3;
       if (viewportWidth >= 640) return 2;
@@ -203,13 +224,16 @@ export default function Resources() {
     if (viewportWidth >= 1024) return 3;
     if (viewportWidth >= 640) return 2;
     return 1;
-  }, [layoutMode, listMetrics.width]);
+  }, [gridDensity, layoutMode, listMetrics.width]);
 
   const estimatedResourceHeight = useMemo(() => {
-    if (layoutMode === 'grid') return isMobile ? 360 : 390;
+    if (layoutMode === 'grid') {
+      if (gridDensity === 'compact') return isMobile ? 340 : 320;
+      return isMobile ? 360 : 390;
+    }
     if (layoutMode === 'gallery') return isMobile ? 420 : 470;
     return isMobile ? 320 : 360;
-  }, [isMobile, layoutMode]);
+  }, [gridDensity, isMobile, layoutMode]);
 
   const totalRows = useMemo(
     () => Math.ceil(filteredResources.length / layoutColumnCount),
@@ -803,6 +827,34 @@ export default function Resources() {
               Magazine
             </button>
           </div>
+          {layoutMode === 'grid' && (
+            <div className="inline-flex rounded-xl border border-border/60 bg-card/70 p-1">
+              <button
+                type="button"
+                onClick={() => setGridDensity('normal')}
+                className={cn(
+                  'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+                  gridDensity === 'normal'
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                Comfortable
+              </button>
+              <button
+                type="button"
+                onClick={() => setGridDensity('compact')}
+                className={cn(
+                  'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+                  gridDensity === 'compact'
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                Compact
+              </button>
+            </div>
+          )}
           {filteredResources.length > 0 && (
             <Button
               size="sm"
@@ -828,7 +880,12 @@ export default function Resources() {
         }}
         className={cn(
           layoutMode === 'grid'
-            ? 'grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
+            ? cn(
+              'grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4',
+              gridDensity === 'compact'
+                ? 'gap-3 2xl:grid-cols-5'
+                : 'gap-4',
+            )
             : layoutMode === 'gallery'
               ? 'columns-1 gap-5 sm:columns-2 lg:columns-3 xl:columns-4'
               : 'columns-1 gap-4 sm:columns-2 lg:columns-3 xl:columns-4',
@@ -850,6 +907,7 @@ export default function Resources() {
               selectMode={selectMode}
               selected={selectedIds.has(r.id)}
               layoutMode={layoutMode}
+              gridDensity={gridDensity}
               archiveLoading={archiveToggleMutation.isPending && archiveToggleMutation.variables?.resourceId === r.id}
               retryLoading={retryResourceMutation.isPending && retryResourceMutation.variables?.id === r.id}
             />
