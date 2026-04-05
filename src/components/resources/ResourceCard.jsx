@@ -213,6 +213,34 @@ function getPreviewItem(resource) {
   return null;
 }
 
+function getCardChrome({ layoutMode, featured = false }) {
+  if (layoutMode === 'gallery') {
+    return {
+      surface: 'rgba(18, 22, 31, 0.9)',
+      borderGradient: featured
+        ? 'linear-gradient(135deg, rgba(244, 114, 182, 0.34), rgba(125, 211, 252, 0.26) 42%, rgba(251, 191, 36, 0.3) 100%)'
+        : 'linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(125, 211, 252, 0.2) 38%, rgba(244, 114, 182, 0.16) 72%, rgba(251, 191, 36, 0.18) 100%)',
+      boxShadow: featured
+        ? '0 24px 58px -30px rgba(15, 23, 42, 0.72), 0 0 0 1px rgba(255,255,255,0.04), 0 0 36px rgba(125, 211, 252, 0.10)'
+        : '0 18px 40px -28px rgba(15, 23, 42, 0.62), 0 0 0 1px rgba(255,255,255,0.03), 0 0 28px rgba(125, 211, 252, 0.06)',
+    };
+  }
+
+  if (layoutMode === 'magazine') {
+    return {
+      surface: 'rgba(20, 23, 30, 0.94)',
+      borderGradient: 'linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(192, 132, 252, 0.1) 46%, rgba(125, 211, 252, 0.08) 100%)',
+      boxShadow: '0 8px 22px -22px rgba(15, 23, 42, 0.28), 0 0 0 1px rgba(255,255,255,0.02), 0 0 18px rgba(125, 211, 252, 0.04)',
+    };
+  }
+
+  return {
+    surface: 'rgba(24, 28, 37, 0.96)',
+    borderGradient: 'linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(125, 211, 252, 0.11) 52%, rgba(244, 114, 182, 0.09) 100%)',
+    boxShadow: '0 10px 26px -24px rgba(15, 23, 42, 0.32), 0 0 0 1px rgba(255,255,255,0.02)',
+  };
+}
+
 export default function ResourceCard({
   resource,
   onClick,
@@ -292,11 +320,12 @@ export default function ResourceCard({
   const mediaObjectPosition = isFreeflow && thumbnailAspectRatio && thumbnailAspectRatio < 1
     ? 'center top'
     : 'center center';
+  const chrome = getCardChrome({ layoutMode, featured: isFeatured });
   const cardClassName = cn(
-    'relative rounded-2xl bg-card border border-border/50 overflow-hidden transition-all duration-300 group cursor-pointer',
-    isGallery && 'rounded-[1.85rem] border-border/40 bg-card/88 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.62)] hover:border-border/70 hover:shadow-[0_30px_64px_-30px_rgba(15,23,42,0.68)] hover:-translate-y-2',
+    'relative rounded-2xl border border-transparent overflow-hidden transition-all duration-300 group cursor-pointer isolate',
+    isGallery && 'rounded-[1.85rem] hover:-translate-y-2',
     isCompactGallery && 'rounded-[1.55rem] shadow-[0_12px_28px_-24px_rgba(15,23,42,0.52)] hover:-translate-y-1',
-    isMagazine && 'rounded-[1.45rem] border-border/25 bg-card/92 shadow-[0_8px_22px_-22px_rgba(15,23,42,0.28)] hover:border-border/40 hover:shadow-[0_14px_30px_-24px_rgba(15,23,42,0.3)] hover:-translate-y-0.5',
+    isMagazine && 'rounded-[1.45rem] hover:-translate-y-0.5',
     isCompactMagazine && 'rounded-[1.2rem]',
     isCompactGrid && 'rounded-xl',
     selectMode && 'select-none',
@@ -304,6 +333,10 @@ export default function ResourceCard({
     isFeatured && 'ring-1 ring-white/10',
     className,
   );
+  const cardStyle = {
+    background: `linear-gradient(${chrome.surface}, ${chrome.surface}) padding-box, ${chrome.borderGradient} border-box`,
+    boxShadow: chrome.boxShadow,
+  };
 
   useEffect(() => {
     setThumbnailAspectRatio(null);
@@ -326,7 +359,34 @@ export default function ResourceCard({
     <div
       onClick={() => onClick?.(resource)}
       className={cardClassName}
+      style={cardStyle}
     >
+      <div
+        aria-hidden="true"
+        className={cn(
+          'pointer-events-none absolute inset-0 rounded-[inherit] opacity-100 transition-opacity duration-300',
+          isGrid && 'opacity-80',
+          isMagazine && 'opacity-70',
+          isGallery && 'opacity-100',
+          selected && 'opacity-40',
+        )}
+        style={{
+          background: isGallery
+            ? 'radial-gradient(circle at top left, rgba(255,255,255,0.08), transparent 32%), radial-gradient(circle at bottom right, rgba(125,211,252,0.1), transparent 34%)'
+            : isMagazine
+              ? 'radial-gradient(circle at top left, rgba(255,255,255,0.05), transparent 28%), radial-gradient(circle at bottom right, rgba(196,181,253,0.05), transparent 32%)'
+              : 'radial-gradient(circle at top left, rgba(255,255,255,0.04), transparent 24%)',
+        }}
+      />
+      <div
+        aria-hidden="true"
+        className={cn(
+          'pointer-events-none absolute inset-px rounded-[inherit] border border-white/[0.035]',
+          isGallery && 'border-white/[0.05]',
+          isMagazine && 'border-white/[0.03]',
+          selected && 'border-transparent',
+        )}
+      />
       {selectMode && (
         <div
           className={cn(
