@@ -92,6 +92,16 @@ Common blockers:
 - missing credentials or local services required for validation
 - migration risk that cannot be validated safely in the current environment
 
+## Commit and push default
+
+When a task is finished and validation has passed:
+
+- commit the scoped repo changes
+- push them to `origin`
+- prefer landing validated work on `main` unless the user explicitly asks for a different branch or asks you not to push yet
+
+Do not bundle unrelated dirty-worktree changes into that commit. If unrelated edits block a safe commit or push, keep them out of scope and explain the blocker clearly.
+
 ## Handoff template
 
 Use this structure for partial or finished work:

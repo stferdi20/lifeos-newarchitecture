@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -118,6 +118,12 @@ export default function MediaDetailModal({ open, onClose, entry, onSave, onDelet
   const [hoverRating, setHoverRating] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const saveTimerRef = useRef(null);
+  const isFlushingSaveRef = useRef(false);
+  const lastSavedSnapshotRef = useRef('');
+  const pendingCloseRef = useRef(false);
 
   useEffect(() => {
     if (entry) {
@@ -125,10 +131,87 @@ export default function MediaDetailModal({ open, onClose, entry, onSave, onDelet
       setForm({ ...normalizedEntry, year_consumed: normalizedEntry?.year_consumed || new Date().getFullYear() });
       setRefreshError('');
       setRefreshing(false);
+      setSaveError('');
+      setSaving(false);
+      lastSavedSnapshotRef.current = JSON.stringify(normalizedEntry || {});
+      pendingCloseRef.current = false;
     }
   }, [entry, open]);
 
-  const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
+  useEffect(() => () => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+    }
+  }, []);
+
+  const persistForm = async (nextForm) => {
+    if (!nextForm?.id || typeof onSave !== 'function') return;
+
+    const snapshot = JSON.stringify(nextForm);
+    if (snapshot === lastSavedSnapshotRef.current) return;
+
+    setSaving(true);
+    setSaveError('');
+
+    try {
+      await onSave(nextForm);
+      lastSavedSnapshotRef.current = snapshot;
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Failed to save media changes.');
+      throw error;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const queueAutosave = (nextForm) => {
+    if (!nextForm?.id) return;
+
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+    }
+
+    saveTimerRef.current = setTimeout(() => {
+      saveTimerRef.current = null;
+      void persistForm(nextForm);
+    }, 500);
+  };
+
+  const flushAutosave = async (nextForm = form) => {
+    if (!nextForm?.id) return;
+
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+
+    if (isFlushingSaveRef.current) return;
+    isFlushingSaveRef.current = true;
+
+    try {
+      await persistForm(nextForm);
+    } finally {
+      isFlushingSaveRef.current = false;
+    }
+  };
+
+  const handleClose = async () => {
+    pendingCloseRef.current = true;
+    try {
+      await flushAutosave();
+    } finally {
+      pendingCloseRef.current = false;
+      onClose?.();
+    }
+  };
+
+  const update = (key, value) => {
+    setForm((current) => {
+      const nextForm = { ...current, [key]: value };
+      queueAutosave(nextForm);
+      return nextForm;
+    });
+  };
   const cfg = TYPE_CONFIG[form.media_type] || TYPE_CONFIG.movie;
   const Icon = cfg.icon;
   const statusOptions = getStatusOptions(form.media_type);
@@ -159,13 +242,25 @@ export default function MediaDetailModal({ open, onClose, entry, onSave, onDelet
     }
   };
 
+  useEffect(() => {
+    if (!open || !entry?.id) return;
+
+    return () => {
+      if (pendingCloseRef.current) return;
+      void flushAutosave();
+    };
+  }, [entry?.id, open]);
+
   const updateComicIssues = (value) => {
     update('issues_total', value);
     update('episodes', value);
   };
 
   return (
-    <ResponsiveModal open={open} onOpenChange={onClose}>
+    <ResponsiveModal open={open} onOpenChange={(isOpen) => {
+      if (isOpen) return;
+      void handleClose();
+    }}>
       <ResponsiveModalContent className="bg-[#161820] border-border max-w-2xl max-h-[90vh] overflow-y-auto p-0" mobileClassName="bg-[#161820] border-border">
         <div className="flex flex-col gap-0 sm:flex-row">
           <div className="w-full shrink-0 bg-secondary/20 relative sm:w-48">
@@ -557,6 +652,10 @@ export default function MediaDetailModal({ open, onClose, entry, onSave, onDelet
               />
             </div>
 
+            {saveError && (
+              <p className="text-xs leading-relaxed text-red-300/80">{saveError}</p>
+            )}
+
             <MobileStickyActions className="flex gap-2 bg-[#161820]/95">
               {entry?.id && (
                 <Button
@@ -564,13 +663,25 @@ export default function MediaDetailModal({ open, onClose, entry, onSave, onDelet
                   size="sm"
                   onClick={() => onDelete(entry.id)}
                   className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                )}
+              {entry?.id ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => handleClose()}
+                  disabled={saving}
+                  className="flex-1 border-border/60 bg-secondary/20 text-sm"
                 >
-                  <Trash2 className="w-4 h-4" />
+                  {saving ? 'Saving...' : 'Done'}
+                </Button>
+              ) : (
+                <Button onClick={() => onSave(form)} className="flex-1 bg-primary hover:bg-primary/90 text-white text-sm">
+                  Add to Library
                 </Button>
               )}
-              <Button onClick={() => onSave(form)} className="flex-1 bg-primary hover:bg-primary/90 text-white text-sm">
-                {entry?.id ? 'Save Changes' : 'Add to Library'}
-              </Button>
             </MobileStickyActions>
           </div>
         </div>

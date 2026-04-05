@@ -410,45 +410,19 @@ export default function Media() {
         setSelectedEntry(form);
       }
     },
-    onSuccess: (savedEntry, form) => {
+    onSuccess: (savedEntry) => {
       const normalizedSavedEntry = normalizeMediaEntry(savedEntry);
       if (!normalizedSavedEntry?.id) {
         queryClient.invalidateQueries({ queryKey: ['mediaLibrary'] });
         queryClient.invalidateQueries({ queryKey: ['mediaSummary'] });
         queryClient.invalidateQueries({ queryKey: ['mediaYearly'] });
-        setShowDetail(false);
-        setSelectedEntry(null);
         return;
       }
 
-      if (form.id) {
-        applyEntryUpdate(normalizedSavedEntry);
-      } else {
-        queryClient.setQueryData(['mediaSummary'], (old = []) => [normalizedSavedEntry, ...old.filter((entry) => entry.id !== normalizedSavedEntry.id)]);
-
-        queryClient.setQueriesData({ queryKey: ['mediaLibrary'] }, (old) => {
-          if (!old) return old;
-
-          const matches = matchesMediaLibraryFilters(normalizedSavedEntry, {
-            typeFilter,
-            statusFilter,
-            searchQuery: normalizedSearchQuery,
-          });
-
-          return matches ? prependMediaToQueryData(old, normalizedSavedEntry, MEDIA_PAGE_SIZE) : old;
-        });
-
-        if (normalizedSavedEntry.year_consumed === selectedYear) {
-          queryClient.setQueryData(['mediaYearly', selectedYear], (old = []) => [normalizedSavedEntry, ...old.filter((entry) => entry.id !== normalizedSavedEntry.id)]);
-        }
-      }
-
+      applyEntryUpdate(normalizedSavedEntry);
       queryClient.invalidateQueries({ queryKey: ['mediaLibrary'] });
       queryClient.invalidateQueries({ queryKey: ['mediaSummary'] });
       queryClient.invalidateQueries({ queryKey: ['mediaYearly'] });
-
-      setShowDetail(false);
-      setSelectedEntry(null);
     },
   });
 
@@ -901,7 +875,7 @@ export default function Media() {
               setSelectedEntry(null);
             }}
             entry={selectedEntry}
-            onSave={(form) => saveMutation.mutate(form)}
+            onSave={(form) => saveMutation.mutateAsync(form)}
             onDelete={(id) => deleteMutation.mutate(id)}
           />
         )}
