@@ -20,6 +20,10 @@ export async function fetchTopNews({ limit = 4 } = {}) {
   return apiGet(`/news/top${buildQuery({ limit })}`);
 }
 
+export async function fetchNewsDigest({ date, category = 'all' } = {}) {
+  return apiGet(`/news/digest${buildQuery({ date, category })}`);
+}
+
 export async function fetchTrends() {
   const res = await apiGet('/trends');
   return res?.trends || [];

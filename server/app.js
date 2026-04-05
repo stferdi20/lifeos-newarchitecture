@@ -79,7 +79,7 @@ const rootApp = new Hono();
 rootApp.use('*', logger());
 rootApp.use('*', cors({
   origin: '*',
-  allowHeaders: ['Content-Type', 'Authorization'],
+  allowHeaders: ['Content-Type', 'Authorization', 'x-cron-secret'],
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
 }));
 

@@ -11,7 +11,10 @@ const DEFAULT_LIMIT = 8;
 const MAX_LIMIT = 20;
 const DEFAULT_TOP_LIMIT = 4;
 
-const CATEGORY_DEFAULTS = {
+export const NEWS_CATEGORY_KEYS = ['ai', 'ai_research', 'tech', 'startups', 'crypto', 'general'];
+export const DIGEST_CATEGORY_KEYS = ['all', 'ai', 'ai_research', 'tech', 'startups', 'crypto'];
+
+export const CATEGORY_DEFAULTS = {
   ai: 'artificial intelligence',
   ai_research: 'artificial intelligence research',
   tech: 'technology',
@@ -261,7 +264,7 @@ function clampLimit(value, fallback = DEFAULT_LIMIT) {
   return Math.min(MAX_LIMIT, Math.max(1, parsed));
 }
 
-function resolveRequestedCategory(category = '') {
+export function resolveRequestedCategory(category = '') {
   const normalized = String(category || '').trim().toLowerCase();
   return FEED_SOURCES[normalized] ? normalized : 'general';
 }
@@ -607,8 +610,10 @@ export function dedupeArticles(articles = []) {
   return { articles: kept, dropped };
 }
 
-function normalizeFeedResult(rawArticles, source) {
+function normalizeFeedResult(rawArticles, source, options = {}) {
   const now = Date.now();
+  const publishedFromMs = options.publishedFrom ? new Date(options.publishedFrom).valueOf() : null;
+  const publishedToMs = options.publishedTo ? new Date(options.publishedTo).valueOf() : null;
   const accepted = [];
   const dropped = {
     missing_title: 0,
@@ -616,6 +621,7 @@ function normalizeFeedResult(rawArticles, source) {
     invalid_date: 0,
     stale: 0,
     missing_summary: 0,
+    outside_window: 0,
   };
 
   for (const article of rawArticles) {
@@ -634,8 +640,19 @@ function normalizeFeedResult(rawArticles, source) {
       continue;
     }
 
-    if (now - new Date(article.published_at).valueOf() > MAX_ARTICLE_AGE_MS) {
+    const publishedMs = new Date(article.published_at).valueOf();
+    if (!Number.isFinite(publishedMs)) {
+      dropped.invalid_date += 1;
+      continue;
+    }
+
+    if (now - publishedMs > MAX_ARTICLE_AGE_MS) {
       dropped.stale += 1;
+      continue;
+    }
+
+    if ((publishedFromMs && publishedMs < publishedFromMs) || (publishedToMs && publishedMs >= publishedToMs)) {
+      dropped.outside_window += 1;
       continue;
     }
 
@@ -650,7 +667,7 @@ function normalizeFeedResult(rawArticles, source) {
   return { articles: accepted, dropped };
 }
 
-async function fetchFeedSource(source) {
+async function fetchFeedSource(source, options = {}) {
   const xml = await fetchExternalText(source.url, {
     provider: `feed:${source.id}`,
     timeoutMs: 9000,
@@ -661,7 +678,7 @@ async function fetchFeedSource(source) {
   });
 
   const parsed = parseFeedArticles(xml, source);
-  const normalized = normalizeFeedResult(parsed, source);
+  const normalized = normalizeFeedResult(parsed, source, options);
   logNews('info', 'feed_loaded', {
     source: source.id,
     accepted: normalized.articles.length,
@@ -716,13 +733,37 @@ async function summarizeMissingArticles(userId, articles = []) {
   return next;
 }
 
-async function gatherNewsArticles({ category = 'general', query = '', limit = DEFAULT_LIMIT, userId = null } = {}) {
+export function mapNewsArticle(article) {
+  return {
+    id: article.id,
+    title: article.title,
+    summary: article.summary,
+    url: article.url,
+    source_name: article.source_name,
+    image_url: article.image_url,
+    published_at: article.published_at,
+    category: article.category,
+    is_ai_summary: article.is_ai_summary,
+  };
+}
+
+export async function collectNewsArticles({
+  category = 'general',
+  query = '',
+  limit = DEFAULT_LIMIT,
+  userId = null,
+  publishedFrom = null,
+  publishedTo = null,
+  throwOnEmpty = true,
+} = {}) {
   const requestedCategory = resolveRequestedCategory(category);
   const queryUsed = cleanWhitespace(query || CATEGORY_DEFAULTS[requestedCategory]);
   const queryTokens = tokenize(queryUsed);
   const applyQueryFilter = requestedCategory === 'general' && queryUsed && queryUsed !== CATEGORY_DEFAULTS.general;
   const sources = getCategorySources(requestedCategory);
-  const results = await Promise.allSettled(sources.map((source) => fetchFeedSource(source)));
+  const results = await Promise.allSettled(
+    sources.map((source) => fetchFeedSource(source, { publishedFrom, publishedTo }))
+  );
 
   const successes = [];
   const failures = [];
@@ -732,6 +773,7 @@ async function gatherNewsArticles({ category = 'general', query = '', limit = DE
     invalid_date: 0,
     stale: 0,
     missing_summary: 0,
+    outside_window: 0,
     duplicate_url: 0,
     duplicate_title: 0,
   };
@@ -741,7 +783,7 @@ async function gatherNewsArticles({ category = 'general', query = '', limit = DE
     if (result.status === 'fulfilled') {
       successes.push(...result.value.articles);
       Object.entries(result.value.dropped).forEach(([key, count]) => {
-        droppedAggregate[key] += count;
+        droppedAggregate[key] = (droppedAggregate[key] || 0) + count;
       });
       return;
     }
@@ -772,7 +814,7 @@ async function gatherNewsArticles({ category = 'general', query = '', limit = DE
 
   const deduped = dedupeArticles(filtered);
   Object.entries(deduped.dropped).forEach(([key, count]) => {
-    droppedAggregate[key] += count;
+    droppedAggregate[key] = (droppedAggregate[key] || 0) + count;
   });
 
   const sliced = requestedCategory === 'general'
@@ -790,9 +832,11 @@ async function gatherNewsArticles({ category = 'general', query = '', limit = DE
     sourceCount,
     failures,
     dropped: droppedAggregate,
+    publishedFrom,
+    publishedTo,
   });
 
-  if (!enriched.length) {
+  if (!enriched.length && throwOnEmpty) {
     throw new HttpError(502, 'No validated news articles are available right now.', {
       query_used: queryUsed,
       category: requestedCategory,
@@ -803,23 +847,27 @@ async function gatherNewsArticles({ category = 'general', query = '', limit = DE
   }
 
   return {
-    articles: enriched.map((article) => ({
-      id: article.id,
-      title: article.title,
-      summary: article.summary,
-      url: article.url,
-      source_name: article.source_name,
-      image_url: article.image_url,
-      published_at: article.published_at,
-      category: article.category,
-      is_ai_summary: article.is_ai_summary,
-    })),
+    articles: enriched,
     generated_at: new Date().toISOString(),
     query_used: queryUsed,
     source_count: sourceCount,
     partial,
     degraded,
     failures,
+    requested_category: requestedCategory,
+  };
+}
+
+async function gatherNewsArticles(options = {}) {
+  const aggregated = await collectNewsArticles(options);
+  return {
+    articles: aggregated.articles.map(mapNewsArticle),
+    generated_at: aggregated.generated_at,
+    query_used: aggregated.query_used,
+    source_count: aggregated.source_count,
+    partial: aggregated.partial,
+    degraded: aggregated.degraded,
+    failures: aggregated.failures,
   };
 }
 
@@ -907,7 +955,7 @@ export async function getTopNews({ limit = DEFAULT_TOP_LIMIT, userId = null } = 
 }
 
 export async function getNewsTrends({ limit = 6 } = {}) {
-  const aggregated = await gatherNewsArticles({
+  const aggregated = await collectNewsArticles({
     category: 'general',
     query: CATEGORY_DEFAULTS.general,
     limit: 18,
