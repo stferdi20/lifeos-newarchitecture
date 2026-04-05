@@ -1,12 +1,12 @@
 import { Hono } from 'hono';
 import { requireUser } from '../lib/supabase.js';
-import { invokeCompatFunction } from '../services/compat-functions.js';
+import { getNewsTrends } from '../services/news.js';
 
 const trendRoutes = new Hono();
 
 trendRoutes.get('/', async (c) => {
-  const auth = await requireUser(c);
-  const data = await invokeCompatFunction(auth.user.id, 'aggregateTrends', {});
+  await requireUser(c);
+  const data = await getNewsTrends();
   return c.json(data);
 });
 

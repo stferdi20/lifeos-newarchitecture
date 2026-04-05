@@ -21,6 +21,18 @@ function resolveTier(taskType, overrides = {}) {
   };
 }
 
+function resolveProviders(env, { groundWithGoogleSearch = false } = {}) {
+  if (groundWithGoogleSearch) {
+    return env.GOOGLE_GEMINI_API_KEY ? ['gemini'] : [];
+  }
+
+  const providers = [];
+  if (env.OPENROUTER_API_KEY) providers.push('openrouter');
+  if (env.GOOGLE_GEMINI_API_KEY) providers.push('gemini');
+  if (env.HUGGINGFACE_API_KEY) providers.push('huggingface');
+  return providers;
+}
+
 function extractTextContent(data) {
   const content = data?.choices?.[0]?.message?.content;
   if (typeof content === 'string') return content;
@@ -244,13 +256,15 @@ async function routeRaw({
   const resolved = resolveTier(taskType, policy);
   const attemptedProviders = [];
 
-  const providers = [];
-  if (env.OPENROUTER_API_KEY) providers.push('openrouter');
-  if (env.GOOGLE_GEMINI_API_KEY) providers.push('gemini');
-  if (env.HUGGINGFACE_API_KEY) providers.push('huggingface');
+  const providers = resolveProviders(env, { groundWithGoogleSearch });
 
   if (!providers.length) {
-    throw new HttpError(503, 'No AI provider is configured for the backend.');
+    throw new HttpError(
+      503,
+      groundWithGoogleSearch
+        ? 'No AI provider with live Google Search grounding is configured for the backend.'
+        : 'No AI provider is configured for the backend.',
+    );
   }
 
   let lastError = null;

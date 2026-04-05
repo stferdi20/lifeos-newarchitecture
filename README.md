@@ -81,6 +81,18 @@ YTDLP_TIMEOUT_MS=20000
 
 OpenRouter is the primary backend LLM provider for resource enrichment. Gemini and Hugging Face remain available as fallbacks when their keys are configured.
 
+## AI News
+
+AI News now uses deterministic RSS/news feeds as the source of truth instead of LLM-generated article lists.
+
+- `/api/news` returns validated real articles with `title`, `summary`, `url`, `source_name`, `image_url`, `published_at`, `category`, and `is_ai_summary`
+- `/api/news/top` powers the dashboard widget with the same normalized article contract
+- `/api/trends` now builds trend cards from the same retrieved article pool
+- invalid URLs, missing publish dates, stale items, and duplicate articles are dropped before anything reaches the UI
+- existing AI providers are used only as an optional summary fallback when a real article arrives without a usable summary
+
+No extra news-provider API key is required for this first pass because the service reads public source feeds directly.
+
 Sequential live re-enrichment for deployed resources is available with:
 
 ```bash
