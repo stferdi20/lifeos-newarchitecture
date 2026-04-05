@@ -34,6 +34,7 @@ export const RESOURCE_CARD_LIST_FIELDS = [
   'download_status',
   'capture_status',
   'capture_status_message',
+  'youtube_transcript_excerpt',
   'youtube_transcript_status',
   'enrichment_warning',
 ];

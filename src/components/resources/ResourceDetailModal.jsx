@@ -669,6 +669,22 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
             </div>
           )}
 
+          {isYouTube && (resource.youtube_transcript || resource.content) && (
+            <div className="rounded-xl border border-red-500/20 bg-secondary/20 p-4">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-red-300">Transcript</p>
+                {resource.content_truncated ? (
+                  <span className="text-[10px] uppercase tracking-widest text-amber-300">trimmed</span>
+                ) : null}
+              </div>
+              <div className="max-h-72 overflow-y-auto rounded-lg border border-border/40 bg-background/30 px-3 py-2">
+                <p className="whitespace-pre-wrap break-words text-xs leading-relaxed text-foreground/80">
+                  {resource.youtube_transcript || resource.content}
+                </p>
+              </div>
+            </div>
+          )}
+
           {isReddit && (
             <ResourceFactsSection
               title="Reddit Details"

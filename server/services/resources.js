@@ -13,7 +13,7 @@ import {
   isKnowledgeAreaName,
 } from './resource-area-heuristics.js';
 
-const ANALYSIS_VERSION = 'resource-enrichment-v6';
+const ANALYSIS_VERSION = 'resource-enrichment-v7';
 const USER_AGENT = 'LifeOS/1.0 (+https://lifeos-self-hosted.vercel.app)';
 const MAX_STORED_CONTENT_CHARS = 60000;
 const MAX_PROMPT_CONTENT_CHARS = 16000;
@@ -43,6 +43,7 @@ const resourceSchema = z.object({
   use_cases: z.array(z.string()).default([]),
   learning_outcomes: z.array(z.string()).default([]),
   notable_quotes_or_moments: z.array(z.string()).default([]),
+  youtube_transcript_excerpt: z.string().default(''),
   reddit_thread_type: z.string().default(''),
   reddit_top_comment_summaries: z.array(z.string()).default([]),
   status: z.string().default('unknown'),
@@ -88,6 +89,22 @@ function normalizeTranscriptText(value, limit = MAX_STORED_CONTENT_CHARS) {
     .replace(/\n{3,}/g, '\n\n')
     .trim()
     .slice(0, limit);
+}
+
+function buildTranscriptExcerpt(value, maxLines = 12, maxChars = 1200) {
+  const transcript = normalizeTranscriptText(value, MAX_STORED_CONTENT_CHARS);
+  if (!transcript) return '';
+
+  const excerpt = transcript
+    .split('\n')
+    .map((line) => stripText(line))
+    .filter(Boolean)
+    .slice(0, maxLines)
+    .join('\n')
+    .slice(0, maxChars)
+    .trim();
+
+  return excerpt;
 }
 
 function normalizeContentForPrompt(value, limit = MAX_PROMPT_CONTENT_CHARS) {
@@ -2227,6 +2244,7 @@ function buildInstagramContext(instagramExtraction) {
 
 function buildYouTubeContext(youtubeData) {
   if (!youtubeData) return '';
+  const transcriptExcerpt = buildTranscriptExcerpt(youtubeData.transcript || '');
   return [
     youtubeData.videoId ? `Video ID: ${youtubeData.videoId}` : '',
     youtubeData.channel ? `Channel: ${youtubeData.channel}` : '',
@@ -2234,6 +2252,7 @@ function buildYouTubeContext(youtubeData) {
     youtubeData.viewCount != null ? `View Count: ${youtubeData.viewCount}` : '',
     youtubeData.publishedDate ? `Published At: ${youtubeData.publishedDate}` : '',
     youtubeData.captionLanguage ? `Caption Language: ${youtubeData.captionLanguage}` : '',
+    transcriptExcerpt ? `Transcript Excerpt:\n${transcriptExcerpt}` : '',
   ].filter(Boolean).join('\n');
 }
 
@@ -2341,6 +2360,9 @@ function buildPrompt({ url, extracted, heuristic, areaNames = [] }) {
       : 'Use extracted content as the main source of truth and stay conservative.',
     extracted.content
       ? 'If meaningful content exists, do not return only a summary. Populate key_points, actionable_points, and use_cases whenever reasonably supported.'
+      : '',
+    extracted.resourceType === 'youtube'
+      ? 'For YouTube, make the enrichment transcript-faithful: stay close to the spoken claims, use concrete wording, and avoid generic video-review language.'
       : '',
     `Heuristic fallback summary: ${JSON.stringify(heuristic).slice(0, 1600)}`,
   ].filter(Boolean).join('\n');
@@ -2681,6 +2703,7 @@ function buildAnalysisPayload({ mergedData, extracted, areaAssignment }) {
           youtube_publish_date: youtubeData?.publishedDate || '',
           youtube_description: youtubeData?.description || extracted.description || '',
           youtube_transcript: youtubeData?.transcript || extracted.content || '',
+          youtube_transcript_excerpt: buildTranscriptExcerpt(youtubeData?.transcript || extracted.content || ''),
           youtube_transcript_status: youtubeData?.transcriptStatus || '',
           youtube_transcript_error: youtubeData?.transcriptError || '',
           youtube_transcript_source: youtubeData?.transcriptSource || '',
@@ -3017,6 +3040,7 @@ export function preserveStrongerExistingData(resource, analyzedData) {
     nextData.content = resource.content || nextData.content || '';
     nextData.content_source = resource.content_source || nextData.content_source || '';
     nextData.content_language = resource.content_language || nextData.content_language || '';
+    nextData.youtube_transcript_excerpt = resource.youtube_transcript_excerpt || nextData.youtube_transcript_excerpt || '';
     nextData.enrichment_status = resource.enrichment_status || nextData.enrichment_status || '';
     nextData.enrichment_warning = resource.enrichment_warning || nextData.enrichment_warning || '';
   }
