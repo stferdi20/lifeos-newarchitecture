@@ -433,6 +433,8 @@ export default function Resources() {
     return isMobile ? 320 : 360;
   }, [gridDensity, isMobile, layoutMode]);
 
+  const isGridLayout = layoutMode === 'grid';
+
   const totalRows = useMemo(
     () => Math.ceil(filteredResources.length / layoutColumnCount),
     [filteredResources.length, layoutColumnCount],
@@ -443,6 +445,15 @@ export default function Resources() {
   const visibleRange = useMemo(() => {
     if (!filteredResources.length) {
       return { startIndex: 0, endIndex: 0, topSpacerHeight: 0, bottomSpacerHeight: 0 };
+    }
+
+    if (!isGridLayout) {
+      return {
+        startIndex: 0,
+        endIndex: filteredResources.length,
+        topSpacerHeight: 0,
+        bottomSpacerHeight: 0,
+      };
     }
 
     if (!listMetrics.viewportHeight || !estimatedResourceHeight) {
@@ -476,6 +487,7 @@ export default function Resources() {
     listMetrics.viewportHeight,
     overscanRows,
     totalRows,
+    isGridLayout,
   ]);
 
   const renderedResources = useMemo(
@@ -483,14 +495,34 @@ export default function Resources() {
     [filteredResources, visibleRange.endIndex, visibleRange.startIndex],
   );
 
+  const stableColumnResources = useMemo(() => {
+    if (isGridLayout) return [];
+    const columns = Array.from({ length: layoutColumnCount }, () => []);
+    filteredResources.forEach((resource, index) => {
+      columns[index % layoutColumnCount].push(resource);
+    });
+    return columns;
+  }, [filteredResources, isGridLayout, layoutColumnCount]);
+
+  const displayedResources = isGridLayout ? renderedResources : filteredResources;
+  const resourceListStyle = isGridLayout
+    ? {
+      paddingTop: visibleRange.topSpacerHeight,
+      paddingBottom: visibleRange.bottomSpacerHeight,
+    }
+    : {
+      gridTemplateColumns: `repeat(${layoutColumnCount}, minmax(0, 1fr))`,
+      gap: layoutMode === 'gallery' ? '1.25rem' : '1rem',
+    };
+
   useEffect(() => {
-    if (!profilingEnabled || resourcesLoading || renderedResources.length === 0 || typeof window === 'undefined') {
+    if (!profilingEnabled || resourcesLoading || displayedResources.length === 0 || typeof window === 'undefined') {
       return undefined;
     }
 
     const frameId = window.requestAnimationFrame(() => {
       recordResourceProfileEvent('resources:first-paint', {
-        renderedCount: renderedResources.length,
+        renderedCount: displayedResources.length,
         filteredCount: filteredResources.length,
       });
     });
@@ -498,7 +530,7 @@ export default function Resources() {
     return () => {
       window.cancelAnimationFrame(frameId);
     };
-  }, [filteredResources.length, profilingEnabled, renderedResources.length, resourcesLoading]);
+  }, [displayedResources.length, filteredResources.length, profilingEnabled, resourcesLoading]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -869,6 +901,25 @@ export default function Resources() {
     });
   };
 
+  const renderResourceCard = (resource) => (
+    <ResourceCard
+      key={resource.id}
+      resource={resource}
+      onClick={handleCardClick}
+      onArchiveToggle={handleArchiveToggle}
+      onDelete={(id) => deleteDirectMutation.mutate(id)}
+      onRetry={(targetResource) => retryResourceMutation.mutate(targetResource)}
+      onTagClick={handleTagClick}
+      areas={areas}
+      selectMode={selectMode}
+      selected={selectedIds.has(resource.id)}
+      layoutMode={layoutMode}
+      gridDensity={gridDensity}
+      archiveLoading={archiveToggleMutation.isPending && archiveToggleMutation.variables?.resourceId === resource.id}
+      retryLoading={retryResourceMutation.isPending && retryResourceMutation.variables?.id === resource.id}
+    />
+  );
+
   if (resourcesLoading) {
     return <PageLoader label="Loading resources..." />;
   }
@@ -1046,51 +1097,28 @@ export default function Resources() {
 
       <div
         ref={listRef}
-        style={{
-          paddingTop: visibleRange.topSpacerHeight,
-          paddingBottom: visibleRange.bottomSpacerHeight,
-        }}
+        style={resourceListStyle}
         className={cn(
-          layoutMode === 'grid'
+          isGridLayout
             ? cn(
               'grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4',
               gridDensity === 'compact'
                 ? 'gap-3 2xl:grid-cols-5'
                 : 'gap-4',
             )
-            : layoutMode === 'gallery'
-              ? cn(
-                'columns-1 gap-5 sm:columns-2 lg:columns-3 xl:columns-4',
-                gridDensity === 'compact' && '2xl:columns-5',
-              )
-              : cn(
-                'columns-1 gap-4 sm:columns-2 lg:columns-3 xl:columns-4',
-                gridDensity === 'compact' && '2xl:columns-5',
-              ),
+            : 'grid items-start',
         )}
       >
-        {renderedResources.map(r => (
-          <div
-            key={r.id}
-            className={cn(layoutMode !== 'grid' && 'mb-5 w-full break-inside-avoid')}
-          >
-            <ResourceCard
-              resource={r}
-              onClick={handleCardClick}
-              onArchiveToggle={handleArchiveToggle}
-              onDelete={(id) => deleteDirectMutation.mutate(id)}
-              onRetry={(resource) => retryResourceMutation.mutate(resource)}
-              onTagClick={handleTagClick}
-              areas={areas}
-              selectMode={selectMode}
-              selected={selectedIds.has(r.id)}
-              layoutMode={layoutMode}
-              gridDensity={gridDensity}
-              archiveLoading={archiveToggleMutation.isPending && archiveToggleMutation.variables?.resourceId === r.id}
-              retryLoading={retryResourceMutation.isPending && retryResourceMutation.variables?.id === r.id}
-            />
-          </div>
-        ))}
+        {isGridLayout
+          ? renderedResources.map((resource) => renderResourceCard(resource))
+          : stableColumnResources.map((columnResources, columnIndex) => (
+            <div
+              key={`resource-column-${columnIndex}`}
+              className={cn('flex min-w-0 flex-col', layoutMode === 'gallery' ? 'gap-5' : 'gap-4')}
+            >
+              {columnResources.map((resource) => renderResourceCard(resource))}
+            </div>
+          ))}
       </div>
 
       {filteredResources.length === 0 && (
