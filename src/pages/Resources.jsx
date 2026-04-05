@@ -18,6 +18,15 @@ import {
   retryResourceCapture,
 } from '@/lib/resources-api';
 import { retryInstagramDownloadForResource } from '@/lib/instagram-downloader-api';
+import {
+  getResourceProfileSnapshot,
+  isResourceProfilingEnabled,
+  recordResourceProfileEvent,
+  resetResourceProfileSession,
+  startResourceProfileSpan,
+  subscribeToResourceProfile,
+  summarizeResourceProfile,
+} from '@/lib/resource-profile';
 import { isGenericCaptureActive } from '@/lib/resource-capture';
 import ResourceFilters from '../components/resources/ResourceFilters';
 import ResourceCard from '../components/resources/ResourceCard';
@@ -92,12 +101,98 @@ async function fetchResourceLinks(entityApi, resourceId) {
   return [];
 }
 
+function ResourceProfilePanel() {
+  const [summary, setSummary] = useState(() => summarizeResourceProfile(getResourceProfileSnapshot()));
+
+  useEffect(() => {
+    const sync = () => setSummary(summarizeResourceProfile(getResourceProfileSnapshot()));
+    sync();
+    return subscribeToResourceProfile(sync);
+  }, []);
+
+  if (!summary?.enabled) return null;
+
+  return (
+    <div className="rounded-2xl border border-sky-500/25 bg-sky-500/10 p-4 text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="font-semibold text-sky-200">Resources Profiler</p>
+          <p className="text-sky-100/70">Enable with `?profileResources=1` while running locally.</p>
+        </div>
+        <span className="rounded-full border border-sky-400/30 px-2 py-0.5 text-[11px] text-sky-100/80">
+          Session {summary.sessionAgeMs ?? 0}ms
+        </span>
+      </div>
+
+      <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-xl border border-white/10 bg-background/30 p-3">
+          <p className="text-[10px] uppercase tracking-wider text-sky-100/60">Route</p>
+          <p className="mt-1 text-sm text-foreground">Mounted: {summary.routeMountedMs ?? 'n/a'}ms</p>
+          <p className="text-sm text-foreground">First paint: {summary.firstPaintMs ?? 'n/a'}ms</p>
+        </div>
+        <div className="rounded-xl border border-white/10 bg-background/30 p-3">
+          <p className="text-[10px] uppercase tracking-wider text-sky-100/60">Queries</p>
+          <p className="mt-1 text-sm text-foreground">Resources: {summary.resourcesReadyMs ?? 'n/a'}ms</p>
+          <p className="text-sm text-foreground">Projects: {summary.projectsReadyMs ?? 'n/a'}ms</p>
+          <p className="text-sm text-foreground">Areas: {summary.areasReadyMs ?? 'n/a'}ms</p>
+          <p className="text-sm text-foreground">Project links: {summary.projectFilterReadyMs ?? 'n/a'}ms</p>
+        </div>
+        <div className="rounded-xl border border-white/10 bg-background/30 p-3">
+          <p className="text-[10px] uppercase tracking-wider text-sky-100/60">API/Auth</p>
+          <p className="mt-1 text-sm text-foreground">Requests: {summary.apiCount}</p>
+          <p className="text-sm text-foreground">Token total: {summary.totalTokenMs ?? 'n/a'}ms</p>
+          <p className="text-sm text-foreground">Fetch total: {summary.totalFetchMs ?? 'n/a'}ms</p>
+          <p className="text-sm text-foreground">Downloader: {summary.downloaderReadyMs ?? 'n/a'}ms</p>
+        </div>
+        <div className="rounded-xl border border-white/10 bg-background/30 p-3">
+          <p className="text-[10px] uppercase tracking-wider text-sky-100/60">Images</p>
+          <p className="mt-1 text-sm text-foreground">Loaded: {summary.imageCount}</p>
+          <p className="text-sm text-foreground">First image: {summary.firstImageMs ?? 'n/a'}ms</p>
+          <p className="text-sm text-foreground">Last image: {summary.lastImageMs ?? 'n/a'}ms</p>
+        </div>
+      </div>
+
+      {summary.requestSummaries?.length > 0 && (
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[560px] text-left text-[11px]">
+            <thead className="text-sky-100/60">
+              <tr>
+                <th className="pb-2 font-medium">Request</th>
+                <th className="pb-2 font-medium">At</th>
+                <th className="pb-2 font-medium">Total</th>
+                <th className="pb-2 font-medium">Token</th>
+                <th className="pb-2 font-medium">Fetch</th>
+                <th className="pb-2 font-medium">JSON</th>
+                <th className="pb-2 font-medium">Status</th>
+              </tr>
+            </thead>
+            <tbody className="text-foreground/90">
+              {summary.requestSummaries.map((request, index) => (
+                <tr key={`${request.label}-${index}`} className="border-t border-white/5">
+                  <td className="py-2 pr-3">{request.label}</td>
+                  <td className="py-2 pr-3">{request.atMs ?? 'n/a'}ms</td>
+                  <td className="py-2 pr-3">{request.totalMs ?? 'n/a'}ms</td>
+                  <td className="py-2 pr-3">{request.tokenMs ?? 'n/a'}ms</td>
+                  <td className="py-2 pr-3">{request.fetchMs ?? 'n/a'}ms</td>
+                  <td className="py-2 pr-3">{request.jsonMs ?? 'n/a'}ms</td>
+                  <td className="py-2">{request.status ?? 'n/a'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Resources() {
   const REENRICH_BATCH_SIZE = 25;
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const location = useLocation();
   const isMobile = useIsMobile();
+  const profilingEnabled = isResourceProfilingEnabled();
 
   const urlParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const initialProject = urlParams.get('projectId') || null;
@@ -142,6 +237,16 @@ export default function Resources() {
   });
 
   useEffect(() => {
+    if (!profilingEnabled) return undefined;
+    resetResourceProfileSession('Resources route');
+    recordResourceProfileEvent('resources:route-mounted', {
+      projectFilter: initialProject || '',
+      tagFilter: initialTag || '',
+    });
+    return undefined;
+  }, [initialProject, initialTag, profilingEnabled]);
+
+  useEffect(() => {
     try {
       window.localStorage.setItem(RESOURCE_LAYOUT_STORAGE_KEY, layoutMode);
     } catch {
@@ -159,7 +264,17 @@ export default function Resources() {
 
   const { data: resources = [], isLoading: resourcesLoading } = useQuery({
     queryKey: ['resources'],
-    queryFn: () => listResourceCards(200),
+    queryFn: async () => {
+      const finish = startResourceProfileSpan('resources:query');
+      try {
+        const result = await listResourceCards(200);
+        finish({ count: result.length });
+        return result;
+      } catch (error) {
+        finish({ error: error?.message || 'unknown' });
+        throw error;
+      }
+    },
     staleTime: RESOURCE_QUERY_STALE_TIME,
     gcTime: RESOURCE_QUERY_GC_TIME,
     refetchOnMount: false,
@@ -183,8 +298,16 @@ export default function Resources() {
   const { data: downloaderStatus } = useQuery({
     queryKey: ['instagram-downloader-status'],
     queryFn: async () => {
+      const finish = startResourceProfileSpan('resources:downloader-status-query');
       const module = await import('@/lib/instagram-downloader-api');
-      return module.getInstagramDownloaderStatus();
+      try {
+        const result = await module.getInstagramDownloaderStatus();
+        finish();
+        return result;
+      } catch (error) {
+        finish({ error: error?.message || 'unknown' });
+        throw error;
+      }
     },
     enabled: hasInstagramResources,
     staleTime: 30_000,
@@ -193,21 +316,53 @@ export default function Resources() {
 
   const { data: projects = [] } = useQuery({
     queryKey: ['projects'],
-    queryFn: () => listBoardWorkspaces(),
+    queryFn: async () => {
+      const finish = startResourceProfileSpan('resources:projects-query');
+      try {
+        const result = await listBoardWorkspaces();
+        finish({ count: result.length });
+        return result;
+      } catch (error) {
+        finish({ error: error?.message || 'unknown' });
+        throw error;
+      }
+    },
     staleTime: RESOURCE_QUERY_STALE_TIME,
     gcTime: RESOURCE_QUERY_GC_TIME,
   });
 
   const { data: areas = [] } = useQuery({
     queryKey: ['lifeAreas'],
-    queryFn: () => listLifeAreaFilters(),
+    queryFn: async () => {
+      const finish = startResourceProfileSpan('resources:areas-query');
+      try {
+        const result = await listLifeAreaFilters();
+        finish({ count: result.length });
+        return result;
+      } catch (error) {
+        finish({ error: error?.message || 'unknown' });
+        throw error;
+      }
+    },
     staleTime: RESOURCE_QUERY_STALE_TIME,
     gcTime: RESOURCE_QUERY_GC_TIME,
   });
 
   const { data: projectResources = [], isLoading: projectResourcesLoading } = useQuery({
     queryKey: ['projectResources', projectFilter || 'all'],
-    queryFn: () => listProjectResourceLinks(projectFilter ? { project_id: projectFilter } : {}),
+    queryFn: async () => {
+      const finish = startResourceProfileSpan('resources:project-links-query', {
+        projectFilter: projectFilter || '',
+      });
+      try {
+        const result = await listProjectResourceLinks(projectFilter ? { project_id: projectFilter } : {});
+        finish({ count: result.length });
+        return result;
+      } catch (error) {
+        finish({ error: error?.message || 'unknown' });
+        throw error;
+      }
+    },
     enabled: Boolean(projectFilter),
     staleTime: RESOURCE_QUERY_STALE_TIME,
     gcTime: RESOURCE_QUERY_GC_TIME,
@@ -327,6 +482,23 @@ export default function Resources() {
     () => filteredResources.slice(visibleRange.startIndex, visibleRange.endIndex),
     [filteredResources, visibleRange.endIndex, visibleRange.startIndex],
   );
+
+  useEffect(() => {
+    if (!profilingEnabled || resourcesLoading || renderedResources.length === 0 || typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      recordResourceProfileEvent('resources:first-paint', {
+        renderedCount: renderedResources.length,
+        filteredCount: filteredResources.length,
+      });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [filteredResources.length, profilingEnabled, renderedResources.length, resourcesLoading]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -793,6 +965,8 @@ export default function Resources() {
           projects={projects} allTags={allTags} areas={areas}
         />
       </div>
+
+      {profilingEnabled && <ResourceProfilePanel />}
 
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs text-muted-foreground">{filteredResources.length} resource{filteredResources.length !== 1 ? 's' : ''}</p>

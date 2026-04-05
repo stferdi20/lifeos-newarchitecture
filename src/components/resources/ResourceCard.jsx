@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { recordResourceProfileImageLoad } from '@/lib/resource-profile';
 import { cn, formatUiLabel } from '@/lib/utils';
 import { format } from 'date-fns';
 import { getGenericCaptureStatusLabel, isGenericCaptureActive, isGenericCaptureFailed } from '@/lib/resource-capture';
@@ -312,6 +313,13 @@ export default function ResourceCard({
     const { naturalWidth, naturalHeight } = event.currentTarget || {};
     if (!naturalWidth || !naturalHeight) return;
     setThumbnailAspectRatio(naturalWidth / naturalHeight);
+    recordResourceProfileImageLoad({
+      resourceId: resource.id,
+      resourceType: resource.resource_type,
+      width: naturalWidth,
+      height: naturalHeight,
+      layoutMode,
+    });
   };
 
   return (
