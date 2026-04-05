@@ -90,14 +90,19 @@ export default function SnippetCard({
           </div>
         </div>
 
-        <div className="flex shrink-0 flex-wrap items-center gap-2 md:w-[220px] md:justify-end">
-          <Button onClick={() => onCopy(snippet)} className="gap-2 md:min-w-[132px]">
+        <div className="grid shrink-0 grid-cols-2 gap-2 md:flex md:w-[240px] md:flex-wrap md:justify-end">
+          <Button onClick={() => onCopy(snippet)} className="w-full gap-2 md:w-auto md:min-w-[132px]">
             <Copy className="h-4 w-4" />
             {isImage ? 'Copy Image' : 'Copy Text'}
           </Button>
 
           {isImage ? (
-            <Button type="button" variant="outline" className="gap-2 border-white/10 bg-transparent" onClick={() => onCopySecondary?.(snippet)}>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full gap-2 border-white/10 bg-transparent md:w-auto"
+              onClick={() => onCopySecondary?.(snippet)}
+            >
               <Download className="h-4 w-4" />
               Copy Link
             </Button>
@@ -106,7 +111,7 @@ export default function SnippetCard({
           <Button
             type="button"
             variant="outline"
-            className="gap-2 border-white/10 bg-transparent"
+            className="w-full gap-2 border-white/10 bg-transparent md:w-auto"
             onClick={() => onToggleFavorite(snippet)}
           >
             <Star className={cn('h-4 w-4', snippet.is_favorite && 'fill-amber-300 text-amber-300')} />
@@ -115,7 +120,7 @@ export default function SnippetCard({
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button type="button" variant="outline" size="icon" className="border-white/10 bg-transparent">
+              <Button type="button" variant="outline" size="icon" className="w-full border-white/10 bg-transparent md:w-10">
                 <MoreHorizontal className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
