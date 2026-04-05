@@ -10,7 +10,10 @@ router = APIRouter()
 
 
 def is_authorized(secret_header: str | None) -> bool:
-    expected = os.getenv("INSTAGRAM_DOWNLOADER_SHARED_SECRET", "").strip()
+    expected = (
+        os.getenv("YOUTUBE_TRANSCRIPT_WORKER_SHARED_SECRET", "").strip()
+        or os.getenv("INSTAGRAM_DOWNLOADER_SHARED_SECRET", "").strip()
+    )
     if not expected:
         return True
     return bool(secret_header) and secret_header == expected
