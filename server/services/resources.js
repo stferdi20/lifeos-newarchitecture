@@ -1467,9 +1467,6 @@ async function fetchYouTubeMetadata(normalizedUrl, html) {
   const innertubeResult = workerTranscriptResult.transcript || fromWatchPage.transcript
     ? { transcript: '', language: '', playerResponse: null }
     : await fetchYoutubeTranscriptFromInnertube(videoId, html);
-  const ytdlpResult = workerTranscriptResult.transcript || fromWatchPage.transcript || innertubeResult.transcript
-    ? { transcript: '', language: '', status: '', error: '', selectedMode: false }
-    : await fetchYoutubeTranscriptViaYtDlp(normalizedUrl);
   const playerResponse = innertubeResult.playerResponse || initialPlayerResponse || {};
   const videoDetails = playerResponse?.videoDetails || {};
   const microformat = playerResponse?.microformat?.playerMicroformatRenderer || {};
@@ -1492,7 +1489,6 @@ async function fetchYouTubeMetadata(normalizedUrl, html) {
     { transcript: workerTranscriptResult.transcript, language: workerTranscriptResult.language, source: workerTranscriptResult.transcriptSource || 'worker_youtube_transcript_api' },
     { transcript: fromWatchPage.transcript, language: fromWatchPage.language, source: 'legacy_direct' },
     { transcript: innertubeResult.transcript, language: innertubeResult.language, source: 'legacy_direct' },
-    { transcript: ytdlpResult.transcript, language: ytdlpResult.language, source: 'yt_dlp' },
   ];
   const bestDirectTranscript = transcriptCandidates.find((entry) => stripText(entry.transcript)) || { transcript: '', language: '', source: '' };
   const fallbackTranscript = bestDirectTranscript.transcript
@@ -1506,27 +1502,23 @@ async function fetchYouTubeMetadata(normalizedUrl, html) {
       ? 'ok'
       : (innertubeResult.transcript
         ? 'ok'
-        : (ytdlpResult.transcript
-          ? (ytdlpResult.status || 'ok')
-          : (workerTranscriptResult.status || ytdlpResult.status || (bestDirectTranscript.transcript ? 'ok' : (fallbackTranscript.transcript ? 'ok' : ''))))));
+        : (workerTranscriptResult.status || (bestDirectTranscript.transcript ? 'ok' : (fallbackTranscript.transcript ? 'ok' : '')))));
   const transcriptError = workerTranscriptResult.transcript
     ? (workerTranscriptResult.error || '')
     : (fromWatchPage.transcript
       ? ''
       : (innertubeResult.transcript
         ? ''
-        : (ytdlpResult.transcript ? (ytdlpResult.error || '') : (workerTranscriptResult.error || ytdlpResult.error || ''))));
+        : (workerTranscriptResult.error || '')));
   const transcriptSource = workerTranscriptResult.transcript
     ? (workerTranscriptResult.transcriptSource || 'worker_youtube_transcript_api')
     : (fromWatchPage.transcript
       ? 'legacy_direct'
       : (innertubeResult.transcript
         ? 'legacy_direct'
-        : (ytdlpResult.transcript
-          ? 'yt_dlp'
-          : (workerTranscriptResult.status
-            ? (workerTranscriptResult.transcriptSource || 'worker_youtube_transcript_api')
-            : (bestDirectTranscript.source || (fallbackTranscript.transcript ? 'supadata' : ''))))));
+        : (workerTranscriptResult.status
+          ? (workerTranscriptResult.transcriptSource || 'worker_youtube_transcript_api')
+          : (bestDirectTranscript.source || (fallbackTranscript.transcript ? 'supadata' : '')))));
   const aiSummaryCandidates = findObjectsDeep(initialData, (entry) => (
     Boolean(entry?.content)
     && /summary/i.test(extractTextRuns(entry?.title) || extractTextRuns(entry?.header))
