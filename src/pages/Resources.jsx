@@ -253,15 +253,16 @@ export default function Resources() {
   const layoutColumnCount = useMemo(() => {
     if (typeof window === 'undefined') return 1;
     const viewportWidth = window.innerWidth;
-    const isCompactGrid = layoutMode === 'grid' && gridDensity === 'compact';
+    const isCompactDensity = gridDensity === 'compact';
     if (layoutMode === 'grid') {
-      if (isCompactGrid && viewportWidth >= 1536) return 5;
+      if (isCompactDensity && viewportWidth >= 1536) return 5;
       if (viewportWidth >= 1280) return 4;
       if (viewportWidth >= 1024) return 3;
       if (viewportWidth >= 640) return 2;
       return 1;
     }
 
+    if (isCompactDensity && viewportWidth >= 1536) return 5;
     if (viewportWidth >= 1280) return 4;
     if (viewportWidth >= 1024) return 3;
     if (viewportWidth >= 640) return 2;
@@ -273,11 +274,7 @@ export default function Resources() {
       if (gridDensity === 'compact') return isMobile ? 340 : 320;
       return isMobile ? 360 : 390;
     }
-    if (layoutMode === 'gallery') {
-      if (gridDensity === 'compact') return isMobile ? 390 : 430;
-      return isMobile ? 420 : 470;
-    }
-    if (gridDensity === 'compact') return isMobile ? 290 : 330;
+    if (layoutMode === 'gallery') return isMobile ? 420 : 470;
     return isMobile ? 320 : 360;
   }, [gridDensity, isMobile, layoutMode]);
 
@@ -888,8 +885,14 @@ export default function Resources() {
                 : 'gap-4',
             )
             : layoutMode === 'gallery'
-              ? 'columns-1 gap-5 sm:columns-2 lg:columns-3 xl:columns-4'
-              : 'columns-1 gap-4 sm:columns-2 lg:columns-3 xl:columns-4',
+              ? cn(
+                'columns-1 gap-5 sm:columns-2 lg:columns-3 xl:columns-4',
+                gridDensity === 'compact' && '2xl:columns-5',
+              )
+              : cn(
+                'columns-1 gap-4 sm:columns-2 lg:columns-3 xl:columns-4',
+                gridDensity === 'compact' && '2xl:columns-5',
+              ),
         )}
       >
         {renderedResources.map(r => (

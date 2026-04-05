@@ -260,8 +260,8 @@ export default function ResourceCard({
   const isMagazine = layoutMode === 'magazine';
   const isCompactDensity = gridDensity === 'compact';
   const isCompactGrid = isGrid && isCompactDensity;
-  const isCompactGallery = isGallery && isCompactDensity;
-  const isCompactMagazine = isMagazine && isCompactDensity;
+  const isCompactGallery = false;
+  const isCompactMagazine = false;
   const isFreeflow = !isGrid;
   const isFeatured = isGallery && (resource.resource_score >= 8 || ['youtube', 'instagram_reel', 'instagram_carousel'].includes(resource.resource_type));
   const bodySpacingClass = isGallery
