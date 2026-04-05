@@ -122,6 +122,7 @@ YouTube transcript extraction now follows the same worker pattern as Instagram:
 
 - if a transcript is immediately available, enrichment uses it right away
 - if not, the resource is saved and a queue-backed worker job is created
+- queue-backed backfill is created even when direct worker calls are unavailable, so recovery can still happen later
 - your local Python worker can later fetch the transcript and upgrade the resource automatically
 
 Direct worker calls through `INSTAGRAM_DOWNLOADER_BASE_URL` are still supported, but they are no longer required for the same local-worker pattern that Instagram already uses.

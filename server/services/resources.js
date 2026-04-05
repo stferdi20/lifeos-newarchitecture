@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { routeStructuredJson } from '../lib/llm-router.js';
 import { listCompatEntities, updateCompatEntity } from './compat-store.js';
 import { requestYouTubeTranscript } from './instagram-downloader.js';
+import { shouldQueueYouTubeTranscriptBackfill } from './youtube-transcripts.js';
 import {
   chooseHeuristicArea,
   isKnowledgeAreaName,
@@ -3092,6 +3093,19 @@ export async function reEnrichResourcesForUser(userId, { resourceIds = [], filte
         id: resource.id,
         created_date: resource.created_date,
       });
+      if (shouldQueueYouTubeTranscriptBackfill(nextData) || shouldQueueYouTubeTranscriptBackfill(resource)) {
+        try {
+          const { maybeQueueYouTubeTranscriptJobForResource } = await import('./instagram-download-queue.js');
+          await maybeQueueYouTubeTranscriptJobForResource(userId, {
+            ...resource,
+            ...nextData,
+            id: resource.id,
+            source_url: resource.source_url || resource.url || '',
+          });
+        } catch {
+          // Keep re-enrichment independent from transcript backfill.
+        }
+      }
       updated += 1;
       items.push({ id: resource.id, status: 'updated' });
     } catch (error) {

@@ -98,6 +98,7 @@ Important consequence:
 - if your local Python worker is already polling the backend for Instagram jobs, it can also process YouTube transcript jobs
 - Vercel does not need a public `yt-dlp` binary for this pattern
 - `INSTAGRAM_DOWNLOADER_BASE_URL` is only needed if you want direct backend-to-worker calls instead of the queue-backed worker flow
+- queue-backed YouTube backfill is still created even when direct worker calls are unavailable, so transcript recovery can resume later when the worker comes back online
 
 ## Google OAuth Setup
 

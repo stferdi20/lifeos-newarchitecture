@@ -6,9 +6,13 @@ import { inferResourceType, normalizeResourceRecord } from './compat-functions.j
 import { analyzeResource, buildInstagramDisplayTitleFromData, preserveStrongerExistingData } from './resources.js';
 import { getGoogleAccessToken } from './google.js';
 import { requestInstagramDownload } from './instagram-downloader.js';
+import {
+  normalizeYouTubeTranscriptResult,
+  shouldQueueYouTubeTranscriptBackfill,
+  YOUTUBE_TRANSCRIPT_JOB_TYPE,
+} from './youtube-transcripts.js';
 
 const INSTAGRAM_JOB_TYPE = 'instagram_download';
-const YOUTUBE_TRANSCRIPT_JOB_TYPE = 'youtube_transcript';
 const GLOBAL_DRIVE_TARGET = 'global_instagram_folder';
 const INSTAGRAM_IMPORTS_FOLDER_NAME = 'Instagram Imports';
 const DEFAULT_POLL_INTERVAL_SECONDS = 10;
@@ -865,11 +869,7 @@ async function findExistingYouTubeTranscriptJob(userId, resourceId) {
 
 export async function maybeQueueYouTubeTranscriptJobForResource(userId, resource = {}) {
   if (!userId) return resource;
-  if (resource?.resource_type !== 'youtube') return resource;
-  if (resource?.content_source === 'youtube_transcript') return resource;
-
-  const settings = await getInstagramDownloaderSettingsForUser(userId);
-  if (!settings.worker_enabled) return resource;
+  if (!shouldQueueYouTubeTranscriptBackfill(resource)) return resource;
 
   const existingJob = await findExistingYouTubeTranscriptJob(userId, resource.id);
   if (existingJob) {
@@ -1205,13 +1205,14 @@ export async function claimNextInstagramDownloadJob(workerId) {
 
 async function applySuccessfulYouTubeTranscript(userId, resourceId, sourceUrl, transcriptResult = {}) {
   const current = await getCompatEntity(userId, 'Resource', resourceId);
+  const normalizedTranscript = normalizeYouTubeTranscriptResult(transcriptResult);
 
   let analyzedData = {};
   try {
     const analyzed = await analyzeResource({
       url: sourceUrl,
       title: current.title || '',
-      content: transcriptResult.transcript || '',
+      content: normalizedTranscript.transcript || '',
       userId,
     });
     analyzedData = analyzed?.data || {};
@@ -1222,14 +1223,14 @@ async function applySuccessfulYouTubeTranscript(userId, resourceId, sourceUrl, t
   const merged = preserveStrongerExistingData(current, {
     ...current,
     ...analyzedData,
-    content: transcriptResult.transcript || analyzedData.content || current.content || '',
-    content_source: transcriptResult.transcript ? 'youtube_transcript' : (analyzedData.content_source || current.content_source || ''),
-    content_language: transcriptResult.language || analyzedData.content_language || current.content_language || '',
-    youtube_transcript: transcriptResult.transcript || current.youtube_transcript || '',
-    youtube_transcript_status: transcriptResult.status || 'ok',
-    youtube_transcript_error: transcriptResult.error || '',
-    youtube_transcript_source: transcriptResult.transcript_source || 'worker_yt_dlp',
-    youtube_caption_language: transcriptResult.language || current.youtube_caption_language || '',
+    content: normalizedTranscript.transcript || analyzedData.content || current.content || '',
+    content_source: normalizedTranscript.transcript ? 'youtube_transcript' : (analyzedData.content_source || current.content_source || ''),
+    content_language: normalizedTranscript.language || analyzedData.content_language || current.content_language || '',
+    youtube_transcript: normalizedTranscript.transcript || current.youtube_transcript || '',
+    youtube_transcript_status: normalizedTranscript.status || 'ok',
+    youtube_transcript_error: normalizedTranscript.error || '',
+    youtube_transcript_source: normalizedTranscript.transcriptSource || 'worker_yt_dlp',
+    youtube_caption_language: normalizedTranscript.language || current.youtube_caption_language || '',
   });
 
   return updateCompatEntity(userId, 'Resource', resourceId, {
@@ -1239,10 +1240,10 @@ async function applySuccessfulYouTubeTranscript(userId, resourceId, sourceUrl, t
     created_date: current.created_date,
     downloader_job_id: '',
     downloader_updated_at: new Date().toISOString(),
-    youtube_transcript_status: transcriptResult.status || 'ok',
-    youtube_transcript_error: transcriptResult.error || '',
-    youtube_transcript_source: transcriptResult.transcript_source || 'worker_yt_dlp',
-    youtube_caption_language: transcriptResult.language || current.youtube_caption_language || '',
+    youtube_transcript_status: normalizedTranscript.status || 'ok',
+    youtube_transcript_error: normalizedTranscript.error || '',
+    youtube_transcript_source: normalizedTranscript.transcriptSource || 'worker_yt_dlp',
+    youtube_caption_language: normalizedTranscript.language || current.youtube_caption_language || '',
   });
 }
 
