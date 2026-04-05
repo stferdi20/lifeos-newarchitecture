@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, RefreshCw, CalendarDays } from 'lucide-react';
+import { AlertTriangle, Plus, RefreshCw, CalendarDays } from 'lucide-react';
 import { startOfWeek, endOfWeek, addWeeks, format, parseISO, isToday, isTomorrow } from 'date-fns';
 import NaturalLanguageBar from '../components/calendar/NaturalLanguageBar';
 import EventFormModal from '../components/calendar/EventFormModal';
@@ -50,7 +50,7 @@ function getDayLabel(dateStr) {
 }
 
 export default function Calendar() {
-  const [weeksAhead, setWeeksAhead] = useState(1);
+  const [weeksAhead, setWeeksAhead] = useState(0);
   const [modalOpen, setModalOpen] = useState(false);
   const [prefill, setPrefill] = useState(null);
   const [modalMode, setModalMode] = useState('manual');
@@ -59,7 +59,7 @@ export default function Calendar() {
   const [isDeleting, setIsDeleting] = useState(false);
   const queryClient = useQueryClient();
 
-  const { data: events = [], isLoading, refetch } = useQuery({
+  const { data: events = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['calendarEvents', weeksAhead],
     queryFn: () => fetchEvents(weeksAhead),
     staleTime: 60_000,
@@ -181,9 +181,9 @@ export default function Calendar() {
       {/* Week selector */}
       <div className="flex gap-2 overflow-x-auto pb-1">
         {WEEK_OPTIONS.map(opt => (
-          <button key={opt.weeks} onClick={() => setWeeksAhead(opt.weeks + 1)}
+          <button key={opt.weeks} onClick={() => setWeeksAhead(opt.weeks)}
             className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
-              weeksAhead === opt.weeks + 1
+              weeksAhead === opt.weeks
                 ? 'bg-primary/20 text-primary border-primary/30'
                 : 'bg-secondary/20 text-muted-foreground border-border/30 hover:bg-secondary/40'
             }`}>
@@ -202,6 +202,19 @@ export default function Calendar() {
           {[...Array(3)].map((_, i) => (
             <div key={i} className="h-20 rounded-xl bg-secondary/20 animate-pulse" />
           ))}
+        </div>
+      ) : isError ? (
+        <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm text-amber-100">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <p className="font-medium">Calendar data could not be loaded.</p>
+              <p className="mt-1 text-amber-100/80">{error?.message || 'Please reconnect Google Calendar or try again.'}</p>
+              <button onClick={() => refetch()} className="mt-2 text-xs font-medium text-white underline underline-offset-2">
+                Try again
+              </button>
+            </div>
+          </div>
         </div>
       ) : grouped.length === 0 ? (
         <div className="text-center py-16 text-muted-foreground">
