@@ -61,6 +61,8 @@ INSTAGRAM_DOWNLOADER_WORKER_ID=
 INSTAGRAM_DOWNLOADER_WORKER_LABEL=
 ```
 
+The worker now auto-loads `./.env` and `./.env.local` from the service directory before startup, so you can keep the local API URL and worker secrets in a file instead of exporting them manually every time.
+
 On macOS, the worker now defaults to Safari browser cookies for Instagram extraction unless you override it.
 `INSTAGRAM_COOKIES_FROM_BROWSER` can be set to a browser like `safari` or `chrome` so the worker uses live browser cookies for Instagram extraction.
 `INSTAGRAM_COOKIEFILE` is useful when public extraction is blocked and you need a logged-in browser-exported cookie file for Instagram.
