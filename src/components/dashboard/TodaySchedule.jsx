@@ -1,6 +1,6 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Clock, ChevronRight, CalendarDays } from 'lucide-react';
+import { AlertTriangle, Clock, ChevronRight, CalendarDays } from 'lucide-react';
 import { format, parseISO, differenceInMinutes, isAfter } from 'date-fns';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
@@ -103,7 +103,7 @@ function MiniTimeBlock({ event, isNext }) {
 }
 
 export default function TodaySchedule() {
-  const { data: events = [], isLoading } = useQuery({
+  const { data: events = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['todaySchedule'],
     queryFn: fetchTodayEvents,
     staleTime: 60_000,
@@ -129,6 +129,31 @@ export default function TodaySchedule() {
           {[1, 2, 3].map(i => (
             <div key={i} className="h-12 rounded-lg bg-secondary/30 animate-pulse" />
           ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="rounded-2xl bg-gradient-to-br from-[#151020] via-card to-card border border-primary/10 p-5 h-full flex flex-col hover:border-primary/25 hover:shadow-lg hover:shadow-primary/5 transition-all duration-300">
+        <div className="flex items-center gap-2 mb-3">
+          <CalendarDays className="w-4 h-4 text-primary" />
+          <span className="text-sm font-semibold text-foreground">Today's Schedule</span>
+        </div>
+        <div className="flex flex-1 items-center justify-center">
+          <div className="max-w-sm rounded-xl border border-amber-400/30 bg-amber-500/10 p-4 text-left text-xs text-amber-100">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <p className="font-medium">Calendar data could not be loaded.</p>
+                <p className="mt-1 text-amber-100/80">{error?.message || 'Please reconnect Google Calendar or try again.'}</p>
+                <button onClick={() => refetch()} className="mt-2 text-[11px] font-medium text-white underline underline-offset-2">
+                  Try again
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     );

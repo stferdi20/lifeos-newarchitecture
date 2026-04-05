@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { CalendarDays, Plus, ChevronRight, Loader2 } from 'lucide-react';
+import { AlertTriangle, CalendarDays, Plus, ChevronRight, Loader2 } from 'lucide-react';
 import { format, startOfDay, endOfWeek } from 'date-fns';
 import EventCard from '../calendar/EventCard';
 import EventFormModal from '../calendar/EventFormModal';
@@ -21,7 +21,7 @@ export default function CalendarWidget() {
   const [modalOpen, setModalOpen] = useState(false);
   const [view, setView] = useState('today'); // 'today' | 'week'
 
-  const { data: events = [], isLoading, refetch } = useQuery({
+  const { data: events = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['calendarEventsWidget'],
     queryFn: fetchWidgetEvents,
     staleTime: 120_000,
@@ -78,6 +78,19 @@ export default function CalendarWidget() {
         {isLoading ? (
           <div className="flex items-center justify-center py-8">
             <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : isError ? (
+          <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-3 text-left text-xs text-amber-100">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div className="min-w-0">
+                <p className="font-medium">Calendar data could not be loaded.</p>
+                <p className="mt-1 text-amber-100/80">{error?.message || 'Please reconnect Google Calendar or try again.'}</p>
+                <button onClick={() => refetch()} className="mt-2 text-[11px] font-medium text-white underline underline-offset-2">
+                  Try again
+                </button>
+              </div>
+            </div>
           </div>
         ) : displayEvents.length === 0 ? (
           <div className="text-center py-6">

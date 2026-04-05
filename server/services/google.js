@@ -155,7 +155,28 @@ export async function listGoogleConnections(userId) {
     .order('service', { ascending: true });
 
   if (result.error) throw new HttpError(500, result.error.message);
-  return result.data || [];
+
+  const connections = result.data || [];
+  return Promise.all(connections.map(async (connection) => {
+    if (connection.status !== 'connected') {
+      return connection;
+    }
+
+    try {
+      await getGoogleAccessToken(userId, connection.service);
+      return connection;
+    } catch (error) {
+      if (error instanceof HttpError && (error.status === 409 || error.status === 502)) {
+        return {
+          ...connection,
+          status: 'reconnect_required',
+          reconnect_reason: error.message,
+        };
+      }
+
+      throw error;
+    }
+  }));
 }
 
 export async function getGoogleAccessToken(userId, service) {

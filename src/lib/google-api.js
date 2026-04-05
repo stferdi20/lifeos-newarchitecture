@@ -10,6 +10,7 @@ function normalizeConnections(connections = []) {
     scope: byService.get(service)?.scope || '',
     last_connected_at: byService.get(service)?.last_connected_at || null,
     disconnected_at: byService.get(service)?.disconnected_at || null,
+    reconnect_reason: byService.get(service)?.reconnect_reason || null,
   }));
 }
 

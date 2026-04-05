@@ -52,6 +52,7 @@ export default function GoogleConnectionsPanel() {
       scope: '',
       last_connected_at: null,
       disconnected_at: null,
+      reconnect_reason: null,
       meta: SERVICE_META[service],
     })),
     [],
@@ -117,6 +118,7 @@ export default function GoogleConnectionsPanel() {
         ) : null}
         {connections.map((connection) => {
           const isConnected = connection.status === 'connected';
+          const needsReconnect = connection.status === 'reconnect_required';
           const isBusy = busyService === connection.service;
 
           return (
@@ -128,6 +130,10 @@ export default function GoogleConnectionsPanel() {
                     <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-300">
                       <CheckCircle2 className="h-3 w-3" /> Connected
                     </span>
+                  ) : needsReconnect ? (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-amber-400/30 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-200">
+                      <Unplug className="h-3 w-3" /> Reconnect required
+                    </span>
                   ) : (
                     <span className="inline-flex items-center gap-1 rounded-full border border-border/40 bg-background/30 px-2 py-0.5 text-[11px] text-muted-foreground">
                       Disconnected
@@ -135,6 +141,9 @@ export default function GoogleConnectionsPanel() {
                   )}
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">{connection.meta?.description}</p>
+                {needsReconnect && connection.reconnect_reason ? (
+                  <p className="mt-1 text-xs text-amber-200/80">{connection.reconnect_reason}</p>
+                ) : null}
               </div>
               {isConnected ? (
                 <Button type="button" variant="outline" size="sm" onClick={() => handleDisconnect(connection.service)} disabled={isBusy}>
@@ -144,7 +153,7 @@ export default function GoogleConnectionsPanel() {
               ) : (
                 <Button type="button" size="sm" onClick={() => handleConnect(connection.service)} disabled={isBusy}>
                   {isBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlugZap className="mr-2 h-4 w-4" />}
-                  Connect
+                  {needsReconnect ? 'Reconnect' : 'Connect'}
                 </Button>
               )}
             </div>
