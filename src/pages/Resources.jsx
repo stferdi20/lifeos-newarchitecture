@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { BookOpen, Search, FileText, Sparkles, CheckSquare, Loader2 } from 'lucide-react';
+import { BookOpen, Search, FileText, Sparkles, CheckSquare } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -273,7 +273,11 @@ export default function Resources() {
       if (gridDensity === 'compact') return isMobile ? 340 : 320;
       return isMobile ? 360 : 390;
     }
-    if (layoutMode === 'gallery') return isMobile ? 420 : 470;
+    if (layoutMode === 'gallery') {
+      if (gridDensity === 'compact') return isMobile ? 390 : 430;
+      return isMobile ? 420 : 470;
+    }
+    if (gridDensity === 'compact') return isMobile ? 290 : 330;
     return isMobile ? 320 : 360;
   }, [gridDensity, isMobile, layoutMode]);
 
@@ -584,38 +588,6 @@ export default function Resources() {
     },
   });
 
-  const filteredReenrichMutation = useMutation({
-    mutationFn: async () => runReenrichInBatches({
-      resourceIds: filteredResources.map((resource) => resource.id),
-      toastId: 'resource-reenrich-filtered',
-      scope: 'filtered',
-      scopeLabel: `${filteredResources.length} filtered resource${filteredResources.length === 1 ? '' : 's'}`,
-    }),
-    onSuccess: (result) => {
-      const updated = Number(result?.updated || 0);
-      const skipped = Number(result?.skipped || 0);
-      const failed = Number(result?.failed || 0);
-      toast.success(
-        `Filtered re-enrichment finished: ${updated} updated${skipped ? `, ${skipped} skipped` : ''}${failed ? `, ${failed} failed` : ''}.`,
-        {
-          id: 'resource-reenrich-filtered',
-        },
-      );
-    },
-    onError: (error) => {
-      setReenrichProgress({
-        scope: null,
-        total: 0,
-        processed: 0,
-        updated: 0,
-        failed: 0,
-      });
-      toast.error(error?.message || 'Failed to re-enrich filtered resources.', {
-        id: 'resource-reenrich-filtered',
-      });
-    },
-  });
-
   const deleteDirectMutation = useMutation({
     mutationFn: async (resourceId) => {
       const [projectLinks, cardLinks] = await Promise.all([
@@ -872,48 +844,32 @@ export default function Resources() {
               Magazine
             </button>
           </div>
-          {layoutMode === 'grid' && (
-            <div className="inline-flex rounded-xl border border-border/60 bg-card/70 p-1">
-              <button
-                type="button"
-                onClick={() => setGridDensity('normal')}
-                className={cn(
-                  'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
-                  gridDensity === 'normal'
-                    ? 'bg-primary text-primary-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                Comfortable
-              </button>
-              <button
-                type="button"
-                onClick={() => setGridDensity('compact')}
-                className={cn(
-                  'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
-                  gridDensity === 'compact'
-                    ? 'bg-primary text-primary-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                Compact
-              </button>
-            </div>
-          )}
-          {filteredResources.length > 0 && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => filteredReenrichMutation.mutate()}
-              disabled={filteredReenrichMutation.isPending}
-              className="border-border text-xs"
+          <div className="inline-flex rounded-xl border border-border/60 bg-card/70 p-1">
+            <button
+              type="button"
+              onClick={() => setGridDensity('normal')}
+              className={cn(
+                'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+                gridDensity === 'normal'
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
             >
-              {filteredReenrichMutation.isPending
-                ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
-                : <Sparkles className="w-3.5 h-3.5 mr-1" />}
-              {filteredReenrichMutation.isPending ? buildReenrichLabel('filtered') : 'Re-enrich filtered'}
-            </Button>
-          )}
+              Comfortable
+            </button>
+            <button
+              type="button"
+              onClick={() => setGridDensity('compact')}
+              className={cn(
+                'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+                gridDensity === 'compact'
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              Compact
+            </button>
+          </div>
         </div>
       </div>
 
@@ -999,17 +955,13 @@ export default function Resources() {
         <BulkResourceActionBar
           selectedIds={selectedIds}
           selectedResources={selectedResources}
-          filteredCount={filteredResources.length}
           areas={areas}
-          isWorking={bulkUpdateMutation.isPending || bulkDeleteMutation.isPending || bulkReenrichMutation.isPending || filteredReenrichMutation.isPending}
+          isWorking={bulkUpdateMutation.isPending || bulkDeleteMutation.isPending || bulkReenrichMutation.isPending}
           isReenrichingSelected={bulkReenrichMutation.isPending}
-          isReenrichingFiltered={filteredReenrichMutation.isPending}
           reenrichSelectedLabel={buildReenrichLabel('selected')}
-          reenrichFilteredLabel={buildReenrichLabel('filtered')}
           onArchive={() => bulkUpdateMutation.mutate(() => ({ is_archived: true }))}
           onUnarchive={() => bulkUpdateMutation.mutate(() => ({ is_archived: false }))}
           onReenrich={() => bulkReenrichMutation.mutate()}
-          onReenrichFiltered={() => filteredReenrichMutation.mutate()}
           onAssignArea={(areaId) => bulkUpdateMutation.mutate(() => ({ area_id: areaId }))}
           onAddTag={(tagInput) => {
             const normalizedTag = tagInput.trim().toLowerCase();
