@@ -256,15 +256,18 @@ export default function ResourceCard({
   const previewLineClamp = getPreviewClamp(layoutMode, previewItemTextLength, safeTags.length);
   const previewClampClass = clampClassFromCount(previewLineClamp);
   const isGrid = layoutMode === 'grid';
-  const isCompactGrid = isGrid && gridDensity === 'compact';
   const isGallery = layoutMode === 'gallery';
   const isMagazine = layoutMode === 'magazine';
+  const isCompactDensity = gridDensity === 'compact';
+  const isCompactGrid = isGrid && isCompactDensity;
+  const isCompactGallery = isGallery && isCompactDensity;
+  const isCompactMagazine = isMagazine && isCompactDensity;
   const isFreeflow = !isGrid;
   const isFeatured = isGallery && (resource.resource_score >= 8 || ['youtube', 'instagram_reel', 'instagram_carousel'].includes(resource.resource_type));
   const bodySpacingClass = isGallery
-    ? (previewItemTextLength > 180 ? 'space-y-3' : 'space-y-2.5')
+    ? (isCompactGallery ? 'space-y-2' : (previewItemTextLength > 180 ? 'space-y-3' : 'space-y-2.5'))
     : isMagazine
-      ? 'space-y-3'
+      ? (isCompactMagazine ? 'space-y-2.5' : 'space-y-3')
       : '';
   const magazineSummary = truncateText(
     previewItem?.text
@@ -291,7 +294,9 @@ export default function ResourceCard({
   const cardClassName = cn(
     'relative rounded-2xl bg-card border border-border/50 overflow-hidden transition-all duration-300 group cursor-pointer',
     isGallery && 'rounded-[1.85rem] border-border/40 bg-card/88 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.62)] hover:border-border/70 hover:shadow-[0_30px_64px_-30px_rgba(15,23,42,0.68)] hover:-translate-y-2',
+    isCompactGallery && 'rounded-[1.55rem] shadow-[0_12px_28px_-24px_rgba(15,23,42,0.52)] hover:-translate-y-1',
     isMagazine && 'rounded-[1.45rem] border-border/25 bg-card/92 shadow-[0_8px_22px_-22px_rgba(15,23,42,0.28)] hover:border-border/40 hover:shadow-[0_14px_30px_-24px_rgba(15,23,42,0.3)] hover:-translate-y-0.5',
+    isCompactMagazine && 'rounded-[1.2rem]',
     isCompactGrid && 'rounded-xl',
     selectMode && 'select-none',
     selected && 'ring-2 ring-primary border-primary/40',
@@ -369,6 +374,8 @@ export default function ResourceCard({
         'relative overflow-hidden bg-secondary/30',
         mediaAspectClass,
         isCompactGrid && 'h-28',
+        isCompactGallery && 'aspect-[4/5]',
+        isCompactMagazine && 'aspect-[16/10]',
         isGallery && 'border-b border-white/5',
         isMagazine && 'border-b border-white/5 opacity-[0.98]',
       )}>
@@ -393,6 +400,8 @@ export default function ResourceCard({
         <div className={cn(
           'absolute top-2 left-2 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium',
           isCompactGrid && 'gap-0.5 px-1.5 text-[9px]',
+          isCompactGallery && 'gap-0.5 px-2 py-0.5 text-[9px]',
+          isCompactMagazine && 'gap-0.5 px-1.5 py-0.5 text-[9px]',
           cfg.bg,
           cfg.color,
           isGallery && 'shadow-md shadow-black/20 px-2.5 py-1 text-[10px]',
@@ -404,6 +413,8 @@ export default function ResourceCard({
           <div className={cn(
             'absolute top-2 flex items-center gap-0.5 bg-black/60 text-amber-400 text-[10px] px-1.5 py-0.5 rounded-full font-semibold',
             isCompactGrid && 'px-1 py-0.5 text-[9px]',
+            isCompactGallery && 'px-1 py-0.5 text-[9px]',
+            isCompactMagazine && 'px-1 py-0.5 text-[9px]',
             'right-2',
             isGallery && 'bg-black/70 shadow-md shadow-black/20',
             isMagazine && 'bg-black/45 text-amber-300',
@@ -427,27 +438,28 @@ export default function ResourceCard({
       </div>
 
       {isMagazine ? (
-        <div className={cn('p-3.5', bodySpacingClass)}>
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/55">
+        <div className={cn('p-3.5', isCompactMagazine && 'p-3', bodySpacingClass)}>
+          <div className={cn('space-y-1.5', isCompactMagazine && 'space-y-1')}>
+            <div className={cn('flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/55', isCompactMagazine && 'gap-1.5 text-[9px] tracking-[0.14em]')}>
               <span>{isInstagram ? `IG ${instagramMediaTypeLabel}` : cfg.label}</span>
               {area && <span>{area.name}</span>}
               {resource.is_archived && <span>Archived</span>}
             </div>
-            <h3 className="line-clamp-2 text-[14px] font-medium tracking-tight text-foreground/90 group-hover:text-foreground">
+            <h3 className={cn('line-clamp-2 text-[14px] font-medium tracking-tight text-foreground/90 group-hover:text-foreground', isCompactMagazine && 'text-[13px] leading-tight')}>
               {safeTitle}
             </h3>
             {(safeAuthor || instagramAuthorHandle) && (
-              <p className="text-[10px] text-muted-foreground/70">
+              <p className={cn('text-[10px] text-muted-foreground/70', isCompactMagazine && 'text-[9px]')}>
                 {instagramAuthorHandle ? `@${instagramAuthorHandle}` : `by ${safeAuthor}`}
               </p>
             )}
           </div>
 
           {showGenericCaptureStatus && (
-            <div className="flex items-center gap-2 text-[9px] text-muted-foreground/65">
+            <div className={cn('flex items-center gap-2 text-[9px] text-muted-foreground/65', isCompactMagazine && 'gap-1.5 text-[8px]')}>
               <span className={cn(
                 'inline-flex items-center rounded-full border px-1.5 py-0.5 font-medium tracking-wide',
+                isCompactMagazine && 'px-1 py-0.5',
                 CAPTURE_STATUS_COLORS[resource.capture_status] || CAPTURE_STATUS_COLORS.queued,
               )}>
                 {captureStatusLabel}
@@ -459,28 +471,28 @@ export default function ResourceCard({
           )}
 
           {magazineSummary && (
-            <p className="line-clamp-3 text-[12px] leading-6 text-foreground/68">
+            <p className={cn('line-clamp-3 text-[12px] leading-6 text-foreground/68', isCompactMagazine && 'text-[11px] leading-5')}>
               {magazineSummary}
             </p>
           )}
 
           {resource.enrichment_warning && (
-            <div className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-2.5 py-2">
+            <div className={cn('flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-2.5 py-2', isCompactMagazine && 'gap-1.5 px-2 py-1.5')}>
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300" />
-              <p className="line-clamp-2 text-[10px] leading-relaxed text-amber-100/80">
+              <p className={cn('line-clamp-2 text-[10px] leading-relaxed text-amber-100/80', isCompactMagazine && 'text-[9px] leading-5')}>
                 {resource.enrichment_warning}
               </p>
             </div>
           )}
 
-          <div className="flex items-center justify-between border-t border-border/20 pt-2">
-            <div className="flex items-center gap-2 text-[9px] tracking-[0.14em] text-muted-foreground/60 uppercase">
+          <div className={cn('flex items-center justify-between border-t border-border/20 pt-2', isCompactMagazine && 'pt-1.5')}>
+            <div className={cn('flex items-center gap-2 text-[9px] tracking-[0.14em] text-muted-foreground/60 uppercase', isCompactMagazine && 'gap-1.5 text-[8px] tracking-[0.1em]')}>
               <span>{resource.created_date ? format(new Date(resource.created_date), 'MMM d, yyyy') : ''}</span>
               {isGitHub && resource.github_stars != null && (
                 <span>{resource.github_stars.toLocaleString()} stars</span>
               )}
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className={cn('flex items-center gap-1.5', isCompactMagazine && 'gap-1')}>
               {showRetryButton && (
                 <button
                   type="button"
@@ -491,7 +503,7 @@ export default function ResourceCard({
                     e.stopPropagation();
                     onRetry?.(resource);
                   }}
-                  className="inline-flex h-5 w-5 items-center justify-center rounded-md border border-border/60 text-muted-foreground/60 transition-colors hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                  className={cn('inline-flex h-5 w-5 items-center justify-center rounded-md border border-border/60 text-muted-foreground/60 transition-colors hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60', isCompactMagazine && 'h-[18px] w-[18px]')}
                 >
                   <RefreshCw className={cn('h-3 w-3', retryLoading && 'animate-spin')} />
                 </button>
@@ -505,26 +517,28 @@ export default function ResourceCard({
           </div>
         </div>
       ) : (
-        <div className={cn('p-4', isCompactGrid && 'p-3 space-y-2.5', bodySpacingClass)}>
+        <div className={cn('p-4', isCompactGrid && 'p-3 space-y-2.5', isCompactGallery && 'p-3.5', bodySpacingClass)}>
           <h3 className={cn(
             'font-semibold tracking-tight text-[15px] group-hover:text-primary transition-colors',
             isCompactGrid && 'text-[13px] leading-tight',
+            isCompactGallery && 'text-[14px] leading-tight',
             isFeatured ? 'line-clamp-3 text-[17px] leading-tight' : 'line-clamp-3',
           )}>
             {safeTitle}
           </h3>
 
           {showGenericCaptureStatus && (
-            <div className={cn('flex flex-wrap items-center gap-1.5', isCompactGrid && 'gap-1')}>
+            <div className={cn('flex flex-wrap items-center gap-1.5', (isCompactGrid || isCompactGallery) && 'gap-1')}>
               <span className={cn(
                 'inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium tracking-wide',
                 isCompactGrid && 'px-1 py-0.5 text-[9px]',
+                isCompactGallery && 'px-1.5 py-0.5 text-[9px]',
                 CAPTURE_STATUS_COLORS[resource.capture_status] || CAPTURE_STATUS_COLORS.queued,
               )}>
                 {captureStatusLabel}
               </span>
               {resource.capture_status_message && (
-                <span className={cn('line-clamp-1 text-[10px] text-muted-foreground', isCompactGrid && 'text-[9px]')}>
+                <span className={cn('line-clamp-1 text-[10px] text-muted-foreground', (isCompactGrid || isCompactGallery) && 'text-[9px]')}>
                   {resource.capture_status_message}
                 </span>
               )}
@@ -532,23 +546,23 @@ export default function ResourceCard({
           )}
 
           {(safeAuthor || instagramAuthorHandle) && (
-            <p className={cn('text-[10px] text-muted-foreground/80', isCompactGrid && 'text-[9px]')}>
+            <p className={cn('text-[10px] text-muted-foreground/80', (isCompactGrid || isCompactGallery) && 'text-[9px]')}>
               {instagramAuthorHandle ? `@${instagramAuthorHandle}` : `by ${safeAuthor}`}
             </p>
           )}
 
           {isInstagram && (
-            <div className={cn('flex flex-wrap items-center gap-1.5', isCompactGrid && 'gap-1')}>
-              <span className={cn('rounded-full bg-fuchsia-500/10 px-1.5 py-0.5 text-[10px] text-fuchsia-100/90', isCompactGrid && 'px-1 py-0.5 text-[9px]')}>
+            <div className={cn('flex flex-wrap items-center gap-1.5', (isCompactGrid || isCompactGallery) && 'gap-1')}>
+              <span className={cn('rounded-full bg-fuchsia-500/10 px-1.5 py-0.5 text-[10px] text-fuchsia-100/90', (isCompactGrid || isCompactGallery) && 'px-1 py-0.5 text-[9px]')}>
                 {instagramMediaTypeLabel}
               </span>
               {resource.instagram_media_items?.length > 0 && (
-                <span className={cn('rounded-full bg-pink-500/10 px-1.5 py-0.5 text-[10px] text-pink-200/90', isCompactGrid && 'px-1 py-0.5 text-[9px]')}>
+                <span className={cn('rounded-full bg-pink-500/10 px-1.5 py-0.5 text-[10px] text-pink-200/90', (isCompactGrid || isCompactGallery) && 'px-1 py-0.5 text-[9px]')}>
                   {resource.instagram_media_items.length} Media
                 </span>
               )}
               {needsReview && (
-                <span className={cn('rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-200/90', isCompactGrid && 'px-1 py-0.5 text-[9px]')}>
+                <span className={cn('rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-200/90', (isCompactGrid || isCompactGallery) && 'px-1 py-0.5 text-[9px]')}>
                   Needs Review
                 </span>
               )}
@@ -560,7 +574,7 @@ export default function ResourceCard({
                   onClick={(e) => e.stopPropagation()}
                   className={cn(
                     'inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-200 transition-colors hover:bg-emerald-500/20',
-                    isCompactGrid && 'px-1 py-0.5 text-[9px]',
+                    (isCompactGrid || isCompactGallery) && 'px-1 py-0.5 text-[9px]',
                   )}
                 >
                   <FolderOpen className="h-3 w-3" />
@@ -571,9 +585,9 @@ export default function ResourceCard({
           )}
 
           {isGitHub && resource.github_stars != null && (
-            <div className={cn('flex items-center gap-1', isCompactGrid && 'gap-0.5')}>
+            <div className={cn('flex items-center gap-1', (isCompactGrid || isCompactGallery) && 'gap-0.5')}>
               <Star className="h-3 w-3 fill-amber-400/90 text-amber-400" />
-              <span className={cn('text-xs text-muted-foreground/80', isCompactGrid && 'text-[10px]')}>{resource.github_stars.toLocaleString()} stars</span>
+              <span className={cn('text-xs text-muted-foreground/80', (isCompactGrid || isCompactGallery) && 'text-[10px]')}>{resource.github_stars.toLocaleString()} stars</span>
             </div>
           )}
 
@@ -581,14 +595,16 @@ export default function ResourceCard({
             <div className={cn(
               'rounded-xl border border-border/40 bg-card/60 px-3 py-2.5 shadow-sm shadow-black/10',
               isCompactGrid && 'px-2.5 py-2',
+              isCompactGallery && 'px-2.5 py-2',
               isFeatured && 'bg-card/70',
             )}>
-              <p className={cn('text-[10px] font-semibold uppercase tracking-wider text-foreground/65', isCompactGrid && 'text-[9px]')}>
+              <p className={cn('text-[10px] font-semibold uppercase tracking-wider text-foreground/65', (isCompactGrid || isCompactGallery) && 'text-[9px]')}>
                 {previewItem.label}
               </p>
               <p className={cn(
                 'mt-1.5 leading-6 text-foreground/85',
                 isCompactGrid && 'mt-1 text-[11px] leading-5',
+                isCompactGallery && 'mt-1 text-[11px] leading-5',
                 previewClampClass,
                 isFeatured ? 'text-[13px]' : 'text-[12px]',
               )}>
@@ -598,34 +614,34 @@ export default function ResourceCard({
           )}
 
           {resource.enrichment_warning && (
-            <div className={cn('flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2', isCompactGrid && 'gap-1.5 px-2.5 py-1.5')}>
+            <div className={cn('flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2', (isCompactGrid || isCompactGallery) && 'gap-1.5 px-2.5 py-1.5')}>
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300" />
-              <p className={cn('line-clamp-2 text-[11px] leading-relaxed text-amber-100/80', isCompactGrid && 'text-[10px] leading-5')}>
+              <p className={cn('line-clamp-2 text-[11px] leading-relaxed text-amber-100/80', (isCompactGrid || isCompactGallery) && 'text-[10px] leading-5')}>
                 {resource.enrichment_warning}
               </p>
             </div>
           )}
 
-          <div className={cn('flex items-center gap-1 flex-wrap', isCompactGrid && 'gap-0.5')}>
+          <div className={cn('flex items-center gap-1 flex-wrap', (isCompactGrid || isCompactGallery) && 'gap-0.5')}>
             {area && (
-              <span className={cn('inline-flex items-center gap-0.5 rounded-full bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-medium text-violet-400/80', isCompactGrid && 'px-1 py-0.5 text-[9px]')}>
+              <span className={cn('inline-flex items-center gap-0.5 rounded-full bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-medium text-violet-400/80', (isCompactGrid || isCompactGallery) && 'px-1 py-0.5 text-[9px]')}>
                 <span>{area.icon}</span> {area.name}
               </span>
             )}
             {safeMainTopic && (
-              <span className={cn('inline-block rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary/80', isCompactGrid && 'px-1 py-0.5 text-[9px]')}>
+              <span className={cn('inline-block rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary/80', (isCompactGrid || isCompactGallery) && 'px-1 py-0.5 text-[9px]')}>
                 {safeMainTopic}
               </span>
             )}
             {resource.is_archived && (
-              <span className={cn('inline-block rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-400/80', isCompactGrid && 'px-1 py-0.5 text-[9px]')}>
+              <span className={cn('inline-block rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-400/80', (isCompactGrid || isCompactGallery) && 'px-1 py-0.5 text-[9px]')}>
                 Archived
               </span>
             )}
           </div>
 
           {galleryTags.length > 0 && (
-            <div className={cn('flex items-center gap-1.5 flex-wrap', isCompactGrid && 'gap-1')}>
+            <div className={cn('flex items-center gap-1.5 flex-wrap', (isCompactGrid || isCompactGallery) && 'gap-1')}>
               {galleryTags.map(tag => (
                 <button
                   key={tag}
@@ -636,27 +652,27 @@ export default function ResourceCard({
                   }}
                   className={cn(
                     'rounded-full bg-secondary/80 px-1.5 py-0.5 text-[10px] text-muted-foreground/80 transition-colors hover:bg-primary/10 hover:text-primary focus:outline-none focus:ring-1 focus:ring-primary/50',
-                    isCompactGrid && 'px-1 py-0.5 text-[9px]',
+                    (isCompactGrid || isCompactGallery) && 'px-1 py-0.5 text-[9px]',
                   )}
                 >
                   #{tag}
                 </button>
               ))}
               {galleryTagOverflow > 0 && (
-                <span className={cn('text-[10px] text-muted-foreground', isCompactGrid && 'text-[9px]')}>+{galleryTagOverflow}</span>
+                <span className={cn('text-[10px] text-muted-foreground', (isCompactGrid || isCompactGallery) && 'text-[9px]')}>+{galleryTagOverflow}</span>
               )}
             </div>
           )}
 
-          <div className={cn('flex items-center justify-between border-t border-border/30 pt-2', isCompactGrid && 'pt-1.5')}>
+          <div className={cn('flex items-center justify-between border-t border-border/30 pt-2', (isCompactGrid || isCompactGallery) && 'pt-1.5')}>
             <span className={cn(
               'text-[10px] tracking-[0.16em] text-muted-foreground/80 uppercase',
-              isCompactGrid && 'text-[9px] tracking-[0.12em]',
+              (isCompactGrid || isCompactGallery) && 'text-[9px] tracking-[0.12em]',
               isFeatured && 'text-foreground/65',
             )}>
               {resource.created_date ? format(new Date(resource.created_date), 'MMM d, yyyy') : ''}
             </span>
-            <div className={cn('flex items-center gap-1.5', isCompactGrid && 'gap-1')}>
+            <div className={cn('flex items-center gap-1.5', (isCompactGrid || isCompactGallery) && 'gap-1')}>
               {showRetryButton && (
                 <button
                   type="button"
@@ -669,7 +685,7 @@ export default function ResourceCard({
                   }}
                   className={cn(
                     'inline-flex h-6 w-6 items-center justify-center rounded-md border border-border/60 text-muted-foreground/70 transition-colors hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60',
-                    isCompactGrid && 'h-5 w-5',
+                    (isCompactGrid || isCompactGallery) && 'h-5 w-5',
                   )}
                 >
                   <RefreshCw className={cn('h-3 w-3', retryLoading && 'animate-spin')} />

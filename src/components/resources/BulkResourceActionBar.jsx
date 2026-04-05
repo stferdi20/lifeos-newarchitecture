@@ -18,7 +18,6 @@ import {
 export default function BulkResourceActionBar({
   selectedIds,
   selectedResources,
-  filteredCount = 0,
   areas,
   onArchive,
   onUnarchive,
@@ -27,13 +26,10 @@ export default function BulkResourceActionBar({
   onRemoveTag,
   onDelete,
   onReenrich,
-  onReenrichFiltered,
   onClear,
   isWorking = false,
   isReenrichingSelected = false,
-  isReenrichingFiltered = false,
   reenrichSelectedLabel = 'Re-enrich',
-  reenrichFilteredLabel = '',
 }) {
   const [areaId, setAreaId] = useState('__none__');
   const [addTagInput, setAddTagInput] = useState('');
@@ -74,11 +70,6 @@ export default function BulkResourceActionBar({
       <Button size="sm" variant="outline" disabled={isWorking} onClick={onReenrich} className="border-border text-xs">
         {isReenrichingSelected ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5 mr-1" />}
         {isReenrichingSelected ? reenrichSelectedLabel : 'Re-enrich'}
-      </Button>
-
-      <Button size="sm" variant="outline" disabled={isWorking || !filteredCount} onClick={onReenrichFiltered} className="border-border text-xs">
-        {isReenrichingFiltered ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5 mr-1" />}
-        {isReenrichingFiltered ? reenrichFilteredLabel : `Re-enrich ${filteredCount} filtered`}
       </Button>
 
       <div className="flex items-center gap-2 rounded-xl bg-secondary/30 px-2 py-1.5">
