@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { cn, formatUiLabel } from '@/lib/utils';
 import { format } from 'date-fns';
 import { getGenericCaptureStatusLabel, isGenericCaptureActive, isGenericCaptureFailed } from '@/lib/resource-capture';
@@ -67,6 +67,80 @@ function firstText(items) {
   return '';
 }
 
+function getFallbackAspectRatio(resource = {}) {
+  const resourceType = resource.resource_type;
+  if (resourceType === 'youtube') return 16 / 9;
+  if (resourceType === 'research_paper' || resourceType === 'pdf') return 3 / 4;
+  if (resourceType === 'github_repo') return 16 / 10;
+  if (resourceType === 'instagram_reel' || resourceType === 'instagram_carousel') return 4 / 5;
+  if (resourceType === 'instagram_post') return 1;
+  if (resourceType === 'note') return 4 / 5;
+  return 4 / 3;
+}
+
+function getPreviewClamp(layoutMode, textLength, tagCount) {
+  if (layoutMode === 'grid') return 2;
+  if (textLength > 220 || tagCount > 5) return 5;
+  if (textLength > 160 || tagCount > 3) return 4;
+  return 3;
+}
+
+function clampClassFromCount(lineCount) {
+  if (lineCount >= 5) return 'line-clamp-5';
+  if (lineCount === 4) return 'line-clamp-4';
+  if (lineCount === 3) return 'line-clamp-3';
+  return 'line-clamp-2';
+}
+
+function getMediaAspectClass({
+  layoutMode,
+  resource,
+  hasThumbnail,
+  thumbnailAspectRatio,
+  previewTextLength,
+  tagCount,
+}) {
+  if (layoutMode === 'grid') return 'h-36';
+
+  const fallbackAspect = getFallbackAspectRatio(resource);
+  const aspectRatio = thumbnailAspectRatio || fallbackAspect;
+  const isPortrait = aspectRatio < 0.95;
+  const isWide = aspectRatio > 1.35;
+  const isDense = previewTextLength > 160 || tagCount > 4;
+
+  if (resource.resource_type === 'youtube') {
+    return isWide ? 'aspect-[16/9]' : 'aspect-[4/3]';
+  }
+
+  if (resource.resource_type === 'instagram_reel') {
+    return 'aspect-[3/4]';
+  }
+
+  if (resource.resource_type === 'instagram_carousel') {
+    return 'aspect-[4/5]';
+  }
+
+  if (resource.resource_type === 'instagram_post') {
+    return isPortrait ? 'aspect-[3/4]' : 'aspect-square';
+  }
+
+  if (resource.resource_type === 'research_paper' || resource.resource_type === 'pdf') {
+    return isPortrait ? 'aspect-[3/4]' : 'aspect-[4/5]';
+  }
+
+  if (resource.resource_type === 'github_repo') {
+    return isWide ? 'aspect-[16/10]' : 'aspect-[4/3]';
+  }
+
+  if (!hasThumbnail) {
+    return isDense ? 'aspect-[4/5]' : 'aspect-[16/10]';
+  }
+
+  if (isPortrait) return 'aspect-[3/4]';
+  if (isWide) return 'aspect-[16/10]';
+  return 'aspect-[4/3]';
+}
+
 function FallbackPreview({ title, mainTopic, colorClass, url }) {
   const safeTitle = asText(title, '?');
   const safeTopic = asText(mainTopic);
@@ -133,6 +207,7 @@ export default function ResourceCard({
   areas,
   selectMode = false,
   selected = false,
+  layoutMode = 'grid',
   className,
   archiveLoading = false,
   retryLoading = false,
@@ -152,24 +227,63 @@ export default function ResourceCard({
   const needsReview = resource.instagram_review_state === 'needs_review';
   const safeMainTopic = asText(resource.main_topic);
   const safeTags = Array.isArray(resource.tags) ? resource.tags.filter((tag) => typeof tag === 'string' && tag.trim()) : [];
-  const safeThumbnail = typeof resource.thumbnail === 'string' && resource.thumbnail.trim() ? resource.thumbnail : '';
   const { imageUrl: displayThumbnail, onError: handleThumbnailError } = useResourceImage(resource);
   const driveUrl = resource.drive_folder_url || resource.drive_files?.[0]?.url || '';
   const showGenericCaptureStatus = !isInstagram && (isGenericCaptureActive(resource) || isGenericCaptureFailed(resource));
   const captureStatusLabel = getGenericCaptureStatusLabel(resource);
+  const [thumbnailAspectRatio, setThumbnailAspectRatio] = useState(null);
   const showRetryButton = Boolean(onRetry) && (
     (isInstagram && (resource.download_status !== 'uploaded' || !driveUrl))
     || showGenericCaptureStatus
   );
+  const previewItemTextLength = previewItem?.text?.length || 0;
+  const previewLineClamp = getPreviewClamp(layoutMode, previewItemTextLength, safeTags.length);
+  const previewClampClass = clampClassFromCount(previewLineClamp);
+  const isGrid = layoutMode === 'grid';
+  const isGallery = layoutMode === 'gallery';
+  const isMagazine = layoutMode === 'magazine';
+  const isFreeflow = !isGrid;
+  const isFeatured = isGallery && (resource.resource_score >= 8 || ['youtube', 'instagram_reel', 'instagram_carousel'].includes(resource.resource_type));
+  const bodySpacingClass = isGallery
+    ? (previewItemTextLength > 180 ? 'space-y-3' : 'space-y-2.5')
+    : isMagazine
+      ? 'space-y-2'
+      : '';
+  const mediaAspectClass = getMediaAspectClass({
+    layoutMode,
+    resource,
+    hasThumbnail: Boolean(displayThumbnail),
+    thumbnailAspectRatio,
+    previewTextLength: previewItemTextLength,
+    tagCount: safeTags.length,
+  });
+  const mediaObjectPosition = isFreeflow && thumbnailAspectRatio && thumbnailAspectRatio < 1
+    ? 'center top'
+    : 'center center';
+  const cardClassName = cn(
+    'relative rounded-2xl bg-card border border-border/50 overflow-hidden transition-all duration-300 group cursor-pointer',
+    isGallery && 'rounded-[1.85rem] border-border/40 bg-card/88 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.62)] backdrop-blur-sm hover:border-border/70 hover:shadow-[0_30px_64px_-30px_rgba(15,23,42,0.68)] hover:-translate-y-2',
+    isMagazine && 'rounded-[1.45rem] border-border/25 bg-card/92 shadow-[0_8px_22px_-22px_rgba(15,23,42,0.28)] hover:border-border/40 hover:shadow-[0_14px_30px_-24px_rgba(15,23,42,0.3)] hover:-translate-y-0.5',
+    selectMode && 'select-none',
+    selected && 'ring-2 ring-primary border-primary/40',
+    isFeatured && 'ring-1 ring-white/10',
+    className,
+  );
+
+  useEffect(() => {
+    setThumbnailAspectRatio(null);
+  }, [displayThumbnail, resource.id]);
+
+  const handleThumbnailLoad = (event) => {
+    const { naturalWidth, naturalHeight } = event.currentTarget || {};
+    if (!naturalWidth || !naturalHeight) return;
+    setThumbnailAspectRatio(naturalWidth / naturalHeight);
+  };
+
   return (
     <div
       onClick={() => onClick?.(resource)}
-        className={cn(
-          'relative rounded-2xl bg-card border border-border/50 overflow-hidden transition-all duration-300 group cursor-pointer hover:border-primary/30 hover:shadow-xl hover:-translate-y-1',
-          selectMode && 'select-none',
-          selected && 'ring-2 ring-primary border-primary/40',
-        className,
-      )}
+      className={cardClassName}
     >
       {selectMode && (
         <div
@@ -222,20 +336,45 @@ export default function ResourceCard({
           <Trash2 className="h-3.5 w-3.5" />
         </button>
       )}
-      <div className="relative h-36 overflow-hidden bg-secondary/30">
+      <div className={cn(
+        'relative overflow-hidden bg-secondary/30',
+        mediaAspectClass,
+        isGallery && 'border-b border-white/5',
+        isMagazine && 'border-b border-white/5 opacity-[0.98]',
+      )}>
         {displayThumbnail ? (
-          <img src={displayThumbnail} alt={safeTitle} onError={handleThumbnailError} className="w-full h-full object-cover" />
+          <img
+            src={displayThumbnail}
+            alt={safeTitle}
+            onLoad={handleThumbnailLoad}
+            onError={handleThumbnailError}
+            className="w-full h-full object-cover"
+            style={{ objectPosition: mediaObjectPosition }}
+          />
         ) : (
           <FallbackPreview title={safeTitle} mainTopic={safeMainTopic} colorClass={cfg.color} url={resource.url} />
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent pointer-events-none" />
-        <div className={cn('absolute top-2 left-2 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium', cfg.bg, cfg.color)}>
+        <div className={cn(
+          'absolute inset-0 pointer-events-none',
+          isGallery && 'bg-gradient-to-t from-black/70 via-black/20 to-transparent',
+          isMagazine && 'bg-gradient-to-t from-black/45 via-black/15 to-transparent',
+          isGrid && 'bg-gradient-to-t from-black/60 to-transparent',
+        )} />
+        <div className={cn(
+          'absolute top-2 left-2 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium',
+          cfg.bg,
+          cfg.color,
+          isGallery && 'shadow-md shadow-black/20 px-2.5 py-1 text-[10px]',
+          isMagazine && 'opacity-80',
+        )}>
           <Icon className="w-3 h-3" /> {isInstagram ? `IG ${instagramMediaTypeLabel}` : cfg.label}
         </div>
         {resource.resource_score > 0 && (
           <div className={cn(
             'absolute top-2 flex items-center gap-0.5 bg-black/60 text-amber-400 text-[10px] px-1.5 py-0.5 rounded-full font-semibold',
             'right-2',
+            isGallery && 'bg-black/70 shadow-md shadow-black/20',
+            isMagazine && 'bg-black/45 text-amber-300',
           )}>
             <Star className="w-2.5 h-2.5 fill-amber-400" /> {resource.resource_score}
           </div>
@@ -243,28 +382,38 @@ export default function ResourceCard({
         {/* Status badge for tools/GitHub */}
         {resource.status && resource.status !== 'unknown' && STATUS_COLORS[resource.status] && (
           <div className="absolute bottom-2 left-2">
-            <span className={cn('text-[10px] tracking-widest font-semibold px-2 py-0.5 rounded-full border', STATUS_COLORS[resource.status])}>
+            <span className={cn(
+              'text-[10px] tracking-widest font-semibold px-2 py-0.5 rounded-full border',
+              STATUS_COLORS[resource.status],
+              isGallery && 'bg-black/30 backdrop-blur-sm',
+              isMagazine && 'opacity-80',
+            )}>
               {formatUiLabel(resource.status)}
             </span>
           </div>
         )}
       </div>
 
-      <div className="p-4">
-        <h3 className="text-sm font-semibold line-clamp-2 group-hover:text-primary transition-colors">
+      <div className={cn('p-4', bodySpacingClass, isMagazine && 'p-3.5')}>
+        <h3 className={cn(
+          'text-sm font-semibold group-hover:text-primary transition-colors',
+          isGallery ? 'line-clamp-3 tracking-tight text-[15px]' : 'line-clamp-2 tracking-tight',
+          isMagazine && 'text-[13px] font-medium text-foreground/90',
+        )}>
           {safeTitle}
         </h3>
 
         {showGenericCaptureStatus && (
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <div className={cn('flex flex-wrap items-center gap-1.5', isMagazine && 'gap-1')}>
             <span className={cn(
-              'inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium',
+              'inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium tracking-wide',
               CAPTURE_STATUS_COLORS[resource.capture_status] || CAPTURE_STATUS_COLORS.queued,
+              isMagazine && 'text-[9px]',
             )}>
               {captureStatusLabel}
             </span>
             {resource.capture_status_message && (
-              <span className="text-[10px] text-muted-foreground line-clamp-1">
+              <span className={cn('text-[10px] text-muted-foreground line-clamp-1', isMagazine && 'text-[9px]')}>
                 {resource.capture_status_message}
               </span>
             )}
@@ -272,23 +421,23 @@ export default function ResourceCard({
         )}
 
         {(safeAuthor || instagramAuthorHandle) && (
-          <p className="text-[10px] text-muted-foreground mt-1">
+          <p className={cn('text-[10px] text-muted-foreground/80', isMagazine && 'text-[9px]')}>
             {instagramAuthorHandle ? `@${instagramAuthorHandle}` : `by ${safeAuthor}`}
           </p>
         )}
 
         {isInstagram && (
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            <span className="text-[10px] rounded-full bg-fuchsia-500/10 px-1.5 py-0.5 text-fuchsia-100">
+          <div className={cn('flex flex-wrap items-center gap-1.5', isMagazine && 'gap-1')}>
+            <span className={cn('text-[10px] rounded-full bg-fuchsia-500/10 px-1.5 py-0.5 text-fuchsia-100/90', isMagazine && 'text-[9px]')}>
               {instagramMediaTypeLabel}
             </span>
             {resource.instagram_media_items?.length > 0 && (
-              <span className="text-[10px] rounded-full bg-pink-500/10 px-1.5 py-0.5 text-pink-200">
+              <span className={cn('text-[10px] rounded-full bg-pink-500/10 px-1.5 py-0.5 text-pink-200/90', isMagazine && 'text-[9px]')}>
                 {resource.instagram_media_items.length} Media
               </span>
             )}
             {needsReview && (
-              <span className="text-[10px] rounded-full bg-amber-500/10 px-1.5 py-0.5 text-amber-200">
+              <span className={cn('text-[10px] rounded-full bg-amber-500/10 px-1.5 py-0.5 text-amber-200/90', isMagazine && 'text-[9px]')}>
                 Needs Review
               </span>
             )}
@@ -309,52 +458,68 @@ export default function ResourceCard({
 
         {/* GitHub stars */}
         {isGitHub && resource.github_stars != null && (
-          <div className="flex items-center gap-1 mt-1.5">
-            <Star className="w-3 h-3 text-amber-400 fill-amber-400" />
-            <span className="text-xs text-muted-foreground">{resource.github_stars.toLocaleString()} stars</span>
+          <div className="flex items-center gap-1">
+            <Star className="w-3 h-3 text-amber-400 fill-amber-400/90" />
+            <span className={cn('text-xs text-muted-foreground/80', isMagazine && 'text-[11px]')}>{resource.github_stars.toLocaleString()} stars</span>
           </div>
         )}
 
         {previewItem && (
-          <div className="mt-3 rounded-xl border border-border/40 bg-secondary/25 px-3 py-2.5">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <div className={cn(
+            'rounded-xl border border-border/40 bg-secondary/25 px-3 py-2.5',
+            isGallery && 'bg-card/60 border-white/5 shadow-sm shadow-black/10',
+            isMagazine && 'bg-card/35 border-white/5',
+          )}>
+            <p className={cn(
+              'text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70',
+              isGallery && 'text-[10px] text-foreground/65',
+              isMagazine && 'tracking-[0.18em] text-[9px] text-muted-foreground/60',
+            )}>
               {previewItem.label}
             </p>
-            <p className="mt-1.5 text-[11px] leading-relaxed text-foreground/80 line-clamp-2">
+            <p className={cn(
+              'mt-1.5 text-[11px] leading-relaxed text-foreground/75',
+              previewClampClass,
+              isGallery && 'text-[12px] leading-6 text-foreground/85',
+              isMagazine && 'text-[10px] leading-6 text-foreground/68',
+            )}>
               {previewItem.text}
             </p>
           </div>
         )}
 
         {resource.enrichment_warning && (
-          <div className="mt-3 flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2">
+          <div className={cn(
+            'flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2',
+            isMagazine && 'px-2.5 py-2',
+          )}>
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300" />
-            <p className="text-[11px] leading-relaxed text-amber-100/90 line-clamp-2">
+            <p className={cn('text-[11px] leading-relaxed text-amber-100/80 line-clamp-2', isMagazine && 'text-[10px]')}>
               {resource.enrichment_warning}
             </p>
           </div>
         )}
 
-        <div className="flex items-center gap-1 mt-2 flex-wrap">
+        <div className={cn('flex items-center gap-1 flex-wrap', isMagazine && 'gap-1.5')}>
           {area && (
-            <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/10 text-violet-400 font-medium">
+            <span className={cn('inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/10 text-violet-400/80 font-medium', isMagazine && 'text-[9px]')}>
               <span>{area.icon}</span> {area.name}
             </span>
           )}
           {safeMainTopic && (
-            <span className="inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
+            <span className={cn('inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary/80 font-medium', isMagazine && 'text-[9px]')}>
               {safeMainTopic}
             </span>
           )}
           {resource.is_archived && (
-            <span className="inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 font-medium">
+            <span className={cn('inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400/80 font-medium', isMagazine && 'text-[9px]')}>
               Archived
             </span>
           )}
         </div>
 
         {safeTags.length > 0 && (
-          <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+          <div className={cn('flex items-center gap-1.5 flex-wrap', isMagazine && 'gap-1')}>
             {safeTags.slice(0, 4).map(tag => (
               <button
                 key={tag}
@@ -363,7 +528,10 @@ export default function ResourceCard({
                   e.stopPropagation();
                   onTagClick?.(tag);
                 }}
-                className="text-[10px] px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary focus:outline-none focus:ring-1 focus:ring-primary/50"
+                className={cn(
+                  'text-[10px] px-1.5 py-0.5 rounded-full bg-secondary/80 text-muted-foreground/80 transition-colors hover:bg-primary/10 hover:text-primary focus:outline-none focus:ring-1 focus:ring-primary/50',
+                  isMagazine && 'text-[9px]',
+                )}
               >
                 #{tag}
               </button>
@@ -374,8 +542,16 @@ export default function ResourceCard({
           </div>
         )}
 
-        <div className="flex items-center justify-between mt-3 pt-2 border-t border-border/30">
-          <span className="text-[10px] text-muted-foreground">
+        <div className={cn(
+          'flex items-center justify-between pt-2 border-t border-border/30',
+          isGallery ? 'mt-1' : 'mt-3',
+          isMagazine && 'mt-2 border-border/20',
+        )}>
+          <span className={cn(
+            'text-[10px] text-muted-foreground/70 tracking-wide',
+            isGallery && 'text-[10px] tracking-[0.16em] text-muted-foreground/80',
+            isMagazine && 'text-[9px] tracking-[0.14em] text-muted-foreground/60',
+          )}>
             {resource.created_date ? format(new Date(resource.created_date), 'MMM d, yyyy') : ''}
           </span>
           <div className="flex items-center gap-1.5">
@@ -389,13 +565,16 @@ export default function ResourceCard({
                   e.stopPropagation();
                   onRetry?.(resource);
                 }}
-                className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border/60 text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                className={cn(
+                  'inline-flex h-6 w-6 items-center justify-center rounded-md border border-border/60 text-muted-foreground/70 transition-colors hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60',
+                  isMagazine && 'h-5 w-5',
+                )}
               >
                 <RefreshCw className={cn('h-3 w-3', retryLoading && 'animate-spin')} />
               </button>
             )}
             {resource.url && (
-              <a href={resource.url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="text-muted-foreground hover:text-primary transition-colors">
+              <a href={resource.url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="text-muted-foreground/70 hover:text-primary transition-colors">
                 <ExternalLink className="w-3 h-3" />
               </a>
             )}

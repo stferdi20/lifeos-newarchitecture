@@ -23,6 +23,15 @@ import { MobileActionOverflow } from '@/components/layout/MobileActionOverflow';
 import { MobileFilterDrawer } from '@/components/layout/MobileFilterDrawer';
 import { PageLoader } from '@/components/ui/page-loader';
 
+const RESOURCE_LAYOUT_STORAGE_KEY = 'lifeos.resources.layout-mode';
+const DEFAULT_RESOURCE_LAYOUT_MODE = 'gallery';
+
+function normalizeLayoutMode(value) {
+  if (value === 'grid' || value === 'gallery' || value === 'magazine') return value;
+  if (value === 'freeflow') return 'gallery';
+  return DEFAULT_RESOURCE_LAYOUT_MODE;
+}
+
 async function fetchResourceLinks(entityApi, resourceId) {
   if (!entityApi) return [];
 
@@ -64,6 +73,11 @@ export default function Resources() {
   const [showBulkAdd, setShowBulkAdd] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
+  const [layoutMode, setLayoutMode] = useState(() => {
+    if (typeof window === 'undefined') return DEFAULT_RESOURCE_LAYOUT_MODE;
+    const storedValue = window.localStorage.getItem(RESOURCE_LAYOUT_STORAGE_KEY);
+    return normalizeLayoutMode(storedValue);
+  });
   const [visibleCount, setVisibleCount] = useState(24);
   const [reenrichProgress, setReenrichProgress] = useState({
     scope: null,
@@ -73,6 +87,14 @@ export default function Resources() {
     failed: 0,
   });
   const loadMoreRef = useRef(null);
+
+  useEffect(() => {
+    try {
+    window.localStorage.setItem(RESOURCE_LAYOUT_STORAGE_KEY, layoutMode);
+    } catch {
+      // Ignore storage failures and keep the view usable.
+    }
+  }, [layoutMode]);
 
   const { data: resources = [], isLoading: resourcesLoading } = useQuery({
     queryKey: ['resources'],
@@ -645,26 +667,75 @@ export default function Resources() {
 
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs text-muted-foreground">{filteredResources.length} resource{filteredResources.length !== 1 ? 's' : ''}</p>
-        {downloaderStatus?.worker?.online === false && (
-          <p className="text-xs text-muted-foreground">Local worker offline. Queued captures will resume when it comes back online.</p>
-        )}
-        {filteredResources.length > 0 && (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => filteredReenrichMutation.mutate()}
-            disabled={filteredReenrichMutation.isPending}
-            className="border-border text-xs"
-          >
-            {filteredReenrichMutation.isPending
-              ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
-              : <Sparkles className="w-3.5 h-3.5 mr-1" />}
-            {filteredReenrichMutation.isPending ? buildReenrichLabel('filtered') : 'Re-enrich filtered'}
-          </Button>
-        )}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {downloaderStatus?.worker?.online === false && (
+            <p className="text-xs text-muted-foreground">Local worker offline. Queued captures will resume when it comes back online.</p>
+          )}
+          <div className="inline-flex rounded-xl border border-border/60 bg-card/70 p-1">
+            <button
+              type="button"
+              onClick={() => setLayoutMode('grid')}
+              className={cn(
+                'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+                layoutMode === 'grid'
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              Grid
+            </button>
+            <button
+              type="button"
+              onClick={() => setLayoutMode('gallery')}
+              className={cn(
+                'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+                layoutMode === 'gallery'
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              Gallery
+            </button>
+            <button
+              type="button"
+              onClick={() => setLayoutMode('magazine')}
+              className={cn(
+                'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+                layoutMode === 'magazine'
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              Magazine
+            </button>
+          </div>
+          {filteredResources.length > 0 && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => filteredReenrichMutation.mutate()}
+              disabled={filteredReenrichMutation.isPending}
+              className="border-border text-xs"
+            >
+              {filteredReenrichMutation.isPending
+                ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                : <Sparkles className="w-3.5 h-3.5 mr-1" />}
+              {filteredReenrichMutation.isPending ? buildReenrichLabel('filtered') : 'Re-enrich filtered'}
+            </Button>
+          )}
+        </div>
       </div>
 
-      <motion.div layout className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      <motion.div
+        layout
+        className={cn(
+          layoutMode === 'grid'
+            ? 'grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
+            : layoutMode === 'gallery'
+              ? 'columns-1 gap-5 sm:columns-2 lg:columns-3 xl:columns-4'
+              : 'columns-1 gap-4 sm:columns-2 lg:columns-3 xl:columns-4',
+        )}
+      >
         <AnimatePresence mode="popLayout">
           {renderedResources.map(r => (
             <motion.div
@@ -674,6 +745,7 @@ export default function Resources() {
               exit={{ opacity: 0, scale: 0.95 }}
               transition={{ duration: 0.2 }}
               key={r.id}
+              className={cn(layoutMode !== 'grid' && 'mb-5 w-full break-inside-avoid')}
             >
               <ResourceCard
                 resource={r}
@@ -685,6 +757,7 @@ export default function Resources() {
                 areas={areas}
                 selectMode={selectMode}
                 selected={selectedIds.has(r.id)}
+                layoutMode={layoutMode}
                 archiveLoading={archiveToggleMutation.isPending && archiveToggleMutation.variables?.resourceId === r.id}
                 retryLoading={retryResourceMutation.isPending && retryResourceMutation.variables?.id === r.id}
               />

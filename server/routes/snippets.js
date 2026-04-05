@@ -83,19 +83,60 @@ function normalizeTags(tags = []) {
     });
 }
 
-function buildPlainTextPreview(bodyText = '') {
+function truncateSnippetText(value, maxLength = 72) {
+  const normalized = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!normalized) return '';
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
+function findFirstMeaningfulLine(bodyText = '') {
   return String(bodyText || '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 220);
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean) || '';
+}
+
+function deriveSnippetTitle({ snippetType, title = '', bodyText = '' }) {
+  const explicitTitle = String(title || '').trim();
+  if (explicitTitle) return explicitTitle;
+  if (snippetType !== 'text') return '';
+  return truncateSnippetText(findFirstMeaningfulLine(bodyText), 72);
+}
+
+function buildPlainTextPreview(bodyText = '', title = '') {
+  const trimmedTitle = String(title || '').trim();
+  const lines = String(bodyText || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  let previewSource = lines.join(' ');
+  if (trimmedTitle) {
+    const firstLine = lines[0] || '';
+    if (firstLine.localeCompare(trimmedTitle, undefined, { sensitivity: 'accent' }) === 0) {
+      previewSource = lines.slice(1).join(' ');
+    } else if (firstLine.startsWith(trimmedTitle)) {
+      const remainingFirstLine = firstLine.slice(trimmedTitle.length).trim();
+      previewSource = [remainingFirstLine, ...lines.slice(1)].filter(Boolean).join(' ');
+    }
+  }
+
+  const normalized = previewSource.replace(/\s+/g, ' ').trim();
+  if (!normalized) return trimmedTitle;
+  return truncateSnippetText(normalized, 220);
 }
 
 function normalizeSnippetPayload(payload = {}, existing = null) {
   const snippetType = payload.snippet_type || existing?.snippet_type || 'text';
-  const title = String(payload.title ?? existing?.title ?? '').trim();
   const bodyText = payload.body_text ?? existing?.body_text ?? null;
   const normalizedBodyText = bodyText == null ? null : String(bodyText);
   const imageUrl = payload.image_url ?? existing?.image_url ?? null;
+  const title = deriveSnippetTitle({
+    snippetType,
+    title: payload.title ?? existing?.title ?? '',
+    bodyText: normalizedBodyText || '',
+  });
 
   const base = {
     ...existing,
@@ -115,7 +156,7 @@ function normalizeSnippetPayload(payload = {}, existing = null) {
       ...base,
       title,
       body_text: normalizedBodyText,
-      plain_text_preview: payload.plain_text_preview ?? buildPlainTextPreview(normalizedBodyText || ''),
+      plain_text_preview: payload.plain_text_preview ?? buildPlainTextPreview(normalizedBodyText || '', title),
       image_url: null,
       storage_bucket: null,
       storage_path: null,
@@ -129,7 +170,7 @@ function normalizeSnippetPayload(payload = {}, existing = null) {
     ...base,
     title,
     body_text: normalizedBodyText,
-    plain_text_preview: payload.plain_text_preview ?? buildPlainTextPreview(normalizedBodyText || title),
+    plain_text_preview: payload.plain_text_preview ?? buildPlainTextPreview(normalizedBodyText || '', title),
     image_url: imageUrl,
     storage_bucket: payload.storage_bucket ?? existing?.storage_bucket ?? null,
     storage_path: payload.storage_path ?? existing?.storage_path ?? null,

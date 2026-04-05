@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { PageActionRow, PageHeader } from '@/components/layout/page-header';
 import { listBoardWorkspaces } from '@/lib/projects-api';
 import { Snippet, trackSnippetCopy } from '@/lib/snippets-api';
+import { getSnippetDisplayTitle } from '@/lib/snippet-display';
 import { uploadFileToManagedStorage } from '@/lib/storage-upload';
 import SnippetFilters from '@/components/snippets/SnippetFilters';
 import SnippetEditorDialog from '@/components/snippets/SnippetEditorDialog';
@@ -170,6 +171,14 @@ export default function Snippets() {
     },
   });
 
+  const isQuickCreating = createMutation.isPending;
+  const isUploadingImage = createMutation.isPending || updateMutation.isPending;
+  const isClipboardBusy = createMutation.isPending || copyMutation.isPending;
+  const hasActiveFilters = Boolean(search.trim())
+    || typeFilter !== 'all'
+    || favoriteFilter !== 'all'
+    || workspaceFilter !== 'all';
+
   const handleSave = async (payload) => {
     if (editingSnippet?.id) {
       await updateMutation.mutateAsync({ id: editingSnippet.id, payload });
@@ -185,7 +194,7 @@ export default function Snippets() {
         toast.success(mode === 'image' ? 'Image copied to clipboard.' : 'Image link copied to clipboard.');
       } else {
         await navigator.clipboard.writeText(snippet.body_text || '');
-        toast.success('Snippet copied to clipboard.');
+        toast.success(`Copied "${getSnippetDisplayTitle(snippet)}".`);
       }
       copyMutation.mutate(snippet.id);
     } catch (error) {
@@ -211,6 +220,7 @@ export default function Snippets() {
   };
 
   const handleQuickPasteCreate = async () => {
+    if (isQuickCreating) return;
     try {
       if (navigator.clipboard?.read) {
         const items = await navigator.clipboard.read();
@@ -238,7 +248,7 @@ export default function Snippets() {
         workspace_id: null,
         is_favorite: false,
       });
-      toast.success('Snippet pasted and saved.');
+      toast.success(`Saved "${getSnippetDisplayTitle({ title: '', body_text: text, snippet_type: 'text' })}".`);
     } catch (error) {
       toast.error(error?.message || 'Clipboard is not available.');
     }
@@ -290,17 +300,29 @@ export default function Snippets() {
         description="A fast personal library for reusable text and image snippets across the webapp and menubar."
         actions={(
           <PageActionRow>
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-2 border-white/10 bg-transparent"
+              onClick={() => {
+                setEditingSnippet(null);
+                setIsEditorOpen(true);
+              }}
+            >
+              <Sparkles className="h-4 w-4" />
+              New snippet
+            </Button>
             <Button type="button" variant="outline" className="gap-2 border-white/10 bg-transparent" onClick={() => setViewMode((current) => current === 'grid' ? 'list' : 'grid')}>
               {viewMode === 'grid' ? <List className="h-4 w-4" /> : <LayoutGrid className="h-4 w-4" />}
               {viewMode === 'grid' ? 'List view' : 'Grid view'}
             </Button>
-            <Button type="button" className="gap-2" onClick={handleQuickPasteCreate}>
+            <Button type="button" className="gap-2" onClick={handleQuickPasteCreate} disabled={isClipboardBusy}>
               <ClipboardPaste className="h-4 w-4" />
-              Paste snippet
+              {isQuickCreating ? 'Saving...' : 'Paste snippet'}
             </Button>
-            <Button type="button" variant="outline" className="gap-2 border-white/10 bg-transparent" onClick={handleQuickUploadImage}>
+            <Button type="button" variant="outline" className="gap-2 border-white/10 bg-transparent" onClick={handleQuickUploadImage} disabled={isUploadingImage}>
               <Upload className="h-4 w-4" />
-              Upload image
+              {isUploadingImage ? 'Uploading...' : 'Upload image'}
             </Button>
             <input
               ref={fileInputRef}
@@ -341,19 +363,17 @@ export default function Snippets() {
           }}
         />
 
-        <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4">
-          <div className="flex items-start gap-3">
-            <div className="rounded-2xl bg-white/[0.05] p-3">
-              <Sparkles className="h-5 w-5 text-amber-300" />
+        <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-white/[0.05] to-white/[0.02] p-4">
+          <div className="space-y-3 text-sm text-muted-foreground">
+            <div className="flex items-center gap-2 text-foreground/85">
+              <Sparkles className="h-4 w-4 text-amber-300" />
+              Instant paste saves text or image snippets straight from your clipboard.
             </div>
-            <div className="space-y-3 text-sm text-muted-foreground">
-              <p>The big paste action creates a text or image snippet instantly from your clipboard, without opening a creation form first.</p>
-              <p>Press `/` anywhere on the page to jump into search.</p>
-              <div className="flex items-center gap-2 text-foreground/70">
-                <AppWindow className="h-4 w-4" />
-                Menubar app will use the same library and copy counts.
-              </div>
+            <div className="flex items-center gap-2 text-foreground/70">
+              <AppWindow className="h-4 w-4" />
+              Menubar and web stay in sync on the same library and copy counts.
             </div>
+            <p>Press `/` to jump into search and scan faster.</p>
           </div>
         </div>
       </div>
@@ -364,12 +384,32 @@ export default function Snippets() {
         </div>
       ) : filteredSnippets.length === 0 ? (
         <div className="rounded-3xl border border-dashed border-white/10 bg-white/[0.02] p-10 text-center">
-          <h2 className="text-lg font-semibold">No snippets yet</h2>
-          <p className="mt-2 text-sm text-muted-foreground">Create a text or image snippet and it will show up here for quick copying.</p>
-          <Button className="mt-4 gap-2" onClick={handleQuickPasteCreate}>
-            <ClipboardPaste className="h-4 w-4" />
-            Paste your first snippet
-          </Button>
+          <h2 className="text-lg font-semibold">{hasActiveFilters ? 'No snippets match these filters' : 'No snippets yet'}</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {hasActiveFilters
+              ? 'Try clearing a filter or broadening your search to bring snippets back into view.'
+              : 'Create a text or image snippet and it will show up here for quick copying.'}
+          </p>
+          {hasActiveFilters ? (
+            <Button
+              className="mt-4 gap-2"
+              variant="outline"
+              onClick={() => {
+                setSearch('');
+                setTypeFilter('all');
+                setFavoriteFilter('all');
+                setWorkspaceFilter('all');
+                setSortOrder('-last_copied_at');
+              }}
+            >
+              Reset filters
+            </Button>
+          ) : (
+            <Button className="mt-4 gap-2" onClick={handleQuickPasteCreate} disabled={isClipboardBusy}>
+              <ClipboardPaste className="h-4 w-4" />
+              Paste your first snippet
+            </Button>
+          )}
         </div>
       ) : (
         <div className={viewMode === 'grid' ? 'grid gap-4 xl:grid-cols-2' : 'space-y-4'}>
