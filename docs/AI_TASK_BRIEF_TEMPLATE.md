@@ -6,6 +6,11 @@ Use this template when handing work to another vibecoder or agent.
 
 - What should be built, fixed, or updated?
 
+## Plan mode clarification
+
+- If the task brief is still missing key information, the agent working in Plan mode must ask a relevant clarifying question before proceeding.
+- Use this section to note the most important ambiguity the agent should resolve first.
+
 ## Non-goals
 
 - What should not be changed as part of this task?

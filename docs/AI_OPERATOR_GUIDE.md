@@ -28,6 +28,13 @@ Proceed without asking when:
 - the impact is local and reversible
 - the user already gave enough direction to validate scope and success
 
+In Plan mode, do the opposite by default:
+
+- ask at least one relevant clarifying question before proposing a plan or starting work
+- prefer questions that narrow scope, clarify the desired outcome, and surface hidden constraints
+- avoid making assumptions while the task is still being scoped in Plan mode
+- if the first answer still leaves ambiguity, ask a second focused question before moving on
+
 Stop and ask when:
 
 - the same file has conflicting in-progress work you cannot safely preserve

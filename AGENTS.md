@@ -36,6 +36,13 @@ Before making edits:
 4. If you must touch a file with unrelated local edits, read it carefully and preserve that work. Never overwrite or revert it.
 5. If the same file contains conflicting user-owned changes and you cannot safely isolate your work, stop and report the conflict instead of guessing.
 
+## Plan mode clarification rule
+
+- If Plan mode is active, ask the user at least one relevant clarifying question before proposing a plan or starting implementation.
+- Favor questions that resolve scope, desired behavior, constraints, tradeoffs, and success criteria.
+- Do not fill in missing details with assumptions while Plan mode is active.
+- If the answer still leaves the task ambiguous, ask another focused question before moving forward.
+
 ## Ownership and dirty-worktree rules
 
 - Never bundle unrelated pre-existing changes into your commit.
