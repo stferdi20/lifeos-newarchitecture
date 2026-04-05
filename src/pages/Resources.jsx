@@ -7,7 +7,16 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { listBoardWorkspaces } from '@/lib/projects-api';
-import { CardResource, LifeArea, ProjectResource, Resource, reEnrichResources, retryResourceCapture } from '@/lib/resources-api';
+import {
+  CardResource,
+  ProjectResource,
+  Resource,
+  listLifeAreaFilters,
+  listProjectResourceLinks,
+  listResourceCards,
+  reEnrichResources,
+  retryResourceCapture,
+} from '@/lib/resources-api';
 import { retryInstagramDownloadForResource } from '@/lib/instagram-downloader-api';
 import { isGenericCaptureActive } from '@/lib/resource-capture';
 import ResourceFilters from '../components/resources/ResourceFilters';
@@ -28,6 +37,8 @@ const RESOURCE_LAYOUT_STORAGE_KEY = 'lifeos.resources.layout-mode';
 const RESOURCE_GRID_DENSITY_STORAGE_KEY = 'lifeos.resources.grid-density';
 const DEFAULT_RESOURCE_LAYOUT_MODE = 'gallery';
 const DEFAULT_RESOURCE_GRID_DENSITY = 'normal';
+const RESOURCE_QUERY_STALE_TIME = 60_000;
+const RESOURCE_QUERY_GC_TIME = 10 * 60_000;
 
 function normalizeLayoutMode(value) {
   if (value === 'grid' || value === 'gallery' || value === 'magazine') return value;
@@ -37,6 +48,29 @@ function normalizeLayoutMode(value) {
 
 function normalizeGridDensity(value) {
   return value === 'compact' ? 'compact' : DEFAULT_RESOURCE_GRID_DENSITY;
+}
+
+function buildResourceSearchText(resource = {}) {
+  const terms = [
+    resource.instagram_display_title,
+    resource.title,
+    resource.author,
+    resource.instagram_author_handle,
+    resource.summary,
+    resource.why_it_matters,
+    resource.who_its_for,
+    resource.explanation_for_newbies,
+    resource.main_topic,
+    ...(Array.isArray(resource.tags) ? resource.tags : []),
+    ...(Array.isArray(resource.key_points) ? resource.key_points : []),
+    ...(Array.isArray(resource.actionable_points) ? resource.actionable_points : []),
+    ...(Array.isArray(resource.use_cases) ? resource.use_cases : []),
+  ];
+
+  return terms
+    .filter((value) => value != null && value !== '')
+    .join(' ')
+    .toLowerCase();
 }
 
 async function fetchResourceLinks(entityApi, resourceId) {
@@ -125,7 +159,10 @@ export default function Resources() {
 
   const { data: resources = [], isLoading: resourcesLoading } = useQuery({
     queryKey: ['resources'],
-    queryFn: () => Resource.list('-created_date', 200),
+    queryFn: () => listResourceCards(200),
+    staleTime: RESOURCE_QUERY_STALE_TIME,
+    gcTime: RESOURCE_QUERY_GC_TIME,
+    refetchOnMount: false,
     refetchInterval: (query) => {
       const currentResources = Array.isArray(query.state.data) ? query.state.data : [];
       const hasPendingBackgroundWork = currentResources.some((resource) => {
@@ -138,36 +175,56 @@ export default function Resources() {
     },
   });
 
+  const hasInstagramResources = useMemo(
+    () => resources.some((resource) => ['instagram_reel', 'instagram_carousel', 'instagram_post'].includes(resource?.resource_type)),
+    [resources],
+  );
+
   const { data: downloaderStatus } = useQuery({
     queryKey: ['instagram-downloader-status'],
     queryFn: async () => {
       const module = await import('@/lib/instagram-downloader-api');
       return module.getInstagramDownloaderStatus();
     },
+    enabled: hasInstagramResources,
+    staleTime: 30_000,
     refetchInterval: 5000,
   });
 
-  const { data: projects = [], isLoading: projectsLoading } = useQuery({
+  const { data: projects = [] } = useQuery({
     queryKey: ['projects'],
     queryFn: () => listBoardWorkspaces(),
+    staleTime: RESOURCE_QUERY_STALE_TIME,
+    gcTime: RESOURCE_QUERY_GC_TIME,
   });
 
-  const { data: areas = [], isLoading: areasLoading } = useQuery({
+  const { data: areas = [] } = useQuery({
     queryKey: ['lifeAreas'],
-    queryFn: () => LifeArea.list(),
+    queryFn: () => listLifeAreaFilters(),
+    staleTime: RESOURCE_QUERY_STALE_TIME,
+    gcTime: RESOURCE_QUERY_GC_TIME,
   });
 
   const { data: projectResources = [], isLoading: projectResourcesLoading } = useQuery({
-    queryKey: ['projectResources'],
-    queryFn: () => ProjectResource.list(),
+    queryKey: ['projectResources', projectFilter || 'all'],
+    queryFn: () => listProjectResourceLinks(projectFilter ? { project_id: projectFilter } : {}),
+    enabled: Boolean(projectFilter),
+    staleTime: RESOURCE_QUERY_STALE_TIME,
+    gcTime: RESOURCE_QUERY_GC_TIME,
   });
 
   const projectResourceIds = useMemo(() => {
     if (!projectFilter) return null;
+    if (projectResourcesLoading && projectResources.length === 0) return null;
     return new Set(
       projectResources.filter(pr => pr.project_id === projectFilter).map(pr => pr.resource_id || pr.note_id)
     );
-  }, [projectFilter, projectResources]);
+  }, [projectFilter, projectResources, projectResourcesLoading]);
+
+  const resourceSearchIndex = useMemo(
+    () => new Map(resources.map((resource) => [resource.id, buildResourceSearchText(resource)])),
+    [resources],
+  );
 
   const allTags = useMemo(() => {
     const tagSet = new Set();
@@ -185,28 +242,13 @@ export default function Resources() {
       if (projectResourceIds && !projectResourceIds.has(r.id)) return false;
       if (tagFilter && !(Array.isArray(r.tags) ? r.tags : []).includes(tagFilter)) return false;
       if (searchTerms.length > 0) {
-        const searchable = [
-          r.title,
-          r.summary,
-          r.why_it_matters,
-          r.who_its_for,
-          r.content,
-          r.main_topic,
-          r.author,
-          ...(Array.isArray(r.tags) ? r.tags : []),
-          ...(Array.isArray(r.key_points) ? r.key_points : []),
-          ...(Array.isArray(r.actionable_points) ? r.actionable_points : []),
-          ...(Array.isArray(r.use_cases) ? r.use_cases : []),
-          ...(Array.isArray(r.learning_outcomes) ? r.learning_outcomes : []),
-          ...(Array.isArray(r.notable_quotes_or_moments) ? r.notable_quotes_or_moments : []),
-        ].filter(Boolean).join(' ').toLowerCase();
-        
+        const searchable = resourceSearchIndex.get(r.id) || '';
         const matchesAll = searchTerms.every(t => searchable.includes(t));
         if (!matchesAll) return false;
       }
       return true;
     });
-  }, [resources, search, typeFilter, areaFilter, archivedFilter, projectResourceIds, tagFilter]);
+  }, [resources, search, typeFilter, areaFilter, archivedFilter, projectResourceIds, resourceSearchIndex, tagFilter]);
 
   const layoutColumnCount = useMemo(() => {
     if (typeof window === 'undefined') return 1;
@@ -686,7 +728,7 @@ export default function Resources() {
     });
   };
 
-  if (resourcesLoading || projectsLoading || areasLoading || projectResourcesLoading) {
+  if (resourcesLoading) {
     return <PageLoader label="Loading resources..." />;
   }
 
@@ -786,6 +828,9 @@ export default function Resources() {
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs text-muted-foreground">{filteredResources.length} resource{filteredResources.length !== 1 ? 's' : ''}</p>
         <div className="flex flex-wrap items-center justify-end gap-2">
+          {projectFilter && projectResourcesLoading && (
+            <p className="text-xs text-muted-foreground">Applying project filter…</p>
+          )}
           {downloaderStatus?.worker?.online === false && (
             <p className="text-xs text-muted-foreground">Local worker offline. Queued captures will resume when it comes back online.</p>
           )}
