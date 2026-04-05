@@ -175,7 +175,7 @@ export async function requestYouTubeTranscript({
 }) {
   const env = getServerEnv();
   if (!env.INSTAGRAM_DOWNLOADER_BASE_URL) {
-    throw new HttpError(500, 'Instagram downloader service is not configured.');
+    throw new HttpError(500, 'YouTube transcript worker is not configured.');
   }
 
   const response = await fetchImpl(`${env.INSTAGRAM_DOWNLOADER_BASE_URL.replace(/\/+$/, '')}/youtube-transcript`, {
@@ -184,7 +184,7 @@ export async function requestYouTubeTranscript({
     body: JSON.stringify({ url }),
     signal: AbortSignal.timeout(Math.max(env.INSTAGRAM_DOWNLOADER_TIMEOUT_MS || 120000, 1000)),
   }).catch((error) => {
-    throw new HttpError(502, `Instagram downloader service is unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    throw new HttpError(502, `YouTube transcript worker is unavailable: ${error instanceof Error ? error.message : String(error)}`);
   });
 
   const payload = await response.json().catch(() => null);
