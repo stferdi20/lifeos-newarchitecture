@@ -93,6 +93,7 @@ Do not treat this as optional housekeeping.
 - Use a `codex/` branch by default unless the user asked for a different branch or you are already on the correct task branch.
 - After verifying your change, commit the relevant repo changes and push them to `origin`, unless the user explicitly says not to push yet.
 - Default to finishing each completed task with a commit and push without waiting for an extra reminder.
+- Treat commit-and-push as the normal completion path, not an optional follow-up step. Do not wait for the user to repeat this instruction on each task.
 - Unless the user explicitly asks for branch-only work, PR-only work, or no promotion to production, land validated changes onto `main` and push `origin/main` before handoff.
 - If work begins on a `codex/` branch, finish by fast-forwarding or otherwise safely merging the validated branch into `main`, then push `main`.
 - Do not ask the user to run normal git commands that you can run directly.

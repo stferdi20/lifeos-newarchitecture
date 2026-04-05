@@ -235,6 +235,8 @@ Non-trivial tasks in this repo now require an explicit documentation and guidanc
 
 If any answer is yes, update the relevant docs in the same task. If all answers are no, record that the check was performed.
 
+Completed tasks should normally be committed and pushed to `main` after validation unless the user explicitly asks not to push yet.
+
 ## Current Migration Slice
 
 Implemented now:

@@ -99,6 +99,7 @@ When a task is finished and validation has passed:
 - commit the scoped repo changes
 - push them to `origin`
 - prefer landing validated work on `main` unless the user explicitly asks for a different branch or asks you not to push yet
+- do not wait for an extra user reminder before committing and pushing when the task is otherwise complete
 
 Do not bundle unrelated dirty-worktree changes into that commit. If unrelated edits block a safe commit or push, keep them out of scope and explain the blocker clearly.
 

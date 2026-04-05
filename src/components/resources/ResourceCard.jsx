@@ -92,6 +92,13 @@ function clampClassFromCount(lineCount) {
   return 'line-clamp-2';
 }
 
+function truncateText(value, maxLength = 180) {
+  const text = asText(value).trim();
+  if (!text) return '';
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength - 1).trim()}…`;
+}
+
 function getMediaAspectClass({
   layoutMode,
   resource,
@@ -99,6 +106,7 @@ function getMediaAspectClass({
   thumbnailAspectRatio,
   previewTextLength,
   tagCount,
+  featured = false,
 }) {
   if (layoutMode === 'grid') return 'h-36';
 
@@ -133,7 +141,14 @@ function getMediaAspectClass({
   }
 
   if (!hasThumbnail) {
+    if (layoutMode === 'gallery' && featured) return 'aspect-[4/5]';
     return isDense ? 'aspect-[4/5]' : 'aspect-[16/10]';
+  }
+
+  if (layoutMode === 'gallery' && featured) {
+    if (isPortrait) return 'aspect-[4/5]';
+    if (isWide) return 'aspect-[16/10]';
+    return 'aspect-[5/4]';
   }
 
   if (isPortrait) return 'aspect-[3/4]';
@@ -247,8 +262,18 @@ export default function ResourceCard({
   const bodySpacingClass = isGallery
     ? (previewItemTextLength > 180 ? 'space-y-3' : 'space-y-2.5')
     : isMagazine
-      ? 'space-y-2'
+      ? 'space-y-3'
       : '';
+  const magazineSummary = truncateText(
+    previewItem?.text
+      || resource.summary
+      || resource.why_it_matters
+      || resource.explanation_for_newbies
+      || resource.who_its_for,
+    170,
+  );
+  const galleryTags = safeTags.slice(0, isFeatured ? 5 : 4);
+  const galleryTagOverflow = safeTags.length - galleryTags.length;
   const mediaAspectClass = getMediaAspectClass({
     layoutMode,
     resource,
@@ -256,6 +281,7 @@ export default function ResourceCard({
     thumbnailAspectRatio,
     previewTextLength: previewItemTextLength,
     tagCount: safeTags.length,
+    featured: isFeatured,
   });
   const mediaObjectPosition = isFreeflow && thumbnailAspectRatio && thumbnailAspectRatio < 1
     ? 'center top'
@@ -394,193 +420,250 @@ export default function ResourceCard({
         )}
       </div>
 
-      <div className={cn('p-4', bodySpacingClass, isMagazine && 'p-3.5')}>
-        <h3 className={cn(
-          'text-sm font-semibold group-hover:text-primary transition-colors',
-          isGallery ? 'line-clamp-3 tracking-tight text-[15px]' : 'line-clamp-2 tracking-tight',
-          isMagazine && 'text-[13px] font-medium text-foreground/90',
-        )}>
-          {safeTitle}
-        </h3>
+      {isMagazine ? (
+        <div className={cn('p-3.5', bodySpacingClass)}>
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground/55">
+              <span>{isInstagram ? `IG ${instagramMediaTypeLabel}` : cfg.label}</span>
+              {area && <span>{area.name}</span>}
+              {resource.is_archived && <span>Archived</span>}
+            </div>
+            <h3 className="line-clamp-2 text-[14px] font-medium tracking-tight text-foreground/90 group-hover:text-foreground">
+              {safeTitle}
+            </h3>
+            {(safeAuthor || instagramAuthorHandle) && (
+              <p className="text-[10px] text-muted-foreground/70">
+                {instagramAuthorHandle ? `@${instagramAuthorHandle}` : `by ${safeAuthor}`}
+              </p>
+            )}
+          </div>
 
-        {showGenericCaptureStatus && (
-          <div className={cn('flex flex-wrap items-center gap-1.5', isMagazine && 'gap-1')}>
+          {showGenericCaptureStatus && (
+            <div className="flex items-center gap-2 text-[9px] text-muted-foreground/65">
+              <span className={cn(
+                'inline-flex items-center rounded-full border px-1.5 py-0.5 font-medium tracking-wide',
+                CAPTURE_STATUS_COLORS[resource.capture_status] || CAPTURE_STATUS_COLORS.queued,
+              )}>
+                {captureStatusLabel}
+              </span>
+              {resource.capture_status_message && (
+                <span className="line-clamp-1">{resource.capture_status_message}</span>
+              )}
+            </div>
+          )}
+
+          {magazineSummary && (
+            <p className="line-clamp-3 text-[12px] leading-6 text-foreground/68">
+              {magazineSummary}
+            </p>
+          )}
+
+          {resource.enrichment_warning && (
+            <div className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-2.5 py-2">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300" />
+              <p className="line-clamp-2 text-[10px] leading-relaxed text-amber-100/80">
+                {resource.enrichment_warning}
+              </p>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between border-t border-border/20 pt-2">
+            <div className="flex items-center gap-2 text-[9px] tracking-[0.14em] text-muted-foreground/60 uppercase">
+              <span>{resource.created_date ? format(new Date(resource.created_date), 'MMM d, yyyy') : ''}</span>
+              {isGitHub && resource.github_stars != null && (
+                <span>{resource.github_stars.toLocaleString()} stars</span>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5">
+              {showRetryButton && (
+                <button
+                  type="button"
+                  aria-label="Retry resource"
+                  title="Retry resource"
+                  disabled={retryLoading}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRetry?.(resource);
+                  }}
+                  className="inline-flex h-5 w-5 items-center justify-center rounded-md border border-border/60 text-muted-foreground/60 transition-colors hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <RefreshCw className={cn('h-3 w-3', retryLoading && 'animate-spin')} />
+                </button>
+              )}
+              {resource.url && (
+                <a href={resource.url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="text-muted-foreground/60 hover:text-primary transition-colors">
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className={cn('p-4', bodySpacingClass)}>
+          <h3 className={cn(
+            'font-semibold tracking-tight text-[15px] group-hover:text-primary transition-colors',
+            isFeatured ? 'line-clamp-3 text-[17px] leading-tight' : 'line-clamp-3',
+          )}>
+            {safeTitle}
+          </h3>
+
+          {showGenericCaptureStatus && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className={cn(
+                'inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium tracking-wide',
+                CAPTURE_STATUS_COLORS[resource.capture_status] || CAPTURE_STATUS_COLORS.queued,
+              )}>
+                {captureStatusLabel}
+              </span>
+              {resource.capture_status_message && (
+                <span className="line-clamp-1 text-[10px] text-muted-foreground">
+                  {resource.capture_status_message}
+                </span>
+              )}
+            </div>
+          )}
+
+          {(safeAuthor || instagramAuthorHandle) && (
+            <p className="text-[10px] text-muted-foreground/80">
+              {instagramAuthorHandle ? `@${instagramAuthorHandle}` : `by ${safeAuthor}`}
+            </p>
+          )}
+
+          {isInstagram && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="rounded-full bg-fuchsia-500/10 px-1.5 py-0.5 text-[10px] text-fuchsia-100/90">
+                {instagramMediaTypeLabel}
+              </span>
+              {resource.instagram_media_items?.length > 0 && (
+                <span className="rounded-full bg-pink-500/10 px-1.5 py-0.5 text-[10px] text-pink-200/90">
+                  {resource.instagram_media_items.length} Media
+                </span>
+              )}
+              {needsReview && (
+                <span className="rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-200/90">
+                  Needs Review
+                </span>
+              )}
+              {driveUrl && (
+                <a
+                  href={driveUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-200 transition-colors hover:bg-emerald-500/20"
+                >
+                  <FolderOpen className="h-3 w-3" />
+                  Open in Drive
+                </a>
+              )}
+            </div>
+          )}
+
+          {isGitHub && resource.github_stars != null && (
+            <div className="flex items-center gap-1">
+              <Star className="h-3 w-3 fill-amber-400/90 text-amber-400" />
+              <span className="text-xs text-muted-foreground/80">{resource.github_stars.toLocaleString()} stars</span>
+            </div>
+          )}
+
+          {previewItem && (
+            <div className={cn(
+              'rounded-xl border border-border/40 bg-card/60 px-3 py-2.5 shadow-sm shadow-black/10',
+              isFeatured && 'bg-card/70',
+            )}>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-foreground/65">
+                {previewItem.label}
+              </p>
+              <p className={cn(
+                'mt-1.5 leading-6 text-foreground/85',
+                previewClampClass,
+                isFeatured ? 'text-[13px]' : 'text-[12px]',
+              )}>
+                {previewItem.text}
+              </p>
+            </div>
+          )}
+
+          {resource.enrichment_warning && (
+            <div className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300" />
+              <p className="line-clamp-2 text-[11px] leading-relaxed text-amber-100/80">
+                {resource.enrichment_warning}
+              </p>
+            </div>
+          )}
+
+          <div className="flex items-center gap-1 flex-wrap">
+            {area && (
+              <span className="inline-flex items-center gap-0.5 rounded-full bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-medium text-violet-400/80">
+                <span>{area.icon}</span> {area.name}
+              </span>
+            )}
+            {safeMainTopic && (
+              <span className="inline-block rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary/80">
+                {safeMainTopic}
+              </span>
+            )}
+            {resource.is_archived && (
+              <span className="inline-block rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-400/80">
+                Archived
+              </span>
+            )}
+          </div>
+
+          {galleryTags.length > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {galleryTags.map(tag => (
+                <button
+                  key={tag}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onTagClick?.(tag);
+                  }}
+                  className="rounded-full bg-secondary/80 px-1.5 py-0.5 text-[10px] text-muted-foreground/80 transition-colors hover:bg-primary/10 hover:text-primary focus:outline-none focus:ring-1 focus:ring-primary/50"
+                >
+                  #{tag}
+                </button>
+              ))}
+              {galleryTagOverflow > 0 && (
+                <span className="text-[10px] text-muted-foreground">+{galleryTagOverflow}</span>
+              )}
+            </div>
+          )}
+
+          <div className="flex items-center justify-between border-t border-border/30 pt-2">
             <span className={cn(
-              'inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium tracking-wide',
-              CAPTURE_STATUS_COLORS[resource.capture_status] || CAPTURE_STATUS_COLORS.queued,
-              isMagazine && 'text-[9px]',
+              'text-[10px] tracking-[0.16em] text-muted-foreground/80 uppercase',
+              isFeatured && 'text-foreground/65',
             )}>
-              {captureStatusLabel}
+              {resource.created_date ? format(new Date(resource.created_date), 'MMM d, yyyy') : ''}
             </span>
-            {resource.capture_status_message && (
-              <span className={cn('text-[10px] text-muted-foreground line-clamp-1', isMagazine && 'text-[9px]')}>
-                {resource.capture_status_message}
-              </span>
-            )}
-          </div>
-        )}
-
-        {(safeAuthor || instagramAuthorHandle) && (
-          <p className={cn('text-[10px] text-muted-foreground/80', isMagazine && 'text-[9px]')}>
-            {instagramAuthorHandle ? `@${instagramAuthorHandle}` : `by ${safeAuthor}`}
-          </p>
-        )}
-
-        {isInstagram && (
-          <div className={cn('flex flex-wrap items-center gap-1.5', isMagazine && 'gap-1')}>
-            <span className={cn('text-[10px] rounded-full bg-fuchsia-500/10 px-1.5 py-0.5 text-fuchsia-100/90', isMagazine && 'text-[9px]')}>
-              {instagramMediaTypeLabel}
-            </span>
-            {resource.instagram_media_items?.length > 0 && (
-              <span className={cn('text-[10px] rounded-full bg-pink-500/10 px-1.5 py-0.5 text-pink-200/90', isMagazine && 'text-[9px]')}>
-                {resource.instagram_media_items.length} Media
-              </span>
-            )}
-            {needsReview && (
-              <span className={cn('text-[10px] rounded-full bg-amber-500/10 px-1.5 py-0.5 text-amber-200/90', isMagazine && 'text-[9px]')}>
-                Needs Review
-              </span>
-            )}
-            {driveUrl && (
-              <a
-                href={driveUrl}
-                target="_blank"
-                rel="noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-200 transition-colors hover:bg-emerald-500/20"
-              >
-                <FolderOpen className="h-3 w-3" />
-                Open in Drive
-              </a>
-            )}
-          </div>
-        )}
-
-        {/* GitHub stars */}
-        {isGitHub && resource.github_stars != null && (
-          <div className="flex items-center gap-1">
-            <Star className="w-3 h-3 text-amber-400 fill-amber-400/90" />
-            <span className={cn('text-xs text-muted-foreground/80', isMagazine && 'text-[11px]')}>{resource.github_stars.toLocaleString()} stars</span>
-          </div>
-        )}
-
-        {previewItem && (
-          <div className={cn(
-            'rounded-xl border border-border/40 bg-secondary/25 px-3 py-2.5',
-            isGallery && 'bg-card/60 border-white/5 shadow-sm shadow-black/10',
-            isMagazine && 'bg-card/35 border-white/5',
-          )}>
-            <p className={cn(
-              'text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70',
-              isGallery && 'text-[10px] text-foreground/65',
-              isMagazine && 'tracking-[0.18em] text-[9px] text-muted-foreground/60',
-            )}>
-              {previewItem.label}
-            </p>
-            <p className={cn(
-              'mt-1.5 text-[11px] leading-relaxed text-foreground/75',
-              previewClampClass,
-              isGallery && 'text-[12px] leading-6 text-foreground/85',
-              isMagazine && 'text-[10px] leading-6 text-foreground/68',
-            )}>
-              {previewItem.text}
-            </p>
-          </div>
-        )}
-
-        {resource.enrichment_warning && (
-          <div className={cn(
-            'flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2',
-            isMagazine && 'px-2.5 py-2',
-          )}>
-            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300" />
-            <p className={cn('text-[11px] leading-relaxed text-amber-100/80 line-clamp-2', isMagazine && 'text-[10px]')}>
-              {resource.enrichment_warning}
-            </p>
-          </div>
-        )}
-
-        <div className={cn('flex items-center gap-1 flex-wrap', isMagazine && 'gap-1.5')}>
-          {area && (
-            <span className={cn('inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/10 text-violet-400/80 font-medium', isMagazine && 'text-[9px]')}>
-              <span>{area.icon}</span> {area.name}
-            </span>
-          )}
-          {safeMainTopic && (
-            <span className={cn('inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary/80 font-medium', isMagazine && 'text-[9px]')}>
-              {safeMainTopic}
-            </span>
-          )}
-          {resource.is_archived && (
-            <span className={cn('inline-block text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400/80 font-medium', isMagazine && 'text-[9px]')}>
-              Archived
-            </span>
-          )}
-        </div>
-
-        {safeTags.length > 0 && (
-          <div className={cn('flex items-center gap-1.5 flex-wrap', isMagazine && 'gap-1')}>
-            {safeTags.slice(0, 4).map(tag => (
-              <button
-                key={tag}
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onTagClick?.(tag);
-                }}
-                className={cn(
-                  'text-[10px] px-1.5 py-0.5 rounded-full bg-secondary/80 text-muted-foreground/80 transition-colors hover:bg-primary/10 hover:text-primary focus:outline-none focus:ring-1 focus:ring-primary/50',
-                  isMagazine && 'text-[9px]',
-                )}
-              >
-                #{tag}
-              </button>
-            ))}
-            {safeTags.length > 4 && (
-              <span className="text-[10px] text-muted-foreground">+{safeTags.length - 4}</span>
-            )}
-          </div>
-        )}
-
-        <div className={cn(
-          'flex items-center justify-between pt-2 border-t border-border/30',
-          isGallery ? 'mt-1' : 'mt-3',
-          isMagazine && 'mt-2 border-border/20',
-        )}>
-          <span className={cn(
-            'text-[10px] text-muted-foreground/70 tracking-wide',
-            isGallery && 'text-[10px] tracking-[0.16em] text-muted-foreground/80',
-            isMagazine && 'text-[9px] tracking-[0.14em] text-muted-foreground/60',
-          )}>
-            {resource.created_date ? format(new Date(resource.created_date), 'MMM d, yyyy') : ''}
-          </span>
-          <div className="flex items-center gap-1.5">
-            {showRetryButton && (
-              <button
-                type="button"
-                aria-label="Retry resource"
-                title="Retry resource"
-                disabled={retryLoading}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRetry?.(resource);
-                }}
-                className={cn(
-                  'inline-flex h-6 w-6 items-center justify-center rounded-md border border-border/60 text-muted-foreground/70 transition-colors hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60',
-                  isMagazine && 'h-5 w-5',
-                )}
-              >
-                <RefreshCw className={cn('h-3 w-3', retryLoading && 'animate-spin')} />
-              </button>
-            )}
-            {resource.url && (
-              <a href={resource.url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="text-muted-foreground/70 hover:text-primary transition-colors">
-                <ExternalLink className="w-3 h-3" />
-              </a>
-            )}
+            <div className="flex items-center gap-1.5">
+              {showRetryButton && (
+                <button
+                  type="button"
+                  aria-label="Retry resource"
+                  title="Retry resource"
+                  disabled={retryLoading}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRetry?.(resource);
+                  }}
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border/60 text-muted-foreground/70 transition-colors hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <RefreshCw className={cn('h-3 w-3', retryLoading && 'animate-spin')} />
+                </button>
+              )}
+              {resource.url && (
+                <a href={resource.url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="text-muted-foreground/70 hover:text-primary transition-colors">
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
