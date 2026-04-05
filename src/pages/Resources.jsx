@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useRef } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BookOpen, Search, FileText, Sparkles, CheckSquare } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -41,7 +41,6 @@ import { PageHeader, PageActionRow } from '@/components/layout/page-header';
 import { MobileActionOverflow } from '@/components/layout/MobileActionOverflow';
 import { MobileFilterDrawer } from '@/components/layout/MobileFilterDrawer';
 import { PageLoader } from '@/components/ui/page-loader';
-import { useIsMobile } from '@/hooks/use-mobile';
 
 const RESOURCE_LAYOUT_STORAGE_KEY = 'lifeos.resources.layout-mode';
 const RESOURCE_GRID_DENSITY_STORAGE_KEY = 'lifeos.resources.grid-density';
@@ -192,7 +191,6 @@ export default function Resources() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const location = useLocation();
-  const isMobile = useIsMobile();
   const profilingEnabled = isResourceProfilingEnabled();
 
   const urlParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
@@ -228,13 +226,9 @@ export default function Resources() {
     updated: 0,
     failed: 0,
   });
-  const listRef = useRef(null);
-  const rafRef = useRef(null);
-  const [listMetrics, setListMetrics] = useState({
-    width: 0,
-    top: 0,
-    viewportHeight: 0,
-    scrollY: 0,
+  const [viewportWidth, setViewportWidth] = useState(() => {
+    if (typeof window === 'undefined') return 0;
+    return window.innerWidth;
   });
 
   useEffect(() => {
@@ -262,6 +256,21 @@ export default function Resources() {
       // Ignore storage failures and keep the view usable.
     }
   }, [gridDensity]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+
+    const updateViewportWidth = () => {
+      setViewportWidth(window.innerWidth);
+    };
+
+    updateViewportWidth();
+    window.addEventListener('resize', updateViewportWidth);
+
+    return () => {
+      window.removeEventListener('resize', updateViewportWidth);
+    };
+  }, []);
 
   const { data: resources = [], isLoading: resourcesLoading } = useQuery({
     queryKey: ['resources'],
@@ -407,8 +416,6 @@ export default function Resources() {
   }, [resources, search, typeFilter, areaFilter, archivedFilter, projectResourceIds, resourceSearchIndex, tagFilter]);
 
   const layoutColumnCount = useMemo(() => {
-    if (typeof window === 'undefined') return 1;
-    const viewportWidth = window.innerWidth;
     const isCompactDensity = gridDensity === 'compact';
     if (layoutMode === 'grid') {
       if (isCompactDensity && viewportWidth >= 1536) return 5;
@@ -423,78 +430,9 @@ export default function Resources() {
     if (viewportWidth >= 1024) return 3;
     if (viewportWidth >= 640) return 2;
     return 1;
-  }, [gridDensity, layoutMode, listMetrics.width]);
-
-  const estimatedResourceHeight = useMemo(() => {
-    if (layoutMode === 'grid') {
-      if (gridDensity === 'compact') return isMobile ? 340 : 320;
-      return isMobile ? 360 : 390;
-    }
-    if (layoutMode === 'gallery') return isMobile ? 420 : 470;
-    return isMobile ? 320 : 360;
-  }, [gridDensity, isMobile, layoutMode]);
+  }, [gridDensity, layoutMode, viewportWidth]);
 
   const isGridLayout = layoutMode === 'grid';
-
-  const totalRows = useMemo(
-    () => Math.ceil(filteredResources.length / layoutColumnCount),
-    [filteredResources.length, layoutColumnCount],
-  );
-
-  const overscanRows = isMobile ? 2 : 3;
-
-  const visibleRange = useMemo(() => {
-    if (!filteredResources.length) {
-      return { startIndex: 0, endIndex: 0, topSpacerHeight: 0, bottomSpacerHeight: 0 };
-    }
-
-    if (!isGridLayout) {
-      return {
-        startIndex: 0,
-        endIndex: filteredResources.length,
-        topSpacerHeight: 0,
-        bottomSpacerHeight: 0,
-      };
-    }
-
-    if (!listMetrics.viewportHeight || !estimatedResourceHeight) {
-      const fallbackCount = Math.min(filteredResources.length, 24);
-      const rowsShown = Math.ceil(fallbackCount / layoutColumnCount);
-      return {
-        startIndex: 0,
-        endIndex: fallbackCount,
-        topSpacerHeight: 0,
-        bottomSpacerHeight: Math.max(0, (totalRows - rowsShown) * estimatedResourceHeight),
-      };
-    }
-
-    const relativeTop = Math.max(0, listMetrics.scrollY - listMetrics.top);
-    const relativeBottom = relativeTop + listMetrics.viewportHeight;
-    const startRow = Math.max(0, Math.floor(relativeTop / estimatedResourceHeight) - overscanRows);
-    const endRow = Math.min(totalRows, Math.ceil(relativeBottom / estimatedResourceHeight) + overscanRows);
-
-    return {
-      startIndex: startRow * layoutColumnCount,
-      endIndex: Math.min(filteredResources.length, endRow * layoutColumnCount),
-      topSpacerHeight: startRow * estimatedResourceHeight,
-      bottomSpacerHeight: Math.max(0, (totalRows - endRow) * estimatedResourceHeight),
-    };
-  }, [
-    estimatedResourceHeight,
-    filteredResources.length,
-    layoutColumnCount,
-    listMetrics.scrollY,
-    listMetrics.top,
-    listMetrics.viewportHeight,
-    overscanRows,
-    totalRows,
-    isGridLayout,
-  ]);
-
-  const renderedResources = useMemo(
-    () => filteredResources.slice(visibleRange.startIndex, visibleRange.endIndex),
-    [filteredResources, visibleRange.endIndex, visibleRange.startIndex],
-  );
 
   const stableColumnResources = useMemo(() => {
     if (isGridLayout) return [];
@@ -505,25 +443,19 @@ export default function Resources() {
     return columns;
   }, [filteredResources, isGridLayout, layoutColumnCount]);
 
-  const displayedResources = isGridLayout ? renderedResources : filteredResources;
-  const resourceListStyle = isGridLayout
-    ? {
-      paddingTop: visibleRange.topSpacerHeight,
-      paddingBottom: visibleRange.bottomSpacerHeight,
-    }
-    : {
-      gridTemplateColumns: `repeat(${layoutColumnCount}, minmax(0, 1fr))`,
-      gap: layoutMode === 'gallery' ? '1.25rem' : '1rem',
-    };
+  const resourceListStyle = {
+    gridTemplateColumns: `repeat(${layoutColumnCount}, minmax(0, 1fr))`,
+    gap: layoutMode === 'gallery' ? '1.25rem' : '1rem',
+  };
 
   useEffect(() => {
-    if (!profilingEnabled || resourcesLoading || displayedResources.length === 0 || typeof window === 'undefined') {
+    if (!profilingEnabled || resourcesLoading || filteredResources.length === 0 || typeof window === 'undefined') {
       return undefined;
     }
 
     const frameId = window.requestAnimationFrame(() => {
       recordResourceProfileEvent('resources:first-paint', {
-        renderedCount: displayedResources.length,
+        renderedCount: filteredResources.length,
         filteredCount: filteredResources.length,
       });
     });
@@ -531,49 +463,7 @@ export default function Resources() {
     return () => {
       window.cancelAnimationFrame(frameId);
     };
-  }, [displayedResources.length, filteredResources.length, profilingEnabled, resourcesLoading]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return undefined;
-
-    const updateMetrics = () => {
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current);
-      }
-
-      rafRef.current = window.requestAnimationFrame(() => {
-        const node = listRef.current;
-        const rect = node?.getBoundingClientRect();
-        setListMetrics({
-          width: rect?.width || 0,
-          top: rect ? rect.top + window.scrollY : 0,
-          viewportHeight: window.innerHeight,
-          scrollY: window.scrollY,
-        });
-      });
-    };
-
-    updateMetrics();
-    window.addEventListener('scroll', updateMetrics, { passive: true });
-    window.addEventListener('resize', updateMetrics);
-
-    const resizeObserver = typeof ResizeObserver === 'function' && listRef.current
-      ? new ResizeObserver(() => updateMetrics())
-      : null;
-
-    if (resizeObserver && listRef.current) {
-      resizeObserver.observe(listRef.current);
-    }
-
-    return () => {
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current);
-      }
-      window.removeEventListener('scroll', updateMetrics);
-      window.removeEventListener('resize', updateMetrics);
-      resizeObserver?.disconnect();
-    };
-  }, [filteredResources.length, layoutMode]);
+  }, [filteredResources.length, profilingEnabled, resourcesLoading]);
 
   const selectedResources = useMemo(
     () => resources.filter((resource) => selectedIds.has(resource.id)),
@@ -1105,8 +995,7 @@ export default function Resources() {
       </div>
 
       <div
-        ref={listRef}
-        style={resourceListStyle}
+        style={isGridLayout ? undefined : resourceListStyle}
         className={cn(
           isGridLayout
             ? cn(
@@ -1119,7 +1008,7 @@ export default function Resources() {
         )}
       >
         {isGridLayout
-          ? renderedResources.map((resource) => renderResourceCard(resource))
+          ? filteredResources.map((resource) => renderResourceCard(resource))
           : stableColumnResources.map((columnResources, columnIndex) => (
             <div
               key={`resource-column-${columnIndex}`}
