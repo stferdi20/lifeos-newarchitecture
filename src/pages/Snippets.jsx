@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AppWindow, ClipboardPaste, LayoutGrid, List, Scissors, Sparkles, Upload } from 'lucide-react';
+import { ClipboardPaste, LayoutGrid, List, Scissors, Sparkles, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { PageActionRow, PageHeader } from '@/components/layout/page-header';
@@ -340,7 +340,7 @@ export default function Snippets() {
         )}
       />
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px] lg:items-start">
+      <div className="space-y-4">
         <SnippetFilters
           searchInputId="snippet-search-input"
           search={search}
@@ -361,21 +361,7 @@ export default function Snippets() {
             setWorkspaceFilter('all');
             setSortOrder('-last_copied_at');
           }}
-          />
-
-        <div className="self-start rounded-3xl border border-white/10 bg-gradient-to-br from-white/[0.05] to-white/[0.02] p-4">
-          <div className="space-y-3 text-sm text-muted-foreground">
-            <div className="flex items-center gap-2 text-foreground/85">
-              <Sparkles className="h-4 w-4 text-amber-300" />
-              Instant paste saves text or image snippets straight from your clipboard.
-            </div>
-            <div className="flex items-center gap-2 text-foreground/70">
-              <AppWindow className="h-4 w-4" />
-              Menubar and web stay in sync on the same library and copy counts.
-            </div>
-            <p>Press `/` to jump into search and scan faster.</p>
-          </div>
-        </div>
+        />
       </div>
 
       {isLoading ? (
