@@ -88,7 +88,8 @@ AI News now uses deterministic RSS/news feeds as the source of truth instead of 
 - `/api/news` returns validated real articles with `title`, `summary`, `url`, `source_name`, `image_url`, `published_at`, `category`, and `is_ai_summary`
 - `/api/news/top` powers the dashboard widget with the same normalized article contract
 - `/api/news/digest?date=YYYY-MM-DD&category=all|ai|ai_research|tech|startups|crypto` returns the saved daily digest snapshot for the requested category
-- `POST /api/news/digest/run` generates the daily digest set for `all`, `ai`, `ai_research`, `tech`, `startups`, and `crypto`
+- `GET /api/news/digest/run` is the Vercel-cron-compatible entrypoint for generating the daily digest set
+- `POST /api/news/digest/run` remains available for manual/backfill invocation of the same digest generation flow
 - `/api/trends` now builds trend cards from the same retrieved article pool
 - categories now include `ai`, `ai_research`, `tech`, `startups`, `crypto`, and `general`
 - invalid URLs, missing publish dates, stale items, and duplicate articles are dropped before anything reaches the UI
@@ -102,6 +103,7 @@ Daily digest notes:
 
 - digests are stored in a dedicated `news_digests` table with one row per `(digest_date, category)`
 - the cron runner is protected by `CRON_SECRET`, using `x-cron-secret: <secret>` or `Authorization: Bearer <secret>`
+- both `GET` and `POST` digest-run requests accept an optional target date so reruns/backfills stay idempotent against the same `(digest_date, category)` rows
 - `vercel.json` now schedules the digest runner once daily at `00:10 UTC`
 - the dashboard picks "yesterday" using the viewer's browser timezone, then reads the closest available digest on or before that date
 

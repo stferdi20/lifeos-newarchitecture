@@ -7,6 +7,46 @@ import { getNewsDigest, runDailyNewsDigestJob } from '../services/news-digests.j
 
 const newsRoutes = new Hono();
 
+function getDigestRunSecret(c) {
+  return c.req.header('x-cron-secret') || c.req.header('authorization')?.replace(/^Bearer\s+/i, '') || '';
+}
+
+function authorizeDigestRun(c) {
+  const env = getServerEnv();
+  const secret = getDigestRunSecret(c);
+
+  if (!env.CRON_SECRET || secret !== env.CRON_SECRET) {
+    throw new HttpError(401, 'Unauthorized');
+  }
+}
+
+async function executeDigestRun(c, method = 'GET') {
+  authorizeDigestRun(c);
+
+  const body = method === 'POST'
+    ? await c.req.json().catch(() => ({}))
+    : {};
+  const digestDate = body?.digest_date || c.req.query('date') || undefined;
+  const userId = body?.user_id || c.req.query('user_id') || null;
+  const runMode = method === 'GET' ? 'scheduled_or_linked' : 'manual';
+
+  console.info('[news-digest] digest_run_requested', {
+    method,
+    runMode,
+    digestDate: digestDate || 'default',
+  });
+
+  const data = await runDailyNewsDigestJob({
+    userId,
+    digestDate,
+  });
+
+  return c.json({
+    ...data,
+    run_mode: runMode,
+  });
+}
+
 newsRoutes.get('/', async (c) => {
   const auth = await requireUser(c);
   const query = c.req.query('query') || '';
@@ -42,23 +82,8 @@ newsRoutes.get('/digest', async (c) => {
   return c.json(data);
 });
 
-newsRoutes.post('/digest/run', async (c) => {
-  const env = getServerEnv();
-  const secret = c.req.header('x-cron-secret') || c.req.header('authorization')?.replace(/^Bearer\s+/i, '') || '';
+newsRoutes.get('/digest/run', async (c) => executeDigestRun(c, 'GET'));
 
-  if (!env.CRON_SECRET || secret !== env.CRON_SECRET) {
-    throw new HttpError(401, 'Unauthorized');
-  }
-
-  const body = await c.req.json().catch(() => ({}));
-  const digestDate = body?.digest_date || c.req.query('date') || undefined;
-  const userId = body?.user_id || null;
-  const data = await runDailyNewsDigestJob({
-    userId,
-    digestDate,
-  });
-
-  return c.json(data);
-});
+newsRoutes.post('/digest/run', async (c) => executeDigestRun(c, 'POST'));
 
 export default newsRoutes;
