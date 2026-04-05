@@ -584,7 +584,13 @@ export default function ResourceLinkPickerModal({
               </div>
 
               {createMode === 'url' && (
-                <div className="space-y-3">
+                <form
+                  className="space-y-3"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    handleCreateFromUrl();
+                  }}
+                >
                   <div className="rounded-xl border border-border/50 bg-secondary/20 p-4">
                     <p className="text-sm text-foreground">Paste a URL to analyze, save, and link.</p>
                     <p className="mt-1 text-xs text-muted-foreground">
@@ -597,11 +603,11 @@ export default function ResourceLinkPickerModal({
                     placeholder="https://example.com/article"
                     className="border-border/50 bg-secondary/40"
                   />
-                  <Button onClick={handleCreateFromUrl} disabled={!urlInput.trim() || submitLoading}>
+                  <Button type="submit" disabled={!urlInput.trim() || submitLoading}>
                     {submitLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
                     {submitLoading ? 'Analyzing Resource...' : 'Analyze, Save, and Link'}
                   </Button>
-                </div>
+                </form>
               )}
 
               {createMode === 'note' && (

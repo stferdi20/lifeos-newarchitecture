@@ -77,37 +77,44 @@ export default function AddResourceModal({ open, onClose, onCreated, projectId }
         </ResponsiveModalHeader>
 
         <div className="space-y-4 px-4 pb-4 sm:px-0 sm:pb-0">
-          <div className="flex gap-3 justify-center py-2 flex-wrap">
-            {examples.map(({ icon: Icon, label, color }) => (
-              <div key={label} className="flex flex-col items-center gap-1">
-                <Icon className={`w-5 h-5 ${color}`} />
-                <span className="text-[10px] text-muted-foreground">{label}</span>
-              </div>
-            ))}
-          </div>
+          <form
+            className="space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              handleAnalyze();
+            }}
+          >
+            <div className="flex gap-3 justify-center py-2 flex-wrap">
+              {examples.map(({ icon: Icon, label, color }) => (
+                <div key={label} className="flex flex-col items-center gap-1">
+                  <Icon className={`w-5 h-5 ${color}`} />
+                  <span className="text-[10px] text-muted-foreground">{label}</span>
+                </div>
+              ))}
+            </div>
 
-          <p className="text-xs text-muted-foreground text-center">
-            Paste any URL. Public Instagram reels, carousels, and share links are supported when extraction is available.
-          </p>
+            <p className="text-xs text-muted-foreground text-center">
+              Paste any URL. Public Instagram reels, carousels, and share links are supported when extraction is available.
+            </p>
 
-          <Input
-            value={url}
-            onChange={e => setUrl(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleAnalyze()}
-            placeholder="Paste URL here, like facebook.com"
-            className="bg-secondary/50 border-border"
-            disabled={loading}
-          />
+            <Input
+              value={url}
+              onChange={e => setUrl(e.target.value)}
+              placeholder="Paste URL here, like facebook.com"
+              className="bg-secondary/50 border-border"
+              disabled={loading}
+            />
 
-          {error && <p className="text-xs text-red-400">{error}</p>}
+            {error && <p className="text-xs text-red-400">{error}</p>}
 
-          <Button onClick={handleAnalyze} disabled={!url.trim() || loading} className="w-full">
-            {loading ? (
-              <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {isInstagramUrl ? 'Fetching Instagram content...' : 'Queueing capture...'}</>
-            ) : (
-              <><Sparkles className="w-4 h-4 mr-2" /> Analyze & Save</>
-            )}
-          </Button>
+            <Button type="submit" disabled={!url.trim() || loading} className="w-full">
+              {loading ? (
+                <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {isInstagramUrl ? 'Fetching Instagram content...' : 'Queueing capture...'}</>
+              ) : (
+                <><Sparkles className="w-4 h-4 mr-2" /> Analyze & Save</>
+              )}
+            </Button>
+          </form>
         </div>
       </ResponsiveModalContent>
     </ResponsiveModal>

@@ -188,7 +188,16 @@ export async function requestYouTubeTranscript({
 }) {
   const env = getServerEnv();
   if (!env.YOUTUBE_TRANSCRIPT_WORKER_BASE_URL) {
-    throw new HttpError(500, 'YouTube transcript worker is not configured.');
+    return {
+      success: false,
+      input_url: url,
+      transcript: '',
+      language: '',
+      status: 'worker_unavailable',
+      error: '',
+      transcript_source: 'worker_youtube_transcript_api',
+      selected_mode: '',
+    };
   }
 
   const response = await fetchImpl(`${env.YOUTUBE_TRANSCRIPT_WORKER_BASE_URL.replace(/\/+$/, '')}/youtube-transcript`, {
