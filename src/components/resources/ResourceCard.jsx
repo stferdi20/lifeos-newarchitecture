@@ -322,7 +322,8 @@ export default function ResourceCard({
     : 'center center';
   const chrome = getCardChrome({ layoutMode, featured: isFeatured });
   const cardClassName = cn(
-    'relative rounded-2xl border border-transparent overflow-hidden transition-all duration-300 group cursor-pointer isolate',
+    'relative rounded-2xl overflow-hidden transition-all duration-300 group cursor-pointer isolate',
+    isGrid && 'bg-card border border-border/50',
     isGallery && 'rounded-[1.85rem] hover:-translate-y-2',
     isCompactGallery && 'rounded-[1.55rem] shadow-[0_12px_28px_-24px_rgba(15,23,42,0.52)] hover:-translate-y-1',
     isMagazine && 'rounded-[1.45rem] hover:-translate-y-0.5',
@@ -333,10 +334,12 @@ export default function ResourceCard({
     isFeatured && 'ring-1 ring-white/10',
     className,
   );
-  const cardStyle = {
-    background: `linear-gradient(${chrome.surface}, ${chrome.surface}) padding-box, ${chrome.borderGradient} border-box`,
-    boxShadow: chrome.boxShadow,
-  };
+  const cardStyle = isGrid
+    ? undefined
+    : {
+        background: `linear-gradient(${chrome.surface}, ${chrome.surface}) padding-box, ${chrome.borderGradient} border-box`,
+        boxShadow: chrome.boxShadow,
+      };
 
   useEffect(() => {
     setThumbnailAspectRatio(null);
@@ -361,32 +364,33 @@ export default function ResourceCard({
       className={cardClassName}
       style={cardStyle}
     >
-      <div
-        aria-hidden="true"
-        className={cn(
-          'pointer-events-none absolute inset-0 rounded-[inherit] opacity-100 transition-opacity duration-300',
-          isGrid && 'opacity-80',
-          isMagazine && 'opacity-70',
-          isGallery && 'opacity-100',
-          selected && 'opacity-40',
-        )}
-        style={{
-          background: isGallery
-            ? 'radial-gradient(circle at top left, rgba(255,255,255,0.08), transparent 32%), radial-gradient(circle at bottom right, rgba(125,211,252,0.1), transparent 34%)'
-            : isMagazine
-              ? 'radial-gradient(circle at top left, rgba(255,255,255,0.05), transparent 28%), radial-gradient(circle at bottom right, rgba(196,181,253,0.05), transparent 32%)'
-              : 'radial-gradient(circle at top left, rgba(255,255,255,0.04), transparent 24%)',
-        }}
-      />
-      <div
-        aria-hidden="true"
-        className={cn(
-          'pointer-events-none absolute inset-px rounded-[inherit] border border-white/[0.035]',
-          isGallery && 'border-white/[0.05]',
-          isMagazine && 'border-white/[0.03]',
-          selected && 'border-transparent',
-        )}
-      />
+      {!isGrid && (
+        <>
+          <div
+            aria-hidden="true"
+            className={cn(
+              'pointer-events-none absolute inset-0 rounded-[inherit] opacity-100 transition-opacity duration-300',
+              isMagazine && 'opacity-70',
+              isGallery && 'opacity-100',
+              selected && 'opacity-40',
+            )}
+            style={{
+              background: isGallery
+                ? 'radial-gradient(circle at top left, rgba(255,255,255,0.08), transparent 32%), radial-gradient(circle at bottom right, rgba(125,211,252,0.1), transparent 34%)'
+                : 'radial-gradient(circle at top left, rgba(255,255,255,0.05), transparent 28%), radial-gradient(circle at bottom right, rgba(196,181,253,0.05), transparent 32%)',
+            }}
+          />
+          <div
+            aria-hidden="true"
+            className={cn(
+              'pointer-events-none absolute inset-px rounded-[inherit] border border-white/[0.035]',
+              isGallery && 'border-white/[0.05]',
+              isMagazine && 'border-white/[0.03]',
+              selected && 'border-transparent',
+            )}
+          />
+        </>
+      )}
       {selectMode && (
         <div
           className={cn(
