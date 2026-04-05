@@ -86,7 +86,7 @@ export default function SnippetCard({
             </div>
           ) : null}
 
-          <div className="mt-4 border-t border-white/10 pt-4">
+          <div className="mt-3 border-t border-white/10 pt-3">
             <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
               <div className="flex flex-wrap items-center gap-3 text-xs text-foreground/50">
                 <span>{formatRelativeCopy(snippet)}</span>
@@ -94,7 +94,7 @@ export default function SnippetCard({
               </div>
 
               <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-                <Button type="button" onClick={() => onCopy(snippet)} className="min-w-[132px] gap-2">
+                <Button type="button" size="sm" onClick={() => onCopy(snippet)} className="min-w-[120px] gap-2">
                   <Copy className="h-4 w-4" />
                   {isImage ? 'Copy Image' : 'Copy Text'}
                 </Button>
@@ -102,6 +102,7 @@ export default function SnippetCard({
                 {isImage ? (
                   <Button
                     type="button"
+                    size="sm"
                     variant="outline"
                     className="gap-2 border-white/10 bg-transparent"
                     onClick={() => onCopySecondary?.(snippet)}
@@ -113,6 +114,7 @@ export default function SnippetCard({
 
                 <Button
                   type="button"
+                  size="sm"
                   variant="outline"
                   className="gap-2 border-white/10 bg-transparent"
                   onClick={() => onToggleFavorite(snippet)}

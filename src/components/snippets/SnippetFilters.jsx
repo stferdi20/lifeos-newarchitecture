@@ -44,17 +44,17 @@ export default function SnippetFilters({
 }) {
   return (
     <div className="self-start rounded-3xl border border-white/10 bg-white/[0.03] p-4 sm:p-5">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(17rem,1.45fr)_repeat(4,minmax(11rem,1fr))_auto]">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Input
           id={searchInputId}
           value={search}
           onChange={(event) => onSearchChange(event.target.value)}
           placeholder="Search title, content, tags"
-          className="border-white/10 bg-white/[0.04]"
+          className="min-w-0 border-white/10 bg-white/[0.04] lg:col-span-2"
         />
 
         <Select value={typeFilter} onValueChange={onTypeFilterChange}>
-          <SelectTrigger className="border-white/10 bg-white/[0.04]">
+          <SelectTrigger className="min-w-0 border-white/10 bg-white/[0.04]">
             <SelectValue placeholder="Type" />
           </SelectTrigger>
           <SelectContent>
@@ -67,7 +67,7 @@ export default function SnippetFilters({
         </Select>
 
         <Select value={favoriteFilter} onValueChange={onFavoriteFilterChange}>
-          <SelectTrigger className="border-white/10 bg-white/[0.04]">
+          <SelectTrigger className="min-w-0 border-white/10 bg-white/[0.04]">
             <SelectValue placeholder="Favorites" />
           </SelectTrigger>
           <SelectContent>
@@ -80,7 +80,7 @@ export default function SnippetFilters({
         </Select>
 
         <Select value={workspaceFilter} onValueChange={onWorkspaceFilterChange}>
-          <SelectTrigger className="border-white/10 bg-white/[0.04]">
+          <SelectTrigger className="min-w-0 border-white/10 bg-white/[0.04]">
             <SelectValue placeholder="Workspace" />
           </SelectTrigger>
           <SelectContent>
@@ -95,7 +95,7 @@ export default function SnippetFilters({
         </Select>
 
         <Select value={sortOrder} onValueChange={onSortOrderChange}>
-          <SelectTrigger className="border-white/10 bg-white/[0.04]">
+          <SelectTrigger className="min-w-0 border-white/10 bg-white/[0.04]">
             <SelectValue placeholder="Sort" />
           </SelectTrigger>
           <SelectContent>
@@ -107,7 +107,12 @@ export default function SnippetFilters({
           </SelectContent>
         </Select>
 
-        <Button type="button" variant="outline" onClick={onReset} className="border-white/10 bg-transparent sm:col-span-2 xl:col-span-1">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onReset}
+          className="border-white/10 bg-transparent sm:col-span-2 lg:col-span-1"
+        >
           Reset
         </Button>
       </div>
