@@ -594,7 +594,8 @@ export default function ResourceCard({
             'font-semibold tracking-tight text-[15px] group-hover:text-primary transition-colors',
             isCompactGrid && 'text-[13px] leading-tight',
             isCompactGallery && 'text-[14px] leading-tight',
-            isFeatured ? 'line-clamp-3 text-[17px] leading-tight' : 'line-clamp-3',
+            isGallery && !isCompactGallery && 'text-[14px] leading-tight',
+            isFeatured && !isGallery ? 'line-clamp-3 text-[17px] leading-tight' : 'line-clamp-3',
           )}>
             {safeTitle}
           </h3>
@@ -659,7 +660,7 @@ export default function ResourceCard({
           {isGitHub && resource.github_stars != null && (
             <div className={cn('flex items-center gap-1', (isCompactGrid || isCompactGallery) && 'gap-0.5')}>
               <Star className="h-3 w-3 fill-amber-400/90 text-amber-400" />
-              <span className={cn('text-xs text-muted-foreground/80', (isCompactGrid || isCompactGallery) && 'text-[10px]')}>{resource.github_stars.toLocaleString()} stars</span>
+              <span className={cn('text-xs text-muted-foreground/80', isGallery && 'text-[10px]', (isCompactGrid || isCompactGallery) && 'text-[10px]')}>{resource.github_stars.toLocaleString()} stars</span>
             </div>
           )}
 
@@ -678,7 +679,7 @@ export default function ResourceCard({
                 isCompactGrid && 'mt-1 text-[11px] leading-5',
                 isCompactGallery && 'mt-1 text-[11px] leading-5',
                 previewClampClass,
-                isFeatured ? 'text-[13px]' : 'text-[12px]',
+                isGallery ? 'text-[12px]' : isFeatured ? 'text-[13px]' : 'text-[12px]',
               )}>
                 {previewItem.text}
               </p>
@@ -739,6 +740,7 @@ export default function ResourceCard({
           <div className={cn('flex items-center justify-between border-t border-border/30 pt-2', (isCompactGrid || isCompactGallery) && 'pt-1.5')}>
             <span className={cn(
               'text-[10px] tracking-[0.16em] text-muted-foreground/80 uppercase',
+              isGallery && 'text-[9px] tracking-[0.12em]',
               (isCompactGrid || isCompactGallery) && 'text-[9px] tracking-[0.12em]',
               isFeatured && 'text-foreground/65',
             )}>
