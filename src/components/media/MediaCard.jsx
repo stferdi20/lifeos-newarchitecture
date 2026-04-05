@@ -1,8 +1,8 @@
-import React, { memo, useState } from 'react';
+import React, { memo } from 'react';
 import { cn } from '@/lib/utils';
 import { Star, Trash2 } from 'lucide-react';
 import { TYPE_CONFIG, STATUS_COLORS, getStatusLabel } from './mediaConfig';
-import { getMediaCardHighlightTags, isProviderBackedMedia, normalizeMediaEntry } from './mediaUtils';
+import { getMediaCardHighlightTagsFromNormalized, isProviderBackedMedia } from './mediaUtils';
 
 const TAG_TONE_CLASSES = {
   genre: 'bg-white/15 text-white/90',
@@ -14,24 +14,21 @@ const TAG_TONE_CLASSES = {
 };
 
 function MediaCard({ entry, onClick, className, onDelete }) {
-  const [hovered, setHovered] = useState(false);
-  const normalizedEntry = normalizeMediaEntry(entry);
+  const normalizedEntry = entry;
   const cfg = TYPE_CONFIG[normalizedEntry?.media_type] || TYPE_CONFIG.movie;
   const statusColor = STATUS_COLORS[normalizedEntry?.status] || STATUS_COLORS.plan_to_watch;
   const statusLabel = getStatusLabel(normalizedEntry?.media_type, normalizedEntry?.status);
   const Icon = cfg.icon;
   const showChapters = normalizedEntry?.media_type === 'manga' && normalizedEntry?.chapters;
   const isProviderBacked = isProviderBackedMedia(normalizedEntry);
-  const highlightTags = getMediaCardHighlightTags(normalizedEntry);
+  const highlightTags = getMediaCardHighlightTagsFromNormalized(normalizedEntry);
 
   if (!normalizedEntry) return null;
 
   return (
     <div
       onClick={() => onClick(normalizedEntry)}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      className={cn("rounded-2xl bg-card border border-border/50 hover:border-primary/30 transition-all cursor-pointer overflow-hidden", className)}
+      className={cn("group rounded-2xl bg-card border border-border/50 hover:border-primary/30 transition-colors cursor-pointer overflow-hidden", className)}
     >
       {/* Poster */}
       <div className="relative aspect-[2/3] bg-secondary/30 overflow-hidden">
@@ -41,11 +38,10 @@ function MediaCard({ entry, onClick, className, onDelete }) {
             decoding="async"
             width="320"
             height="480"
-            className="w-full h-full object-cover transition-transform duration-500"
-            style={{ transform: hovered ? 'scale(1.05)' : 'scale(1)' }}
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center transition-transform duration-500" style={{ transform: hovered ? 'scale(1.05)' : 'scale(1)' }}>
+          <div className="w-full h-full flex items-center justify-center transition-transform duration-300 group-hover:scale-[1.03]">
             <Icon className={cn('w-8 h-8', cfg.color)} />
           </div>
         )}
@@ -59,7 +55,7 @@ function MediaCard({ entry, onClick, className, onDelete }) {
                 onDelete(normalizedEntry.id);
               }
             }}
-            className="absolute right-2 top-10 z-30 inline-flex h-7 w-7 items-center justify-center rounded-full border border-red-500/15 bg-black/55 text-red-400/80 backdrop-blur-sm transition-colors hover:bg-red-500/20 hover:text-red-300 opacity-0 group-hover:opacity-100"
+            className="absolute right-2 top-10 z-30 inline-flex h-7 w-7 items-center justify-center rounded-full border border-red-500/15 bg-black/75 text-red-400/80 transition-colors hover:bg-red-500/20 hover:text-red-300 opacity-0 group-hover:opacity-100"
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
@@ -80,10 +76,10 @@ function MediaCard({ entry, onClick, className, onDelete }) {
         )}
         
         {/* Rating overlay */}
-        {entry.rating > 0 && (
+        {normalizedEntry.rating > 0 && (
           <div className="absolute top-2 right-2 z-20 flex items-center gap-1 px-2 py-0.5 rounded-full bg-black/60 shadow-sm text-amber-400 text-[11px] font-bold transition-transform duration-300">
             <Star className="w-2.5 h-2.5 fill-amber-400" />
-            {entry.rating}
+            {normalizedEntry.rating}
           </div>
         )}
         
@@ -93,7 +89,7 @@ function MediaCard({ entry, onClick, className, onDelete }) {
             <span
               key={`${normalizedEntry.id || normalizedEntry.title}-${tag.label}`}
               className={cn(
-                'text-[9px] px-1.5 py-0.5 rounded-full backdrop-blur-sm font-medium leading-none truncate max-w-[88px]',
+                'text-[9px] px-1.5 py-0.5 rounded-full font-medium leading-none truncate max-w-[88px]',
                 TAG_TONE_CLASSES[tag.tone] || TAG_TONE_CLASSES.neutral,
               )}
             >
@@ -104,8 +100,7 @@ function MediaCard({ entry, onClick, className, onDelete }) {
 
         {/* Hover Preview Overlay */}
         <div
-          className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/50 to-black/30 backdrop-blur-[2px] flex flex-col p-4 text-white z-50 pointer-events-none transition-opacity duration-300"
-          style={{ opacity: hovered ? 1 : 0 }}
+          className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/55 to-black/35 flex flex-col p-4 text-white z-50 pointer-events-none opacity-0 transition-opacity duration-200 group-hover:opacity-100"
         >
           <div className="mt-10 flex-1 flex flex-col justify-center text-center">
             {normalizedEntry.plot ? (

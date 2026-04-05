@@ -548,10 +548,8 @@ function pushGenreTags(tags, values = [], limit = 2) {
   values.slice(0, limit).forEach((value) => pushTag(tags, value, 'genre'));
 }
 
-export function getMediaCardHighlightTags(entry) {
-  const normalized = normalizeMediaEntry(entry);
+export function getMediaCardHighlightTagsFromNormalized(normalized) {
   if (!normalized) return [];
-
   const tags = [];
 
   if (normalized.media_type === 'movie') {
@@ -597,6 +595,11 @@ export function getMediaCardHighlightTags(entry) {
   }
 
   return tags.slice(0, 4);
+}
+
+export function getMediaCardHighlightTags(entry) {
+  const normalized = normalizeMediaEntry(entry);
+  return getMediaCardHighlightTagsFromNormalized(normalized);
 }
 
 export function getMediaProviderLabel(entryOrExternalId) {

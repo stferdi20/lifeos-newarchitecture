@@ -1,5 +1,4 @@
 import React, { Suspense, lazy, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, LayoutGrid, Calendar, Film, Tv, Sword, BookOpen, Gamepad2, BookMarked, Layers, Search, CheckSquare, Loader2, Wrench, ServerCrash } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -17,7 +16,6 @@ import {
   mapMediaQueryData,
   matchesMediaLibraryFilters,
   MEDIA_PAGE_SIZE,
-  MEDIA_RENDER_STEP,
   normalizeMediaEntries,
   normalizeMediaEntry,
   normalizeMediaSearch,
@@ -33,6 +31,7 @@ import BulkAddMediaModal from '@/components/media/BulkAddMediaModal';
 const RepairMediaModal = lazy(() => import('../components/media/RepairMediaModal'));
 const BulkStatusBar = lazy(() => import('../components/media/BulkStatusBar'));
 const YearlyReview = lazy(() => import('../components/media/YearlyReview'));
+import { useIsMobile } from '@/hooks/use-mobile';
 
 const TYPE_FILTERS = [
   { key: 'all', label: 'All', icon: LayoutGrid },
@@ -140,11 +139,18 @@ export default function Media() {
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
-  const [visibleCount, setVisibleCount] = useState(INITIAL_MEDIA_RENDER_COUNT);
   const queryClient = useQueryClient();
-  const loadMoreRef = useRef(null);
+  const gridRef = useRef(null);
+  const rafRef = useRef(null);
+  const isMobile = useIsMobile();
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const normalizedSearchQuery = normalizeMediaSearch(deferredSearchQuery);
+  const [gridMetrics, setGridMetrics] = useState({
+    width: 0,
+    top: 0,
+    viewportHeight: 0,
+    scrollY: 0,
+  });
 
   const exactLibraryQuery = useMemo(
     () => buildMediaExactQuery(typeFilter, statusFilter),
@@ -280,39 +286,134 @@ export default function Media() {
     [libraryEntries, selectedIds],
   );
 
+  const columnCount = useMemo(() => {
+    if (typeof window === 'undefined') return 2;
+    const viewportWidth = window.innerWidth;
+    if (viewportWidth >= 1280) return 6;
+    if (viewportWidth >= 1024) return 5;
+    if (viewportWidth >= 768) return 4;
+    if (viewportWidth >= 640) return 3;
+    return 2;
+  }, [gridMetrics.width]);
+
+  const gridGap = 12;
+  const horizontalPadding = 1;
+  const columnWidth = useMemo(() => {
+    if (!gridMetrics.width || columnCount <= 0) return 0;
+    return Math.max(0, (gridMetrics.width - (gridGap * (columnCount - 1)) - horizontalPadding) / columnCount);
+  }, [columnCount, gridMetrics.width]);
+
+  const estimatedCardHeight = useMemo(() => {
+    if (!columnWidth) return isMobile ? 320 : 380;
+    const posterHeight = columnWidth * 1.5;
+    const metadataHeight = isMobile ? 92 : 104;
+    return posterHeight + metadataHeight;
+  }, [columnWidth, isMobile]);
+
+  const totalRows = useMemo(
+    () => Math.ceil(libraryEntries.length / columnCount),
+    [columnCount, libraryEntries.length],
+  );
+
+  const canFetchMore = !normalizedSearchQuery && browseQuery.hasNextPage;
+  const overscanRows = isMobile ? 2 : 3;
+
+  const visibleRange = useMemo(() => {
+    if (!libraryEntries.length) {
+      return { startIndex: 0, endIndex: 0, topSpacerHeight: 0, bottomSpacerHeight: 0 };
+    }
+
+    if (!estimatedCardHeight || !gridMetrics.viewportHeight) {
+      const fallbackCount = Math.min(INITIAL_MEDIA_RENDER_COUNT, libraryEntries.length);
+      const rowsShown = Math.ceil(fallbackCount / columnCount);
+      return {
+        startIndex: 0,
+        endIndex: fallbackCount,
+        topSpacerHeight: 0,
+        bottomSpacerHeight: Math.max(0, (totalRows - rowsShown) * estimatedCardHeight),
+      };
+    }
+
+    const relativeViewportTop = Math.max(0, gridMetrics.scrollY - gridMetrics.top);
+    const relativeViewportBottom = Math.max(0, relativeViewportTop + gridMetrics.viewportHeight);
+    const startRow = Math.max(0, Math.floor(relativeViewportTop / estimatedCardHeight) - overscanRows);
+    const endRow = Math.min(
+      totalRows,
+      Math.ceil(relativeViewportBottom / estimatedCardHeight) + overscanRows,
+    );
+
+    return {
+      startIndex: startRow * columnCount,
+      endIndex: Math.min(libraryEntries.length, endRow * columnCount),
+      topSpacerHeight: startRow * estimatedCardHeight,
+      bottomSpacerHeight: Math.max(0, (totalRows - endRow) * estimatedCardHeight),
+    };
+  }, [
+    columnCount,
+    estimatedCardHeight,
+    gridMetrics.scrollY,
+    gridMetrics.top,
+    gridMetrics.viewportHeight,
+    libraryEntries.length,
+    overscanRows,
+    totalRows,
+  ]);
+
   const renderedEntries = useMemo(
-    () => libraryEntries.slice(0, visibleCount),
-    [libraryEntries, visibleCount],
+    () => libraryEntries.slice(visibleRange.startIndex, visibleRange.endIndex),
+    [libraryEntries, visibleRange.endIndex, visibleRange.startIndex],
   );
 
   useEffect(() => {
-    setVisibleCount(INITIAL_MEDIA_RENDER_COUNT);
-  }, [normalizedSearchQuery, statusFilter, typeFilter, view]);
+    if (view !== 'library' || typeof window === 'undefined') return undefined;
 
-  const canRevealMoreRendered = renderedEntries.length < libraryEntries.length;
-  const canFetchMore = !normalizedSearchQuery && browseQuery.hasNextPage;
+    const updateMetrics = () => {
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+      }
+
+      rafRef.current = window.requestAnimationFrame(() => {
+        const node = gridRef.current;
+        const rect = node?.getBoundingClientRect();
+        setGridMetrics({
+          width: rect?.width || 0,
+          top: rect ? rect.top + window.scrollY : 0,
+          viewportHeight: window.innerHeight,
+          scrollY: window.scrollY,
+        });
+      });
+    };
+
+    updateMetrics();
+    window.addEventListener('scroll', updateMetrics, { passive: true });
+    window.addEventListener('resize', updateMetrics);
+
+    const resizeObserver = typeof ResizeObserver === 'function' && gridRef.current
+      ? new ResizeObserver(() => updateMetrics())
+      : null;
+
+    if (resizeObserver && gridRef.current) {
+      resizeObserver.observe(gridRef.current);
+    }
+
+    return () => {
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+      }
+      window.removeEventListener('scroll', updateMetrics);
+      window.removeEventListener('resize', updateMetrics);
+      resizeObserver?.disconnect();
+    };
+  }, [libraryEntries.length, view]);
 
   useEffect(() => {
-    const node = loadMoreRef.current;
-    if (!node || view !== 'library' || typeof IntersectionObserver !== 'function') return undefined;
+    if (!canFetchMore || browseQuery.isFetchingNextPage) return;
 
-    const observer = new IntersectionObserver((entries) => {
-      const firstEntry = entries[0];
-      if (!firstEntry?.isIntersecting) return;
-
-      if (canRevealMoreRendered) {
-        setVisibleCount((count) => Math.min(count + MEDIA_RENDER_STEP, libraryEntries.length));
-        return;
-      }
-
-      if (canFetchMore && !browseQuery.isFetchingNextPage) {
-        browseQuery.fetchNextPage();
-      }
-    }, { rootMargin: '240px' });
-
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [browseQuery, canFetchMore, canRevealMoreRendered, libraryEntries.length, view]);
+    const fetchThreshold = columnCount * 3;
+    if (visibleRange.endIndex + fetchThreshold >= libraryEntries.length) {
+      browseQuery.fetchNextPage();
+    }
+  }, [browseQuery, canFetchMore, columnCount, libraryEntries.length, visibleRange.endIndex]);
 
   const applyEntryUpdate = useCallback((updatedEntry) => {
     queryClient.setQueriesData({ queryKey: ['mediaLibrary'] }, (old) => mapMediaQueryData(old, (entry) => (
@@ -775,21 +876,19 @@ export default function Media() {
           ) : libraryEntries.length > 0 ? (
             <>
               <p className="text-xs text-muted-foreground mb-3">
-                Showing {renderedEntries.length} of {libraryEntries.length}
+                Showing {Math.min(visibleRange.endIndex, libraryEntries.length)} of {libraryEntries.length}
                 {canFetchMore ? ' loaded so far' : ''}
               </p>
-              <motion.div layout className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-                <AnimatePresence mode="popLayout">
+              <div
+                ref={gridRef}
+                style={{
+                  paddingTop: visibleRange.topSpacerHeight,
+                  paddingBottom: visibleRange.bottomSpacerHeight,
+                }}
+              >
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
                   {renderedEntries.map((entry) => (
-                    <motion.div
-                      layout
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.95 }}
-                      transition={{ duration: 0.2 }}
-                      key={entry.id}
-                      className="relative"
-                    >
+                    <div key={entry.id} className="relative">
                       {selectMode && (
                         <div
                           className={cn(
@@ -808,13 +907,13 @@ export default function Media() {
                         onDelete={(id) => deleteMutation.mutate(id)}
                         className={selectMode && selectedIds.has(entry.id) ? 'ring-2 ring-primary' : ''}
                       />
-                    </motion.div>
+                    </div>
                   ))}
-                </AnimatePresence>
-              </motion.div>
+                </div>
+              </div>
 
-              <div ref={loadMoreRef} className="h-12 flex items-center justify-center">
-                {(browseQuery.isFetchingNextPage || canRevealMoreRendered) && (
+              <div className="h-12 flex items-center justify-center">
+                {browseQuery.isFetchingNextPage && (
                   <div className="w-5 h-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
                 )}
               </div>
