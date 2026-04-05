@@ -86,7 +86,7 @@ class YouTubeTranscriptResponse(BaseModel):
     language: str = ""
     status: str = ""
     error: str | None = None
-    transcript_source: str = "worker_yt_dlp"
+    transcript_source: str = "worker_youtube_transcript_api"
     selected_mode: str = ""
 
 

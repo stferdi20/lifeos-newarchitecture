@@ -3,7 +3,7 @@
 Local-first Python backend for:
 
 - downloading Instagram reels, posts, and carousels with `yt-dlp`
-- extracting YouTube transcripts with `yt-dlp` for the main LifeOS backend
+- extracting YouTube transcripts with the undocumented YouTube web-client caption fetcher first, with `yt-dlp` only as a rescue fallback
 - polling the LifeOS backend queue so local-worker jobs can complete when your machine is online
 
 ## What It Does
@@ -144,7 +144,8 @@ curl -X POST http://127.0.0.1:9001/youtube-transcript \
 
 ## Notes
 
-- The actual `yt-dlp` extraction and download logic lives in `app/services/instagram_downloader.py`.
+- The actual Instagram `yt-dlp` extraction and download logic lives in `app/services/instagram_downloader.py`.
+- YouTube transcript extraction prefers the undocumented caption fetcher in the same file and only falls back to `yt-dlp` when needed.
 - The worker writes thumbnails to the backend, which stores them in the public `resource-thumbnails` Supabase bucket and keeps the resulting URL in `resource.thumbnail`.
 - If you want to change where files are stored, edit `build_request_download_dir()` in `app/services/instagram_downloader.py`.
 - The temporary `downloads/instagram-*` directories are expected to disappear after a job finishes. The worker cleans them up once upload completes.

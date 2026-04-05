@@ -48,7 +48,7 @@ function toPublicYouTubeTranscriptResult(payload = {}) {
     language: payload.language || '',
     status: payload.status || '',
     error: payload.error || null,
-    transcript_source: payload.transcript_source || 'worker_yt_dlp',
+    transcript_source: payload.transcript_source || 'worker_youtube_transcript_api',
     selected_mode: payload.selected_mode || '',
   };
 }

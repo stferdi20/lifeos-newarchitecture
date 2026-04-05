@@ -7,6 +7,7 @@ import {
   normalizeYouTubeTranscriptResult,
   shouldQueueYouTubeTranscriptBackfill,
   YOUTUBE_TRANSCRIPT_JOB_TYPE,
+  YOUTUBE_TRANSCRIPT_PRIMARY_SOURCE,
 } from './youtube-transcripts.js';
 
 function getAdmin() {
@@ -183,7 +184,7 @@ async function applySuccessfulYouTubeTranscript(userId, resourceId, sourceUrl, t
     youtube_transcript: normalizedTranscript.transcript || current.youtube_transcript || '',
     youtube_transcript_status: normalizedTranscript.status || 'ok',
     youtube_transcript_error: normalizedTranscript.error || '',
-    youtube_transcript_source: normalizedTranscript.transcriptSource || 'worker_yt_dlp',
+    youtube_transcript_source: normalizedTranscript.transcriptSource || YOUTUBE_TRANSCRIPT_PRIMARY_SOURCE,
     youtube_caption_language: normalizedTranscript.language || current.youtube_caption_language || '',
   });
 
@@ -201,7 +202,7 @@ async function updateYouTubeTranscriptQueued(userId, resourceId, jobId) {
   const current = await getCompatEntity(userId, 'Resource', resourceId);
   return updateCompatEntity(userId, 'Resource', resourceId, mergeYouTubeTranscriptResourceState(current, {
     youtube_transcript_status: 'queued',
-    youtube_transcript_source: 'worker_yt_dlp',
+    youtube_transcript_source: YOUTUBE_TRANSCRIPT_PRIMARY_SOURCE,
     youtube_transcript_error: 'Waiting for your local worker to fetch subtitles.',
     youtube_transcript_job_id: jobId || current.youtube_transcript_job_id || '',
     summary: buildQueuedSummary(),
@@ -212,7 +213,7 @@ async function updateYouTubeTranscriptQueued(userId, resourceId, jobId) {
 async function updateYouTubeTranscriptProcessing(userId, resourceId, workerId = '', jobId = '') {
   return updateCompatEntity(userId, 'Resource', resourceId, {
     youtube_transcript_status: 'processing',
-    youtube_transcript_source: 'worker_yt_dlp',
+    youtube_transcript_source: YOUTUBE_TRANSCRIPT_PRIMARY_SOURCE,
     youtube_transcript_error: '',
     youtube_transcript_job_id: jobId || '',
     summary: buildProcessingSummary(),
@@ -221,11 +222,11 @@ async function updateYouTubeTranscriptProcessing(userId, resourceId, workerId = 
   });
 }
 
-async function updateYouTubeTranscriptFailed(userId, resourceId, errorMessage, transcriptStatus = 'error', transcriptSource = 'worker_yt_dlp') {
+async function updateYouTubeTranscriptFailed(userId, resourceId, errorMessage, transcriptStatus = 'error', transcriptSource = YOUTUBE_TRANSCRIPT_PRIMARY_SOURCE) {
   const current = await getCompatEntity(userId, 'Resource', resourceId);
   return updateCompatEntity(userId, 'Resource', resourceId, mergeYouTubeTranscriptResourceState(current, {
     youtube_transcript_status: transcriptStatus || 'error',
-    youtube_transcript_source: transcriptSource || 'worker_yt_dlp',
+    youtube_transcript_source: transcriptSource || YOUTUBE_TRANSCRIPT_PRIMARY_SOURCE,
     youtube_transcript_error: errorMessage || 'YouTube transcript enrichment failed.',
     youtube_transcript_job_id: '',
     summary: buildFailedSummary(errorMessage),
@@ -466,7 +467,7 @@ export async function completeYouTubeTranscriptJob(jobId, transcript) {
       job.resource_id,
       normalizedTranscript.error || 'YouTube transcript extraction failed.',
       normalizedTranscript.status || 'error',
-      normalizedTranscript.transcriptSource || 'worker_yt_dlp',
+      normalizedTranscript.transcriptSource || YOUTUBE_TRANSCRIPT_PRIMARY_SOURCE,
     );
     resource = await getCompatEntity(job.owner_user_id, 'Resource', job.resource_id);
   }

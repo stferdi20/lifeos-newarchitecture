@@ -1,4 +1,5 @@
 export const YOUTUBE_TRANSCRIPT_JOB_TYPE = 'youtube_transcript';
+export const YOUTUBE_TRANSCRIPT_PRIMARY_SOURCE = 'worker_youtube_transcript_api';
 
 export function normalizeYouTubeTranscriptResult(result = {}) {
   return {
@@ -6,7 +7,7 @@ export function normalizeYouTubeTranscriptResult(result = {}) {
     language: String(result.language || ''),
     status: String(result.status || (result.success ? 'ok' : 'error')),
     error: String(result.error || ''),
-    transcriptSource: String(result.transcript_source || result.transcriptSource || 'worker_yt_dlp'),
+    transcriptSource: String(result.transcript_source || result.transcriptSource || YOUTUBE_TRANSCRIPT_PRIMARY_SOURCE),
     selectedMode: String(result.selected_mode || result.selectedMode || ''),
   };
 }

@@ -124,6 +124,8 @@ Helpful flags:
 YouTube transcript extraction now follows its own dedicated queue and settings panel:
 
 - if a transcript is immediately available, enrichment uses it right away
+- the worker now prefers the undocumented YouTube web-client caption fetcher instead of relying on `yt-dlp` first
+- `yt-dlp` is only a last-resort fallback when the undocumented fetcher cannot find a usable transcript
 - if not, the resource is saved and a queue-backed worker job is created
 - queue-backed backfill is created even when direct worker calls are unavailable, so recovery can still happen later
 - your local Python worker can later fetch the transcript and upgrade the resource automatically

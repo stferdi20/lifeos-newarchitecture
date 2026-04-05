@@ -1154,7 +1154,7 @@ async function applySuccessfulYouTubeTranscript(userId, resourceId, sourceUrl, t
     youtube_transcript: normalizedTranscript.transcript || current.youtube_transcript || '',
     youtube_transcript_status: normalizedTranscript.status || 'ok',
     youtube_transcript_error: normalizedTranscript.error || '',
-    youtube_transcript_source: normalizedTranscript.transcriptSource || 'worker_yt_dlp',
+    youtube_transcript_source: normalizedTranscript.transcriptSource || 'worker_youtube_transcript_api',
     youtube_caption_language: normalizedTranscript.language || current.youtube_caption_language || '',
   });
 
@@ -1167,7 +1167,7 @@ async function applySuccessfulYouTubeTranscript(userId, resourceId, sourceUrl, t
     downloader_updated_at: new Date().toISOString(),
     youtube_transcript_status: normalizedTranscript.status || 'ok',
     youtube_transcript_error: normalizedTranscript.error || '',
-    youtube_transcript_source: normalizedTranscript.transcriptSource || 'worker_yt_dlp',
+    youtube_transcript_source: normalizedTranscript.transcriptSource || 'worker_youtube_transcript_api',
     youtube_caption_language: normalizedTranscript.language || current.youtube_caption_language || '',
   });
 }

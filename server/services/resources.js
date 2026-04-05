@@ -1311,7 +1311,7 @@ async function fetchYoutubeTranscriptViaWorker(normalizedUrl) {
       language: String(result.language || ''),
       status: String(result.status || (result.success ? 'ok' : 'error')),
       error: String(result.error || ''),
-      transcriptSource: String(result.transcript_source || 'worker_yt_dlp'),
+      transcriptSource: String(result.transcript_source || 'worker_youtube_transcript_api'),
       selectedMode: String(result.selected_mode || ''),
     };
   } catch (error) {
@@ -1320,7 +1320,7 @@ async function fetchYoutubeTranscriptViaWorker(normalizedUrl) {
       language: '',
       status: 'worker_unavailable',
       error: error instanceof Error ? error.message : String(error),
-      transcriptSource: 'worker_yt_dlp',
+      transcriptSource: 'worker_youtube_transcript_api',
       selectedMode: '',
     };
   }
@@ -1444,12 +1444,15 @@ async function fetchYouTubeMetadata(normalizedUrl, html) {
   const videoId = extractYoutubeVideoId(normalizedUrl);
   const initialPlayerResponse = extractPlayerResponseFromHtml(html);
   const workerTranscriptResult = await fetchYoutubeTranscriptViaWorker(normalizedUrl);
-  const ytdlpResult = workerTranscriptResult.transcript
-    ? { transcript: '', language: '', status: '', error: '', selectedMode: false }
-    : await fetchYoutubeTranscriptViaYtDlp(normalizedUrl);
-  const innertubeResult = workerTranscriptResult.transcript || ytdlpResult.transcript
+  const fromWatchPage = workerTranscriptResult.transcript
+    ? { transcript: '', language: '' }
+    : await fetchYoutubeTranscriptFromWatchPage(normalizedUrl, html);
+  const innertubeResult = workerTranscriptResult.transcript || fromWatchPage.transcript
     ? { transcript: '', language: '', playerResponse: null }
     : await fetchYoutubeTranscriptFromInnertube(videoId, html);
+  const ytdlpResult = workerTranscriptResult.transcript || fromWatchPage.transcript || innertubeResult.transcript
+    ? { transcript: '', language: '', status: '', error: '', selectedMode: false }
+    : await fetchYoutubeTranscriptViaYtDlp(normalizedUrl);
   const playerResponse = innertubeResult.playerResponse || initialPlayerResponse || {};
   const videoDetails = playerResponse?.videoDetails || {};
   const microformat = playerResponse?.microformat?.playerMicroformatRenderer || {};
@@ -1468,14 +1471,11 @@ async function fetchYouTubeMetadata(normalizedUrl, html) {
     // ignore
   }
 
-  const fromWatchPage = workerTranscriptResult.transcript || ytdlpResult.transcript
-    ? { transcript: '', language: '' }
-    : await fetchYoutubeTranscriptFromWatchPage(normalizedUrl, html);
   const transcriptCandidates = [
-    { transcript: workerTranscriptResult.transcript, language: workerTranscriptResult.language, source: workerTranscriptResult.transcriptSource || 'worker_yt_dlp' },
-    { transcript: ytdlpResult.transcript, language: ytdlpResult.language, source: 'yt_dlp' },
+    { transcript: workerTranscriptResult.transcript, language: workerTranscriptResult.language, source: workerTranscriptResult.transcriptSource || 'worker_youtube_transcript_api' },
     { transcript: fromWatchPage.transcript, language: fromWatchPage.language, source: 'legacy_direct' },
     { transcript: innertubeResult.transcript, language: innertubeResult.language, source: 'legacy_direct' },
+    { transcript: ytdlpResult.transcript, language: ytdlpResult.language, source: 'yt_dlp' },
   ];
   const bestDirectTranscript = transcriptCandidates.find((entry) => stripText(entry.transcript)) || { transcript: '', language: '', source: '' };
   const fallbackTranscript = bestDirectTranscript.transcript
@@ -1485,19 +1485,31 @@ async function fetchYouTubeMetadata(normalizedUrl, html) {
   const language = bestDirectTranscript.language || fallbackTranscript.language;
   const transcriptStatus = workerTranscriptResult.transcript
     ? (workerTranscriptResult.status || 'ok')
-    : (ytdlpResult.transcript
-      ? (ytdlpResult.status || 'ok')
-      : (workerTranscriptResult.status || ytdlpResult.status || (bestDirectTranscript.transcript ? 'ok' : (fallbackTranscript.transcript ? 'ok' : ''))));
+    : (fromWatchPage.transcript
+      ? 'ok'
+      : (innertubeResult.transcript
+        ? 'ok'
+        : (ytdlpResult.transcript
+          ? (ytdlpResult.status || 'ok')
+          : (workerTranscriptResult.status || ytdlpResult.status || (bestDirectTranscript.transcript ? 'ok' : (fallbackTranscript.transcript ? 'ok' : ''))))));
   const transcriptError = workerTranscriptResult.transcript
     ? (workerTranscriptResult.error || '')
-    : (ytdlpResult.transcript ? (ytdlpResult.error || '') : (workerTranscriptResult.error || ytdlpResult.error || ''));
+    : (fromWatchPage.transcript
+      ? ''
+      : (innertubeResult.transcript
+        ? ''
+        : (ytdlpResult.transcript ? (ytdlpResult.error || '') : (workerTranscriptResult.error || ytdlpResult.error || ''))));
   const transcriptSource = workerTranscriptResult.transcript
-    ? (workerTranscriptResult.transcriptSource || 'worker_yt_dlp')
-    : (ytdlpResult.transcript
-      ? 'yt_dlp'
-      : (workerTranscriptResult.status
-        ? (workerTranscriptResult.transcriptSource || 'worker_yt_dlp')
-        : (bestDirectTranscript.source || (fallbackTranscript.transcript ? 'supadata' : ''))));
+    ? (workerTranscriptResult.transcriptSource || 'worker_youtube_transcript_api')
+    : (fromWatchPage.transcript
+      ? 'legacy_direct'
+      : (innertubeResult.transcript
+        ? 'legacy_direct'
+        : (ytdlpResult.transcript
+          ? 'yt_dlp'
+          : (workerTranscriptResult.status
+            ? (workerTranscriptResult.transcriptSource || 'worker_youtube_transcript_api')
+            : (bestDirectTranscript.source || (fallbackTranscript.transcript ? 'supadata' : ''))))));
   const aiSummaryCandidates = findObjectsDeep(initialData, (entry) => (
     Boolean(entry?.content)
     && /summary/i.test(extractTextRuns(entry?.title) || extractTextRuns(entry?.header))

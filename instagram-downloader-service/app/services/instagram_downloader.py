@@ -21,6 +21,16 @@ import instaloader
 from PIL import Image, ImageOps, UnidentifiedImageError
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright
+from youtube_transcript_api import (
+    CookieError,
+    CouldNotRetrieveTranscript,
+    IpBlocked,
+    NoTranscriptFound,
+    RequestBlocked,
+    TranscriptsDisabled,
+    VideoUnavailable,
+    YouTubeTranscriptApi,
+)
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
@@ -46,6 +56,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_INSTAGRAM_FOLDER = "Instagram Imports"
 FASTDL_SHORTCUT_BASE = "https://f-d.app/"
 DEFAULT_MAX_TRANSCRIPT_CHARS = 60000
+YOUTUBE_TRANSCRIPT_PRIMARY_SOURCE = "worker_youtube_transcript_api"
+YOUTUBE_TRANSCRIPT_FALLBACK_SOURCE = "worker_yt_dlp"
 THUMBNAIL_MAX_BYTES = 50 * 1024
 THUMBNAIL_MAX_DIMENSIONS = [640, 560, 480, 420, 360, 320, 280, 240]
 THUMBNAIL_QUALITY_STEPS = [80, 75, 70, 65, 60, 55, 50, 45]
@@ -228,6 +240,27 @@ def should_try_fastdl(url: str) -> bool:
 
 def get_instagram_browser_cookie_target() -> str:
     return os.getenv("INSTAGRAM_COOKIES_FROM_BROWSER", "").strip().lower() or default_browser_cookies_target()
+
+
+def extract_youtube_video_id(url: str) -> str:
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname.replace("www.", "") if parsed.hostname else ""
+        if hostname == "youtu.be":
+            parts = [part for part in parsed.path.split("/") if part]
+            return parts[0] if parts else ""
+        if parsed.query:
+            query = parse_qs(parsed.query)
+            if query.get("v"):
+                return query["v"][0] or ""
+        shorts = re.search(r"/shorts/([^/?#]+)", parsed.path)
+        if shorts:
+            return shorts.group(1)
+    except Exception:
+        pass
+
+    match = re.search(r"(?:v=|youtu\.be/|/shorts/)([^&?/]+)", str(url or ""))
+    return match.group(1) if match else ""
 
 
 def build_metadata_result(
@@ -1752,6 +1785,141 @@ def parse_vtt_transcript(text: str) -> str:
     return normalize_transcript_text("\n\n".join(cues))
 
 
+def normalize_youtube_transcript_snippets(snippets: list[Any]) -> str:
+    lines: list[str] = []
+    for snippet in snippets or []:
+        text = normalize_long_text(getattr(snippet, "text", "") or "", 1000)
+        if text:
+            lines.append(text)
+    return normalize_transcript_text("\n".join(lines))
+
+
+def map_youtube_transcript_api_error(error: Exception) -> tuple[str, str]:
+    if isinstance(error, VideoUnavailable):
+        return ("video_unavailable", "youtube-transcript-api could not access this YouTube video.")
+    if isinstance(error, TranscriptsDisabled):
+        return ("transcripts_disabled", "youtube-transcript-api found that transcripts are disabled for this video.")
+    if isinstance(error, NoTranscriptFound):
+        return ("no_subtitles", "youtube-transcript-api found no transcript tracks for this video.")
+    if isinstance(error, RequestBlocked):
+        return ("request_blocked", "YouTube blocked the caption fetch request.")
+    if isinstance(error, IpBlocked):
+        return ("ip_blocked", "YouTube blocked the worker IP while fetching captions.")
+    if isinstance(error, CookieError):
+        return ("cookie_error", "YouTube caption fetch requires valid cookies or account access.")
+    if isinstance(error, CouldNotRetrieveTranscript):
+        message = str(error).strip()
+        return ("error", message or "youtube-transcript-api could not retrieve the transcript.")
+
+    message = str(error).strip()
+    return ("error", message or "youtube-transcript-api transcript extraction failed.")
+
+
+async def fetch_youtube_transcript_via_youtube_transcript_api(request: YouTubeTranscriptRequest) -> YouTubeTranscriptResponse:
+    video_id = extract_youtube_video_id(request.url)
+    if not video_id:
+        return YouTubeTranscriptResponse(
+            success=False,
+            input_url=request.url,
+            status="invalid_url",
+            error="Could not extract a YouTube video ID from the URL.",
+            transcript_source=YOUTUBE_TRANSCRIPT_PRIMARY_SOURCE,
+        )
+
+    preferred_languages = [
+        language.strip()
+        for language in (request.preferred_subtitle_languages or [])
+        if language and language.strip()
+    ] or ["en"]
+
+    try:
+        api = YouTubeTranscriptApi()
+        transcript_list = api.list(video_id)
+    except Exception as error:
+        status, message = map_youtube_transcript_api_error(error)
+        return YouTubeTranscriptResponse(
+            success=False,
+            input_url=request.url,
+            status=status,
+            error=message,
+            transcript_source=YOUTUBE_TRANSCRIPT_PRIMARY_SOURCE,
+        )
+
+    candidate_methods = (
+        ("manual", transcript_list.find_manually_created_transcript),
+        ("auto", transcript_list.find_generated_transcript),
+    ) if request.prefer_manual_captions else (
+        ("auto", transcript_list.find_generated_transcript),
+        ("manual", transcript_list.find_manually_created_transcript),
+    )
+
+    transcript_track = None
+    selected_mode = ""
+    for mode, finder in candidate_methods:
+        try:
+            transcript_track = finder(preferred_languages)
+            selected_mode = mode
+            break
+        except NoTranscriptFound:
+            continue
+        except (TranscriptsDisabled, RequestBlocked, IpBlocked, VideoUnavailable, CookieError, CouldNotRetrieveTranscript) as error:
+            status, message = map_youtube_transcript_api_error(error)
+            return YouTubeTranscriptResponse(
+                success=False,
+                input_url=request.url,
+                language="",
+                status=status,
+                error=message,
+                transcript_source=YOUTUBE_TRANSCRIPT_PRIMARY_SOURCE,
+            )
+
+    if transcript_track is None:
+        return YouTubeTranscriptResponse(
+            success=False,
+            input_url=request.url,
+            status="no_subtitles",
+            error="youtube-transcript-api found no subtitle tracks for this video.",
+            transcript_source=YOUTUBE_TRANSCRIPT_PRIMARY_SOURCE,
+        )
+
+    try:
+        fetched = transcript_track.fetch()
+    except Exception as error:
+        status, message = map_youtube_transcript_api_error(error)
+        return YouTubeTranscriptResponse(
+            success=False,
+            input_url=request.url,
+            language=str(getattr(transcript_track, "language_code", "") or getattr(transcript_track, "language", "") or ""),
+            status=status,
+            error=message,
+            transcript_source=YOUTUBE_TRANSCRIPT_PRIMARY_SOURCE,
+            selected_mode=selected_mode,
+        )
+
+    transcript = normalize_youtube_transcript_snippets(list(fetched))
+    if not transcript:
+        return YouTubeTranscriptResponse(
+            success=False,
+            input_url=request.url,
+            language=str(getattr(transcript_track, "language_code", "") or getattr(transcript_track, "language", "") or ""),
+            status="subtitle_parse_empty",
+            error="youtube-transcript-api fetched subtitles but the parsed transcript was empty.",
+            transcript_source=YOUTUBE_TRANSCRIPT_PRIMARY_SOURCE,
+            selected_mode=selected_mode,
+        )
+
+    return YouTubeTranscriptResponse(
+        success=True,
+        input_url=request.url,
+        transcript=transcript,
+        language=str(getattr(transcript_track, "language_code", "") or getattr(transcript_track, "language", "") or ""),
+        status="ok",
+        error=None,
+        transcript_source=YOUTUBE_TRANSCRIPT_PRIMARY_SOURCE,
+        selected_mode=selected_mode,
+    )
+
+
 def map_youtube_subtitle_error(error: Exception) -> tuple[str, str]:
     message = str(error).strip()
     lowered = message.lower()
@@ -1764,6 +1932,10 @@ def map_youtube_subtitle_error(error: Exception) -> tuple[str, str]:
 
 
 async def fetch_youtube_transcript(request: YouTubeTranscriptRequest) -> YouTubeTranscriptResponse:
+    primary_result = await fetch_youtube_transcript_via_youtube_transcript_api(request)
+    if primary_result.success or primary_result.status not in {"no_subtitles", "transcripts_disabled"}:
+        return primary_result
+
     inspect_options = {
         **build_generic_ydl_options(),
         "skip_download": True,
@@ -1779,6 +1951,7 @@ async def fetch_youtube_transcript(request: YouTubeTranscriptRequest) -> YouTube
             input_url=request.url,
             status=status,
             error=message,
+            transcript_source=YOUTUBE_TRANSCRIPT_FALLBACK_SOURCE,
         )
     except Exception as error:
         return YouTubeTranscriptResponse(
@@ -1786,6 +1959,7 @@ async def fetch_youtube_transcript(request: YouTubeTranscriptRequest) -> YouTube
             input_url=request.url,
             status="error",
             error=str(error) or "Failed to inspect YouTube subtitles.",
+            transcript_source=YOUTUBE_TRANSCRIPT_FALLBACK_SOURCE,
         )
 
     selected = choose_best_subtitle_track(
@@ -1800,6 +1974,7 @@ async def fetch_youtube_transcript(request: YouTubeTranscriptRequest) -> YouTube
             input_url=request.url,
             status="no_subtitles",
             error="yt-dlp found no subtitle tracks for this video.",
+            transcript_source=YOUTUBE_TRANSCRIPT_FALLBACK_SOURCE,
         )
 
     selected_mode, selected_language = selected
@@ -1827,6 +2002,7 @@ async def fetch_youtube_transcript(request: YouTubeTranscriptRequest) -> YouTube
                 status=status,
                 error=message,
                 selected_mode=selected_mode,
+                transcript_source=YOUTUBE_TRANSCRIPT_FALLBACK_SOURCE,
             )
         except Exception as error:
             return YouTubeTranscriptResponse(
@@ -1836,6 +2012,7 @@ async def fetch_youtube_transcript(request: YouTubeTranscriptRequest) -> YouTube
                 status="error",
                 error=str(error) or "Failed to download YouTube subtitles.",
                 selected_mode=selected_mode,
+                transcript_source=YOUTUBE_TRANSCRIPT_FALLBACK_SOURCE,
             )
 
         subtitle_file = next((path for path in Path(temp_dir).iterdir() if path.suffix == ".vtt"), None)
@@ -1847,6 +2024,7 @@ async def fetch_youtube_transcript(request: YouTubeTranscriptRequest) -> YouTube
                 status="subtitle_download_empty",
                 error=f'yt-dlp selected {selected_mode} subtitles ({selected_language}) but no VTT subtitle file was created.',
                 selected_mode=selected_mode,
+                transcript_source=YOUTUBE_TRANSCRIPT_FALLBACK_SOURCE,
             )
 
         transcript = parse_vtt_transcript(subtitle_file.read_text(encoding="utf-8", errors="ignore"))
@@ -1858,6 +2036,7 @@ async def fetch_youtube_transcript(request: YouTubeTranscriptRequest) -> YouTube
                 status="subtitle_parse_empty",
                 error=f'yt-dlp downloaded {selected_mode} subtitles ({selected_language}) but the parsed transcript was empty.',
                 selected_mode=selected_mode,
+                transcript_source=YOUTUBE_TRANSCRIPT_FALLBACK_SOURCE,
             )
 
         return YouTubeTranscriptResponse(
@@ -1868,4 +2047,5 @@ async def fetch_youtube_transcript(request: YouTubeTranscriptRequest) -> YouTube
             status="ok",
             error=None,
             selected_mode=selected_mode,
+            transcript_source=YOUTUBE_TRANSCRIPT_FALLBACK_SOURCE,
         )

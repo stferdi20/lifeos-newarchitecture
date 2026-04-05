@@ -14,7 +14,7 @@ test('normalizeYouTubeTranscriptResult preserves transcript status details', () 
     language: 'en',
     status: 'worker_unavailable',
     error: 'service unavailable',
-    transcript_source: 'worker_yt_dlp',
+    transcript_source: 'worker_youtube_transcript_api',
     selected_mode: 'manual',
   });
 
@@ -23,7 +23,7 @@ test('normalizeYouTubeTranscriptResult preserves transcript status details', () 
     language: 'en',
     status: 'worker_unavailable',
     error: 'service unavailable',
-    transcriptSource: 'worker_yt_dlp',
+    transcriptSource: 'worker_youtube_transcript_api',
     selectedMode: 'manual',
   });
 });
