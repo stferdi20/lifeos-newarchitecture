@@ -4,6 +4,7 @@ import {
   buildFallbackDigestContent,
   formatDigestRow,
   getDefaultDigestDateUtc,
+  isDigestTableMissingError,
   normalizeDigestCategory,
   normalizeDigestDateInput,
 } from '../news-digests.js';
@@ -75,4 +76,21 @@ test('formatDigestRow normalizes missing json fields into dashboard-safe arrays 
   assert.deepEqual(row.article_refs, []);
   assert.deepEqual(row.metadata, {});
   assert.equal(row.degraded, true);
+});
+
+test('isDigestTableMissingError recognizes missing-table responses from Supabase and Postgres', () => {
+  assert.equal(isDigestTableMissingError({
+    code: 'PGRST205',
+    message: "Could not find the table 'public.news_digests' in the schema cache",
+  }), true);
+
+  assert.equal(isDigestTableMissingError({
+    code: '42P01',
+    message: 'relation "public.news_digests" does not exist',
+  }), true);
+
+  assert.equal(isDigestTableMissingError({
+    code: '23505',
+    message: 'duplicate key value violates unique constraint',
+  }), false);
 });

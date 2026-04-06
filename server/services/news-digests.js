@@ -14,6 +14,7 @@ import {
 const DIGEST_TABLE = 'news_digests';
 const DEFAULT_DIGEST_ARTICLE_LIMIT = 12;
 const DEFAULT_SUPPORTING_LINK_LIMIT = 3;
+const DIGEST_STORAGE_UNAVAILABLE = Symbol('digest-storage-unavailable');
 
 const DIGEST_SCHEMA = z.object({
   headline_summary: z.string().min(40).max(420),
@@ -22,6 +23,20 @@ const DIGEST_SCHEMA = z.object({
 
 function logDigest(level, event, details = {}) {
   console[level](`[news-digest] ${event}`, details);
+}
+
+export function isDigestTableMissingError(error) {
+  const message = String(
+    error?.message || error?.details || error?.hint || '',
+  ).toLowerCase();
+  const code = String(error?.code || '').toUpperCase();
+
+  return code === 'PGRST205'
+    || code === '42P01'
+    || message.includes('could not find the table')
+    || message.includes('schema cache')
+    || message.includes('news_digests')
+    || message.includes('relation "public.news_digests" does not exist');
 }
 
 export function normalizeDigestCategory(category = '') {
@@ -187,6 +202,16 @@ async function upsertDigest(record) {
   return result.data;
 }
 
+function withStorageFallbackMetadata(row) {
+  return {
+    ...row,
+    metadata: {
+      ...(row.metadata && typeof row.metadata === 'object' ? row.metadata : {}),
+      storage_fallback: 'table_missing',
+    },
+  };
+}
+
 export function formatDigestRow(row) {
   if (!row) return null;
   return {
@@ -214,6 +239,15 @@ async function fetchDigestRow({ digestDate, category }) {
     .maybeSingle();
 
   if (exactResult.error) {
+    if (isDigestTableMissingError(exactResult.error)) {
+      logDigest('warn', 'digest_table_missing_on_read', {
+        digestDate,
+        category,
+        code: exactResult.error.code || null,
+        message: exactResult.error.message || 'Unknown error',
+      });
+      return DIGEST_STORAGE_UNAVAILABLE;
+    }
     throw new HttpError(500, exactResult.error.message);
   }
 
@@ -229,6 +263,15 @@ async function fetchDigestRow({ digestDate, category }) {
     .maybeSingle();
 
   if (fallbackResult.error) {
+    if (isDigestTableMissingError(fallbackResult.error)) {
+      logDigest('warn', 'digest_table_missing_on_read', {
+        digestDate,
+        category,
+        code: fallbackResult.error.code || null,
+        message: fallbackResult.error.message || 'Unknown error',
+      });
+      return DIGEST_STORAGE_UNAVAILABLE;
+    }
     throw new HttpError(500, fallbackResult.error.message);
   }
 
@@ -243,14 +286,22 @@ export async function getNewsDigest({ digestDate, category = 'all' }) {
     category: normalizedCategory,
   });
 
+  if (row) {
+    if (row === DIGEST_STORAGE_UNAVAILABLE) {
+      return generateNewsDigest({
+        digestDate: normalizedDate,
+        category: normalizedCategory,
+      });
+    }
+    return formatDigestRow(row);
+  }
+
   if (!row) {
     throw new HttpError(404, 'No digest is available for that date and category.', {
       digest_date: normalizedDate,
       category: normalizedCategory,
     });
   }
-
-  return formatDigestRow(row);
 }
 
 async function collectDigestArticles({ userId, category, digestDate }) {
@@ -303,7 +354,19 @@ export async function generateNewsDigest({ userId, digestDate, category }) {
     degraded: record.degraded,
   });
 
-  return formatDigestRow(await upsertDigest(record));
+  try {
+    return formatDigestRow(await upsertDigest(record));
+  } catch (error) {
+    if (error instanceof HttpError && isDigestTableMissingError(error)) {
+      logDigest('warn', 'digest_table_missing_on_write', {
+        digestDate: normalizedDate,
+        category: normalizedCategory,
+        message: error.message,
+      });
+      return formatDigestRow(withStorageFallbackMetadata(record));
+    }
+    throw error;
+  }
 }
 
 export async function runDailyNewsDigestJob({ userId = null, digestDate = getDefaultDigestDateUtc() } = {}) {
