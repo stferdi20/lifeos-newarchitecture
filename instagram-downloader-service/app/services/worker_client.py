@@ -37,6 +37,7 @@ class WorkerLoop:
         self.task: asyncio.Task | None = None
         self.running = False
         self.current_job_id: str | None = None
+        self._youtube_queue_available: bool | None = None
 
     @property
     def api_base_url(self) -> str:
@@ -67,6 +68,43 @@ class WorkerLoop:
 
     def enabled(self) -> bool:
         return bool(self.api_base_url and self.shared_secret)
+
+    def _is_missing_youtube_queue_error(self, error: Exception) -> bool:
+        if isinstance(error, httpx.HTTPStatusError):
+            body = ""
+            with suppress(Exception):
+                body = error.response.text or ""
+            haystack = f"{error} {body}".lower()
+            return (
+                "youtube_transcript_jobs" in haystack
+                or "youtube_transcript_workers" in haystack
+                or "schema cache" in haystack
+            )
+        return False
+
+    async def _heartbeat_youtube_optional(self, client: httpx.AsyncClient, current_job_id: str | None = None):
+        try:
+            await self.heartbeat_youtube(client, current_job_id)
+            self._youtube_queue_available = True
+        except Exception as error:
+            if not self._is_missing_youtube_queue_error(error):
+                raise
+            if self._youtube_queue_available is not False:
+                logger.warning("YouTube transcript queue support is unavailable on the backend; continuing without it.")
+            self._youtube_queue_available = False
+
+    async def _claim_youtube_transcript_job_optional(self, client: httpx.AsyncClient):
+        try:
+            claimed = await self.claim_youtube_transcript_job(client)
+            self._youtube_queue_available = True
+            return claimed
+        except Exception as error:
+            if not self._is_missing_youtube_queue_error(error):
+                raise
+            if self._youtube_queue_available is not False:
+                logger.warning("Skipping YouTube transcript queue polling because the backend queue tables are unavailable.")
+            self._youtube_queue_available = False
+            return None
 
     async def start(self):
         if not self.enabled() or self.running:
@@ -314,7 +352,7 @@ class WorkerLoop:
                 client,
                 self.current_job_id if job_type != YOUTUBE_TRANSCRIPT_JOB_TYPE else None,
             )
-            await self.heartbeat_youtube(
+            await self._heartbeat_youtube_optional(
                 client,
                 self.current_job_id if job_type == YOUTUBE_TRANSCRIPT_JOB_TYPE else None,
             )
@@ -453,13 +491,13 @@ class WorkerLoop:
             while self.running:
                 try:
                     await self.heartbeat(client, None)
-                    await self.heartbeat_youtube(client, None)
+                    await self._heartbeat_youtube_optional(client, None)
                     claimed_job = await self.claim_job(client)
                     if claimed_job:
                         await self.process_claimed_job(client, claimed_job)
                         continue
 
-                    claimed_youtube_job = await self.claim_youtube_transcript_job(client)
+                    claimed_youtube_job = await self._claim_youtube_transcript_job_optional(client)
                     if claimed_youtube_job:
                         await self.process_claimed_job(client, claimed_youtube_job)
                         continue
