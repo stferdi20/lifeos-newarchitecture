@@ -60,13 +60,17 @@ export default function Dashboard() {
         </div>
       </StaggerItem>
 
-      {/* Ideas + News */}
-      <StaggerItem className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div className="hover:-translate-y-1 hover:shadow-lg transition-all duration-300 rounded-xl h-full">
-          <IdeaSpark />
-        </div>
+      {/* News */}
+      <StaggerItem>
         <div className="hover:-translate-y-1 hover:shadow-lg transition-all duration-300 rounded-xl h-full">
           <NewsWidget />
+        </div>
+      </StaggerItem>
+
+      {/* Idea Lab */}
+      <StaggerItem>
+        <div className="hover:-translate-y-1 hover:shadow-lg transition-all duration-300 rounded-xl h-full">
+          <IdeaSpark />
         </div>
       </StaggerItem>
 
