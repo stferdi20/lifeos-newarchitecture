@@ -303,11 +303,11 @@ export default function NewsWidget() {
               <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 lg:col-span-3">
                 <div className="mb-3">
                   <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Source trail</p>
-                  <p className="mt-1 text-[11px] text-slate-400">Open the original coverage.</p>
+                  <p className="mt-1 text-[11px] text-slate-400">Scroll to inspect the original coverage.</p>
                 </div>
 
-                <div className="space-y-2.5">
-                  {supportingArticles.slice(0, 3).map((article, index) => (
+                <div className="max-h-[420px] space-y-2.5 overflow-y-auto pr-1">
+                  {supportingArticles.map((article, index) => (
                     <a
                       key={article.id || index}
                       href={article.url}
@@ -330,8 +330,8 @@ export default function NewsWidget() {
                             {article.title}
                           </p>
                           {article.summary && (
-                            <p className="mt-1.5 line-clamp-3 text-[11px] leading-5 text-slate-300">
-                              {trimSummary(article.summary, 180)}
+                            <p className="mt-1.5 line-clamp-4 text-[11px] leading-5 text-slate-300">
+                              {trimSummary(article.summary, 220)}
                             </p>
                           )}
                         </div>
