@@ -12,9 +12,10 @@ test('buildInstagramThumbnailStoragePath keeps the thumbnail path scoped and web
     ownerUserId: 'user 123',
     resourceId: 'resource/456',
     filename: 'preview image.jpg',
+    contentHash: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
   });
 
-  assert.match(path, /^user-123\/resource-456\/.+-preview-image\.webp$/);
+  assert.match(path, /^user-123\/resource-456\/[a-f0-9]{16,64}\.webp$/);
 });
 
 test('uploadInstagramThumbnailToStorage uploads bytes with the expected bucket and public url shape', async () => {
@@ -22,6 +23,9 @@ test('uploadInstagramThumbnailToStorage uploads bytes with the expected bucket a
   const storageClient = {
     from(bucket) {
       return {
+        async createSignedUrl() {
+          throw new Error('not found');
+        },
         async upload(path, data, options) {
           calls.push({ bucket, path, size: data.length, options });
           return { error: null, data: { path } };
@@ -46,9 +50,45 @@ test('uploadInstagramThumbnailToStorage uploads bytes with the expected bucket a
   assert.equal(calls.length, 1);
   assert.equal(calls[0].bucket, 'resource-thumbnails');
   assert.equal(calls[0].options.contentType, 'image/webp');
+  assert.equal(calls[0].options.cacheControl, '31536000');
   assert.equal(result.bucket, 'resource-thumbnails');
   assert.equal(result.url, result.thumbnail_url);
+  assert.equal(result.deduped, false);
   assert.match(result.url, /^https:\/\/example\.test\/storage\/resource-thumbnails\//);
+});
+
+test('uploadInstagramThumbnailToStorage reuses an existing thumbnail object without uploading again', async () => {
+  const calls = [];
+  const storageClient = {
+    from(bucket) {
+      return {
+        async createSignedUrl(path) {
+          return { data: { signedUrl: `https://example.test/storage/${bucket}/${path}`, path }, error: null };
+        },
+        async upload(path, data, options) {
+          calls.push({ bucket, path, size: data.length, options });
+          return { error: null, data: { path } };
+        },
+        getPublicUrl(path) {
+          return { data: { publicUrl: `https://example.test/storage/${bucket}/${path}` } };
+        },
+      };
+    },
+  };
+
+  const result = await uploadInstagramThumbnailToStorage({
+    ownerUserId: 'user-1',
+    resourceId: 'resource-1',
+    filename: 'thumbnail.webp',
+    contentType: 'image/webp',
+    dataBase64: Buffer.from('thumbnail-bytes').toString('base64'),
+    storageClient,
+    bucketName: 'resource-thumbnails',
+  });
+
+  assert.equal(calls.length, 0);
+  assert.equal(result.deduped, true);
+  assert.match(result.thumbnail_url, /^https:\/\/example\.test\/storage\/resource-thumbnails\//);
 });
 
 test('chooseInstagramThumbnail keeps an existing durable thumbnail over drive previews', () => {

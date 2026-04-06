@@ -189,6 +189,7 @@ Queue-backed production flow:
 - your self-hosted Python worker polls the queue when it is online
 - on success, media is uploaded to Google Drive and the pending resource is updated
 - successful queue rows are deleted so the queue stays small
+- repeated image and thumbnail uploads now reuse content-addressed storage paths, which keeps identical assets from minting a new Supabase object and helps browser caching work across refreshes
 
 Third-party public provider calls are backend-owned now. Stock search, crypto search, CoinGecko FX conversion, and TCG lookups run through `/api`, so Vercel does not need separate frontend env vars for those services.
 

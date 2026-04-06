@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { getServerEnv } from '../config/env.js';
 import { HttpError } from '../lib/http.js';
 import { getServiceRoleClient } from '../lib/supabase.js';
@@ -79,13 +79,14 @@ export function buildInstagramThumbnailStoragePath({
   ownerUserId,
   resourceId,
   filename = 'thumbnail.webp',
+  contentHash = '',
 } = {}) {
   const ownerSegment = normalizeStorageSegment(ownerUserId, 'user');
   const resourceSegment = normalizeStorageSegment(resourceId, 'resource');
   const fileName = normalizeStorageSegment(filename, 'thumbnail.webp');
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const fileStem = fileName.replace(/\.[^.]+$/, '') || 'thumbnail';
-  return `${ownerSegment}/${resourceSegment}/${timestamp}-${randomUUID().slice(0, 8)}-${fileStem}.webp`;
+  const hashSegment = normalizeStorageSegment(contentHash || fileStem, 'thumbnail');
+  return `${ownerSegment}/${resourceSegment}/${hashSegment}.webp`;
 }
 
 export async function uploadInstagramThumbnailToStorage({
@@ -109,21 +110,46 @@ export async function uploadInstagramThumbnailToStorage({
   const env = getServerEnv();
   const bucket = bucketName || env.SUPABASE_STORAGE_BUCKET_RESOURCE_THUMBNAILS || 'resource-thumbnails';
   const admin = storageClient ? { storage: storageClient } : getServiceRoleClient();
+  const contentHash = createHash('sha256').update(thumbnailData).digest('hex');
   const path = buildInstagramThumbnailStoragePath({
     ownerUserId,
     resourceId,
     filename,
+    contentHash,
   });
+
+  const existing = await admin.storage.from(bucket).createSignedUrl(path, 60 * 60 * 24 * 365).catch(() => null);
+  if (existing?.data?.signedUrl) {
+    const publicUrl = admin.storage.from(bucket).getPublicUrl(path)?.data?.publicUrl || '';
+    return {
+      bucket,
+      path,
+      url: publicUrl || existing.data.signedUrl || '',
+      thumbnail_url: publicUrl || existing.data.signedUrl || '',
+      deduped: true,
+    };
+  }
 
   const upload = await admin.storage
     .from(bucket)
     .upload(path, thumbnailData, {
       contentType,
-      upsert: true,
+      upsert: false,
       cacheControl: '31536000',
     });
 
   if (upload.error) {
+    const retry = await admin.storage.from(bucket).createSignedUrl(path, 60 * 60 * 24 * 365).catch(() => null);
+    if (retry?.data?.signedUrl) {
+      const publicUrl = admin.storage.from(bucket).getPublicUrl(path)?.data?.publicUrl || '';
+      return {
+        bucket,
+        path,
+        url: publicUrl || retry.data.signedUrl || '',
+        thumbnail_url: publicUrl || retry.data.signedUrl || '',
+        deduped: true,
+      };
+    }
     throw new HttpError(500, upload.error.message);
   }
 
@@ -133,6 +159,7 @@ export async function uploadInstagramThumbnailToStorage({
     path,
     url: publicUrl || '',
     thumbnail_url: publicUrl || '',
+    deduped: false,
   };
 }
 

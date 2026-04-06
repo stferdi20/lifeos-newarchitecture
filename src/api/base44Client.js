@@ -17,10 +17,9 @@ import {
   updateBoardList,
   updateBoardWorkspace,
   updateCardComment,
-  createSignedUpload,
-  signStoredFile,
 } from '@/lib/projects-api';
-import { getSupabaseBrowserClient, getSupabaseAccessToken } from '@/lib/supabase-browser';
+import { getSupabaseAccessToken } from '@/lib/supabase-browser';
+import { uploadFileToManagedStorage } from '@/lib/storage-upload';
 import { runtimeConfig } from '@/lib/runtime-config';
 
 const GENERIC_COMPAT_ENTITIES = new Set([
@@ -174,29 +173,17 @@ async function compatEntityBulkCreate(entityName, payload) {
 }
 
 async function uploadCompatFile(file) {
-  const client = getSupabaseBrowserClient();
-  if (!client) {
-    throw new Error('Supabase browser client is not configured.');
-  }
-
-  const ext = file.name.includes('.') ? `.${file.name.split('.').pop()}` : '';
-  const safeName = String(file.name || 'file')
-    .replace(ext, '')
-    .replace(/[^a-zA-Z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 80) || 'file';
-  const uploadPath = `compat/${Date.now()}-${safeName}${ext}`;
-  const { upload, bucket } = await createSignedUpload(uploadPath);
-  const { error } = await client.storage.from(bucket).uploadToSignedUrl(upload.path, upload.token, file);
-  if (error) throw error;
-
-  const signedUrl = await signStoredFile(bucket, upload.path, 60 * 60 * 24 * 365);
+  const { signedUrl, bucket, path } = await uploadFileToManagedStorage({
+    file,
+    pathPrefix: 'compat',
+    entityId: 'library',
+  });
   return {
     file_url: signedUrl,
     fileUrl: signedUrl,
     url: signedUrl,
     bucket,
-    path: upload.path,
+    path,
   };
 }
 

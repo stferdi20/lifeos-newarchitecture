@@ -6,8 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Wand2, Save, Copy, X, ChevronDown, ChevronUp, Sparkles, Loader2, Braces, MessageSquarePlus, Upload, FileText, Link as LinkIcon } from 'lucide-react';
 import { generateStructuredAi } from '@/lib/ai-api';
-import { createSignedUpload, signStoredFile } from '@/lib/projects-api';
-import { getSupabaseBrowserClient } from '@/lib/supabase-browser';
+import { uploadFileToManagedStorage } from '@/lib/storage-upload';
 
 const categories = ['writing', 'coding', 'research', 'brainstorming', 'summarizing', 'analysis', 'creative', 'other'];
 const SAMPLE_FILE_ACCEPT = '.txt,.md,.markdown,.pdf,.rtf,.doc,.docx,text/plain,text/markdown,application/pdf,application/rtf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -125,24 +124,13 @@ Return JSON with a single "schema" object field.`;
 
     setUploadingSampleType(field);
     try {
-      const client = getSupabaseBrowserClient();
-      if (!client) {
-        throw new Error('Supabase browser client is not configured.');
-      }
-
       const uploadedFiles = [];
       for (const file of uploadList) {
-        const ext = file.name.includes('.') ? `.${file.name.split('.').pop()}` : '';
-        const safeName = String(file.name || 'file')
-          .replace(ext, '')
-          .replace(/[^a-zA-Z0-9._-]+/g, '-')
-          .replace(/^-+|-+$/g, '')
-          .slice(0, 80) || 'file';
-        const uploadPath = `prompt-samples/${field}/${Date.now()}-${safeName}${ext}`;
-        const { upload, bucket } = await createSignedUpload(uploadPath);
-        const { error } = await client.storage.from(bucket).uploadToSignedUrl(upload.path, upload.token, file);
-        if (error) throw error;
-        const url = await signStoredFile(bucket, upload.path, 60 * 60 * 24 * 365);
+        const { url } = await uploadFileToManagedStorage({
+          file,
+          pathPrefix: 'prompt-samples',
+          entityId: field,
+        });
 
         uploadedFiles.push({
           name: file.name,
