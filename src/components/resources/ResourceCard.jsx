@@ -517,6 +517,8 @@ export default function ResourceCard({
           <img
             src={displayThumbnail}
             alt={safeTitle}
+            loading="lazy"
+            decoding="async"
             onLoad={handleThumbnailLoad}
             onError={handleThumbnailError}
             className="w-full h-full object-cover"

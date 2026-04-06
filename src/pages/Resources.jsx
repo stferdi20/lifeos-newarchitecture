@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BookOpen, Search, FileText, Sparkles, CheckSquare } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -48,6 +48,8 @@ const DEFAULT_RESOURCE_LAYOUT_MODE = 'gallery';
 const DEFAULT_RESOURCE_GRID_DENSITY = 'normal';
 const RESOURCE_QUERY_STALE_TIME = 60_000;
 const RESOURCE_QUERY_GC_TIME = 10 * 60_000;
+const RESOURCE_INITIAL_VISIBLE_COUNT = 24;
+const RESOURCE_VISIBLE_INCREMENT = 24;
 
 function normalizeLayoutMode(value) {
   if (value === 'grid' || value === 'gallery' || value === 'magazine') return value;
@@ -230,6 +232,8 @@ export default function Resources() {
     if (typeof window === 'undefined') return 0;
     return window.innerWidth;
   });
+  const [visibleResourceCount, setVisibleResourceCount] = useState(RESOURCE_INITIAL_VISIBLE_COUNT);
+  const loadMoreRef = useRef(null);
 
   useEffect(() => {
     if (!profilingEnabled) return undefined;
@@ -415,6 +419,24 @@ export default function Resources() {
     });
   }, [resources, search, typeFilter, areaFilter, archivedFilter, projectResourceIds, resourceSearchIndex, tagFilter]);
 
+  useEffect(() => {
+    setVisibleResourceCount(RESOURCE_INITIAL_VISIBLE_COUNT);
+  }, [search, typeFilter, areaFilter, archivedFilter, projectFilter, tagFilter, layoutMode, gridDensity]);
+
+  useEffect(() => {
+    setVisibleResourceCount((current) => {
+      if (filteredResources.length <= current) return current;
+      return Math.min(current, filteredResources.length);
+    });
+  }, [filteredResources.length]);
+
+  const visibleResources = useMemo(
+    () => filteredResources.slice(0, visibleResourceCount),
+    [filteredResources, visibleResourceCount],
+  );
+
+  const hasMoreResourcesToRender = visibleResources.length < filteredResources.length;
+
   const layoutColumnCount = useMemo(() => {
     const isCompactDensity = gridDensity === 'compact';
     if (layoutMode === 'grid') {
@@ -437,11 +459,11 @@ export default function Resources() {
   const stableColumnResources = useMemo(() => {
     if (isGridLayout) return [];
     const columns = Array.from({ length: layoutColumnCount }, () => []);
-    filteredResources.forEach((resource, index) => {
+    visibleResources.forEach((resource, index) => {
       columns[index % layoutColumnCount].push(resource);
     });
     return columns;
-  }, [filteredResources, isGridLayout, layoutColumnCount]);
+  }, [visibleResources, isGridLayout, layoutColumnCount]);
 
   const resourceListStyle = {
     gridTemplateColumns: `repeat(${layoutColumnCount}, minmax(0, 1fr))`,
@@ -449,13 +471,13 @@ export default function Resources() {
   };
 
   useEffect(() => {
-    if (!profilingEnabled || resourcesLoading || filteredResources.length === 0 || typeof window === 'undefined') {
+    if (!profilingEnabled || resourcesLoading || visibleResources.length === 0 || typeof window === 'undefined') {
       return undefined;
     }
 
     const frameId = window.requestAnimationFrame(() => {
       recordResourceProfileEvent('resources:first-paint', {
-        renderedCount: filteredResources.length,
+        renderedCount: visibleResources.length,
         filteredCount: filteredResources.length,
       });
     });
@@ -463,7 +485,28 @@ export default function Resources() {
     return () => {
       window.cancelAnimationFrame(frameId);
     };
-  }, [filteredResources.length, profilingEnabled, resourcesLoading]);
+  }, [filteredResources.length, profilingEnabled, resourcesLoading, visibleResources.length]);
+
+  useEffect(() => {
+    if (!hasMoreResourcesToRender || typeof window === 'undefined') return undefined;
+
+    const node = loadMoreRef.current;
+    if (!node || typeof IntersectionObserver === 'undefined') return undefined;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        setVisibleResourceCount((current) => Math.min(current + RESOURCE_VISIBLE_INCREMENT, filteredResources.length));
+      },
+      { rootMargin: '240px 0px' },
+    );
+
+    observer.observe(node);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [filteredResources.length, hasMoreResourcesToRender]);
 
   const selectedResources = useMemo(
     () => resources.filter((resource) => selectedIds.has(resource.id)),
@@ -919,7 +962,9 @@ export default function Resources() {
       {profilingEnabled && <ResourceProfilePanel />}
 
       <div className="flex items-center justify-between gap-3">
-        <p className="text-xs text-muted-foreground">{filteredResources.length} resource{filteredResources.length !== 1 ? 's' : ''}</p>
+        <p className="text-xs text-muted-foreground">
+          Showing {visibleResources.length} of {filteredResources.length} resource{filteredResources.length !== 1 ? 's' : ''}
+        </p>
         <div className="flex flex-wrap items-center justify-end gap-2">
           {projectFilter && projectResourcesLoading && (
             <p className="text-xs text-muted-foreground">Applying project filter…</p>
@@ -1008,7 +1053,7 @@ export default function Resources() {
         )}
       >
         {isGridLayout
-          ? filteredResources.map((resource) => renderResourceCard(resource))
+          ? visibleResources.map((resource) => renderResourceCard(resource))
           : stableColumnResources.map((columnResources, columnIndex) => (
             <div
               key={`resource-column-${columnIndex}`}
@@ -1018,6 +1063,14 @@ export default function Resources() {
             </div>
           ))}
       </div>
+
+      {hasMoreResourcesToRender && (
+        <div ref={loadMoreRef} className="flex justify-center pt-2">
+          <div className="rounded-full border border-border/50 bg-card/60 px-3 py-1.5 text-xs text-muted-foreground">
+            Loading more resources…
+          </div>
+        </div>
+      )}
 
       {filteredResources.length === 0 && (
         <div className="rounded-2xl border border-dashed border-border bg-card/60 p-12 text-center">
