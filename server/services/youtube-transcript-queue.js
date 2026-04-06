@@ -10,8 +10,78 @@ import {
   YOUTUBE_TRANSCRIPT_PRIMARY_SOURCE,
 } from './youtube-transcripts.js';
 
+const YOUTUBE_SETTINGS_COMPAT_RECORD_ID = 'default';
+const YOUTUBE_SETTINGS_COMPAT_ENTITY_TYPE = 'YouTubeTranscriptSettings';
+const LEGACY_QUEUE_TABLE = 'instagram_download_jobs';
+const LEGACY_WORKER_TABLE = 'instagram_downloader_workers';
+const LEGACY_QUEUE_DRIVE_TARGET = 'global_instagram_folder';
+
 function getAdmin() {
   return getServiceRoleClient();
+}
+
+function errorIncludes(error, patterns = []) {
+  const haystack = [
+    error?.message,
+    error?.details,
+    error?.hint,
+    error?.error_description,
+    error?.error,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  return patterns.some((pattern) => haystack.includes(String(pattern || '').toLowerCase()));
+}
+
+function isMissingYouTubeTranscriptQueueTableError(error) {
+  return errorIncludes(error, [
+    'youtube_transcript_jobs',
+    'youtube_transcript_workers',
+    'youtube_transcript_settings',
+    "could not find the table 'public.youtube_transcript_jobs'",
+    "could not find the table 'public.youtube_transcript_workers'",
+    "could not find the table 'public.youtube_transcript_settings'",
+  ]);
+}
+
+async function getCompatSettingsRecord(userId) {
+  const result = await getAdmin()
+    .from('legacy_entity_records')
+    .select('data')
+    .eq('entity_type', YOUTUBE_SETTINGS_COMPAT_ENTITY_TYPE)
+    .eq('owner_user_id', userId)
+    .eq('record_id', YOUTUBE_SETTINGS_COMPAT_RECORD_ID)
+    .maybeSingle();
+
+  if (result.error) throw new HttpError(500, result.error.message);
+  return result.data?.data || {};
+}
+
+async function upsertCompatSettingsRecord(userId, payload = {}) {
+  const now = new Date().toISOString();
+  const data = {
+    ...payload,
+    id: YOUTUBE_SETTINGS_COMPAT_RECORD_ID,
+    created_date: payload.created_date || now,
+    updated_date: now,
+  };
+
+  const result = await getAdmin()
+    .from('legacy_entity_records')
+    .upsert({
+      entity_type: YOUTUBE_SETTINGS_COMPAT_ENTITY_TYPE,
+      owner_user_id: userId,
+      record_id: YOUTUBE_SETTINGS_COMPAT_RECORD_ID,
+      data,
+      updated_at: now,
+    }, { onConflict: 'entity_type,owner_user_id,record_id' })
+    .select('data')
+    .single();
+
+  if (result.error) throw new HttpError(500, result.error.message);
+  return result.data?.data || data;
 }
 
 function normalizePreferredSubtitleLanguages(value = '') {
@@ -126,7 +196,13 @@ export async function getYouTubeTranscriptSettingsForUser(userId) {
     .eq('owner_user_id', userId)
     .maybeSingle();
 
-  if (result.error) throw new HttpError(500, result.error.message);
+  if (result.error) {
+    if (!isMissingYouTubeTranscriptQueueTableError(result.error)) {
+      throw new HttpError(500, result.error.message);
+    }
+    return normalizeSettings(await getCompatSettingsRecord(userId));
+  }
+
   return normalizeSettings(result.data);
 }
 
@@ -148,7 +224,13 @@ export async function updateYouTubeTranscriptSettingsForUser(userId, updates = {
     .select('*')
     .single();
 
-  if (result.error) throw new HttpError(500, result.error.message);
+  if (result.error) {
+    if (!isMissingYouTubeTranscriptQueueTableError(result.error)) {
+      throw new HttpError(500, result.error.message);
+    }
+    const compat = await upsertCompatSettingsRecord(userId, payload);
+    return normalizeSettings(compat);
+  }
   return normalizeSettings(result.data);
 }
 
@@ -260,7 +342,35 @@ export async function createYouTubeTranscriptJob(userId, {
     .select('*')
     .single();
 
-  if (result.error) throw new HttpError(500, result.error.message);
+  if (result.error) {
+    if (!isMissingYouTubeTranscriptQueueTableError(result.error)) {
+      throw new HttpError(500, result.error.message);
+    }
+
+    const fallback = await getAdmin()
+      .from(LEGACY_QUEUE_TABLE)
+      .insert({
+        owner_user_id: userId,
+        resource_id: resourceId,
+        source_url: url,
+        status: 'queued',
+        retry_count: 0,
+        drive_target: LEGACY_QUEUE_DRIVE_TARGET,
+        drive_folder_id: null,
+        project_id: null,
+        include_analysis: false,
+        requested_at: now,
+        scheduled_for: now,
+        payload: {
+          job_type: YOUTUBE_TRANSCRIPT_JOB_TYPE,
+        },
+      })
+      .select('*')
+      .single();
+
+    if (fallback.error) throw new HttpError(500, fallback.error.message);
+    return normalizeJob(fallback.data);
+  }
   return normalizeJob(result.data);
 }
 
@@ -273,7 +383,26 @@ async function findExistingYouTubeTranscriptJob(userId, resourceId) {
     .order('created_at', { ascending: false })
     .limit(20);
 
-  if (result.error) throw new HttpError(500, result.error.message);
+  if (result.error) {
+    if (!isMissingYouTubeTranscriptQueueTableError(result.error)) {
+      throw new HttpError(500, result.error.message);
+    }
+
+    const fallback = await getAdmin()
+      .from(LEGACY_QUEUE_TABLE)
+      .select('*')
+      .eq('owner_user_id', userId)
+      .eq('resource_id', resourceId)
+      .order('created_at', { ascending: false })
+      .limit(20);
+
+    if (fallback.error) throw new HttpError(500, fallback.error.message);
+    return (fallback.data || [])
+      .map(normalizeJob)
+      .filter((job) => job.job_type === YOUTUBE_TRANSCRIPT_JOB_TYPE)
+      .find((job) => ['queued', 'processing'].includes(job.status)) || null;
+  }
+
   return (result.data || [])
     .map(normalizeJob)
     .find((job) => ['queued', 'processing'].includes(job.status)) || null;
@@ -317,18 +446,36 @@ export async function retryYouTubeTranscriptForResource(userId, resourceId) {
     .limit(1)
     .maybeSingle();
 
-  if (existing.error) throw new HttpError(500, existing.error.message);
+  if (existing.error && !isMissingYouTubeTranscriptQueueTableError(existing.error)) {
+    throw new HttpError(500, existing.error.message);
+  }
+
+  const existingRow = existing.error
+    ? await getAdmin()
+      .from(LEGACY_QUEUE_TABLE)
+      .select('*')
+      .eq('owner_user_id', userId)
+      .eq('resource_id', resourceId)
+      .order('created_at', { ascending: false })
+      .limit(20)
+      .then((fallback) => {
+        if (fallback.error) throw new HttpError(500, fallback.error.message);
+        return (fallback.data || [])
+          .map(normalizeJob)
+          .find((job) => job.job_type === YOUTUBE_TRANSCRIPT_JOB_TYPE) || null;
+      })
+    : (existing.data ? normalizeJob(existing.data) : null);
 
   const now = new Date().toISOString();
-  if (existing.data) {
-    const job = normalizeJob(existing.data);
+  if (existingRow) {
+    const job = existingRow;
     if (job.status === 'processing' || job.status === 'queued') {
       const updated = await updateYouTubeTranscriptQueued(userId, resourceId, job.id);
       return { resource: updated, job, queued: true };
     }
 
     const retried = await getAdmin()
-      .from('youtube_transcript_jobs')
+      .from(existing.error ? LEGACY_QUEUE_TABLE : 'youtube_transcript_jobs')
       .update({
         status: 'queued',
         last_error: null,
@@ -363,11 +510,26 @@ export async function requeueFailedYouTubeTranscriptJobs(userId) {
     .eq('owner_user_id', userId)
     .eq('status', 'failed');
 
-  if (jobsRes.error) throw new HttpError(500, jobsRes.error.message);
+  if (jobsRes.error && !isMissingYouTubeTranscriptQueueTableError(jobsRes.error)) {
+    throw new HttpError(500, jobsRes.error.message);
+  }
 
-  const jobs = (jobsRes.data || []).map(normalizeJob);
+  const jobs = jobsRes.error
+    ? await getAdmin()
+      .from(LEGACY_QUEUE_TABLE)
+      .select('*')
+      .eq('owner_user_id', userId)
+      .eq('status', 'failed')
+      .then((fallback) => {
+        if (fallback.error) throw new HttpError(500, fallback.error.message);
+        return (fallback.data || [])
+          .map(normalizeJob)
+          .filter((job) => job.job_type === YOUTUBE_TRANSCRIPT_JOB_TYPE);
+      })
+    : (jobsRes.data || []).map(normalizeJob);
+
   await Promise.all(jobs.map((job) => getAdmin()
-    .from('youtube_transcript_jobs')
+    .from(jobsRes.error ? LEGACY_QUEUE_TABLE : 'youtube_transcript_jobs')
     .update({
       status: 'queued',
       last_error: null,
@@ -407,7 +569,26 @@ export async function registerYouTubeTranscriptWorkerHeartbeat({
     .select('*')
     .single();
 
-  if (result.error) throw new HttpError(500, result.error.message);
+  if (result.error) {
+    if (!isMissingYouTubeTranscriptQueueTableError(result.error)) {
+      throw new HttpError(500, result.error.message);
+    }
+    const fallback = await getAdmin()
+      .from(LEGACY_WORKER_TABLE)
+      .upsert({
+        worker_id: workerId,
+        label: label || 'YouTube Transcript Worker',
+        version: version || '',
+        metadata: metadata || {},
+        status: 'online',
+        last_heartbeat_at: new Date().toISOString(),
+        current_job_id: currentJobId || null,
+      }, { onConflict: 'worker_id' })
+      .select('*')
+      .single();
+    if (fallback.error) throw new HttpError(500, fallback.error.message);
+    return fallback.data;
+  }
   return result.data;
 }
 
@@ -420,7 +601,47 @@ export async function claimNextYouTubeTranscriptJob(workerId) {
     .order('created_at', { ascending: true })
     .limit(10);
 
-  if (queued.error) throw new HttpError(500, queued.error.message);
+  if (queued.error) {
+    if (!isMissingYouTubeTranscriptQueueTableError(queued.error)) {
+      throw new HttpError(500, queued.error.message);
+    }
+
+    const legacyQueued = await getAdmin()
+      .from(LEGACY_QUEUE_TABLE)
+      .select('*')
+      .eq('status', 'queued')
+      .order('scheduled_for', { ascending: true })
+      .order('created_at', { ascending: true })
+      .limit(20);
+
+    if (legacyQueued.error) throw new HttpError(500, legacyQueued.error.message);
+
+    for (const row of (legacyQueued.data || []).filter((item) => (item.payload?.job_type || '') === YOUTUBE_TRANSCRIPT_JOB_TYPE)) {
+      const claimed = await getAdmin()
+        .from(LEGACY_QUEUE_TABLE)
+        .update({
+          status: 'processing',
+          started_at: new Date().toISOString(),
+          worker_id: workerId,
+        })
+        .eq('id', row.id)
+        .eq('status', 'queued')
+        .select('*')
+        .maybeSingle();
+
+      if (claimed.error) throw new HttpError(500, claimed.error.message);
+      if (!claimed.data) continue;
+
+      const job = normalizeJob(claimed.data);
+      await updateYouTubeTranscriptProcessing(job.owner_user_id, job.resource_id, workerId, job.id).catch(() => null);
+      return {
+        job,
+        settings: await getYouTubeTranscriptSettingsForUser(job.owner_user_id),
+      };
+    }
+
+    return null;
+  }
 
   for (const row of queued.data || []) {
     const claimed = await getAdmin()
@@ -456,10 +677,24 @@ export async function completeYouTubeTranscriptJob(jobId, transcript) {
     .eq('id', jobId)
     .maybeSingle();
 
-  if (result.error) throw new HttpError(500, result.error.message);
-  if (!result.data) throw new HttpError(404, 'YouTube transcript job not found.');
+  if (result.error && !isMissingYouTubeTranscriptQueueTableError(result.error)) {
+    throw new HttpError(500, result.error.message);
+  }
+  const row = result.error
+    ? await getAdmin()
+      .from(LEGACY_QUEUE_TABLE)
+      .select('*')
+      .eq('id', jobId)
+      .maybeSingle()
+      .then((fallback) => {
+        if (fallback.error) throw new HttpError(500, fallback.error.message);
+        return fallback.data;
+      })
+    : result.data;
 
-  const job = normalizeJob(result.data);
+  if (!row) throw new HttpError(404, 'YouTube transcript job not found.');
+
+  const job = normalizeJob(row);
   const normalizedTranscript = normalizeYouTubeTranscriptResult(transcript);
 
   let resource;
@@ -477,7 +712,7 @@ export async function completeYouTubeTranscriptJob(jobId, transcript) {
   }
 
   const deleteResult = await getAdmin()
-    .from('youtube_transcript_jobs')
+    .from(result.error ? LEGACY_QUEUE_TABLE : 'youtube_transcript_jobs')
     .delete()
     .eq('id', jobId);
 
@@ -498,13 +733,26 @@ export async function failYouTubeTranscriptJob(jobId, errorMessage) {
     .eq('id', jobId)
     .maybeSingle();
 
-  if (current.error) throw new HttpError(500, current.error.message);
-  if (!current.data) throw new HttpError(404, 'YouTube transcript job not found.');
+  if (current.error && !isMissingYouTubeTranscriptQueueTableError(current.error)) {
+    throw new HttpError(500, current.error.message);
+  }
+  const row = current.error
+    ? await getAdmin()
+      .from(LEGACY_QUEUE_TABLE)
+      .select('*')
+      .eq('id', jobId)
+      .maybeSingle()
+      .then((fallback) => {
+        if (fallback.error) throw new HttpError(500, fallback.error.message);
+        return fallback.data;
+      })
+    : current.data;
 
-  const row = current.data;
+  if (!row) throw new HttpError(404, 'YouTube transcript job not found.');
+
   const retryCount = Number(row.retry_count || 0) + 1;
   const result = await getAdmin()
-    .from('youtube_transcript_jobs')
+    .from(current.error ? LEGACY_QUEUE_TABLE : 'youtube_transcript_jobs')
     .update({
       status: 'failed',
       retry_count: retryCount,
@@ -533,7 +781,9 @@ export async function getYouTubeTranscriptStatusForUser(userId) {
     .limit(1)
     .maybeSingle();
 
-  if (workerRes.error) throw new HttpError(500, workerRes.error.message);
+  if (workerRes.error && !isMissingYouTubeTranscriptQueueTableError(workerRes.error)) {
+    throw new HttpError(500, workerRes.error.message);
+  }
 
   const jobsRes = await getAdmin()
     .from('youtube_transcript_jobs')
@@ -542,9 +792,25 @@ export async function getYouTubeTranscriptStatusForUser(userId) {
     .order('created_at', { ascending: false })
     .limit(25);
 
-  if (jobsRes.error) throw new HttpError(500, jobsRes.error.message);
+  if (jobsRes.error && !isMissingYouTubeTranscriptQueueTableError(jobsRes.error)) {
+    throw new HttpError(500, jobsRes.error.message);
+  }
 
-  let jobs = (jobsRes.data || []).map(normalizeJob);
+  let jobs = jobsRes.error
+    ? await getAdmin()
+      .from(LEGACY_QUEUE_TABLE)
+      .select('*')
+      .eq('owner_user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(50)
+      .then((fallback) => {
+        if (fallback.error) throw new HttpError(500, fallback.error.message);
+        return (fallback.data || [])
+          .map(normalizeJob)
+          .filter((job) => job.job_type === YOUTUBE_TRANSCRIPT_JOB_TYPE)
+          .slice(0, 25);
+      })
+    : (jobsRes.data || []).map(normalizeJob);
   const thresholdMs = getProcessingRecoveryThresholdMs();
   const resourcesById = await fetchResourceRecords(userId, jobs.map((job) => job.resource_id));
 
@@ -553,7 +819,7 @@ export async function getYouTubeTranscriptStatusForUser(userId) {
     if (job.status !== 'processing') continue;
     if (!isTimestampOlderThan(job.started_at || job.requested_at || job.created_at, thresholdMs)) continue;
     await getAdmin()
-      .from('youtube_transcript_jobs')
+      .from(jobsRes.error ? LEGACY_QUEUE_TABLE : 'youtube_transcript_jobs')
       .update({
         status: 'queued',
         started_at: null,
@@ -571,13 +837,16 @@ export async function getYouTubeTranscriptStatusForUser(userId) {
 
   if (repaired) {
     const refreshed = await getAdmin()
-      .from('youtube_transcript_jobs')
+      .from(jobsRes.error ? LEGACY_QUEUE_TABLE : 'youtube_transcript_jobs')
       .select('*')
       .eq('owner_user_id', userId)
       .order('created_at', { ascending: false })
-      .limit(25);
+      .limit(jobsRes.error ? 50 : 25);
     if (refreshed.error) throw new HttpError(500, refreshed.error.message);
-    jobs = (refreshed.data || []).map(normalizeJob);
+    jobs = (refreshed.data || [])
+      .map(normalizeJob)
+      .filter((job) => (jobsRes.error ? job.job_type === YOUTUBE_TRANSCRIPT_JOB_TYPE : true))
+      .slice(0, 25);
   }
 
   const counts = jobs.reduce((acc, job) => {
@@ -588,16 +857,29 @@ export async function getYouTubeTranscriptStatusForUser(userId) {
     return acc;
   }, { total: 0, queued: 0, processing: 0, failed: 0 });
 
-  const worker = workerRes.data
+  const workerRow = workerRes.error
+    ? await getAdmin()
+      .from(LEGACY_WORKER_TABLE)
+      .select('*')
+      .order('last_heartbeat_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then((fallback) => {
+        if (fallback.error) throw new HttpError(500, fallback.error.message);
+        return fallback.data;
+      })
+    : workerRes.data;
+
+  const worker = workerRow
     ? {
-        worker_id: workerRes.data.worker_id,
-        label: workerRes.data.label || workerRes.data.worker_id,
-        status: workerRes.data.status || 'unknown',
-        last_heartbeat_at: workerRes.data.last_heartbeat_at,
-        current_job_id: workerRes.data.current_job_id || '',
-        version: workerRes.data.version || '',
-        metadata: workerRes.data.metadata || {},
-        online: !isTimestampOlderThan(workerRes.data.last_heartbeat_at, getStatusStaleMs()),
+        worker_id: workerRow.worker_id,
+        label: workerRow.label || workerRow.worker_id,
+        status: workerRow.status || 'unknown',
+        last_heartbeat_at: workerRow.last_heartbeat_at,
+        current_job_id: workerRow.current_job_id || '',
+        version: workerRow.version || '',
+        metadata: workerRow.metadata || {},
+        online: !isTimestampOlderThan(workerRow.last_heartbeat_at, getStatusStaleMs()),
       }
     : {
         worker_id: '',
