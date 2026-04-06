@@ -300,7 +300,7 @@ export default function NewsWidget() {
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 lg:col-span-3">
+              <div className="self-start rounded-2xl border border-white/10 bg-white/[0.03] p-4 lg:col-span-3">
                 <div className="mb-3">
                   <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Source trail</p>
                   <p className="mt-1 text-[11px] text-slate-400">Scroll to inspect the original coverage.</p>
