@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildFallbackDigestContent,
+  deriveDigestContent,
   formatDigestRow,
   getDefaultDigestDateUtc,
   isDigestTableMissingError,
@@ -55,6 +56,23 @@ test('buildFallbackDigestContent rolls up the lead supporting articles when arti
   assert.match(digest.headline_summary, /OpenAI/);
   assert.equal(digest.key_points.length, 2);
   assert.equal(digest.metadata.summary_fallback, 'article_rollup');
+});
+
+test('deriveDigestContent keeps fallback summaries focused on the top three articles', async () => {
+  const digest = await deriveDigestContent({
+    userId: null,
+    digestDate: '2026-04-05',
+    category: 'all',
+    articles: [
+      makeArticle({ id: '1', title: 'Lead one', source_name: 'Source A', summary: 'Summary one has enough detail to stand alone.' }),
+      makeArticle({ id: '2', title: 'Lead two', source_name: 'Source B', summary: 'Summary two has enough detail to stand alone.', url: 'https://example.com/2' }),
+      makeArticle({ id: '3', title: 'Lead three', source_name: 'Source C', summary: 'Summary three has enough detail to stand alone.', url: 'https://example.com/3' }),
+      makeArticle({ id: '4', title: 'Lead four', source_name: 'Source D', summary: 'Summary four should not appear in fallback key points.', url: 'https://example.com/4' }),
+    ],
+  });
+
+  assert.equal(digest.key_points.length, 3);
+  assert.equal(digest.key_points.some((point) => point.includes('Summary four')), false);
 });
 
 test('formatDigestRow normalizes missing json fields into dashboard-safe arrays and objects', () => {

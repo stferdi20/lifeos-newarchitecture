@@ -13,7 +13,8 @@ import {
 
 const DIGEST_TABLE = 'news_digests';
 const DEFAULT_DIGEST_ARTICLE_LIMIT = 12;
-const DEFAULT_SUPPORTING_LINK_LIMIT = 3;
+const DEFAULT_SUMMARY_ARTICLE_LIMIT = 3;
+const DEFAULT_STORED_SUPPORTING_LINK_LIMIT = 12;
 const DIGEST_STORAGE_UNAVAILABLE = Symbol('digest-storage-unavailable');
 
 const DIGEST_SCHEMA = z.object({
@@ -73,7 +74,7 @@ export function getDefaultDigestDateUtc(now = new Date()) {
 }
 
 export function buildFallbackDigestContent(articles = [], category = 'all') {
-  const topArticles = articles.slice(0, DEFAULT_SUPPORTING_LINK_LIMIT);
+  const topArticles = articles.slice(0, DEFAULT_SUMMARY_ARTICLE_LIMIT);
   if (!topArticles.length) {
     return {
       headline_summary: `No validated ${category === 'all' ? 'news' : category.replace('_', ' ')} stories made it into this digest window.`,
@@ -167,7 +168,7 @@ function buildDigestRecord({
   aggregated,
   digestContent,
 }) {
-  const supportingArticles = articles.slice(0, DEFAULT_SUPPORTING_LINK_LIMIT).map(mapNewsArticle);
+  const supportingArticles = articles.slice(0, DEFAULT_STORED_SUPPORTING_LINK_LIMIT).map(mapNewsArticle);
   return {
     digest_date: digestDate,
     category,

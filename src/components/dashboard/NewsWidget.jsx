@@ -239,7 +239,7 @@ export default function NewsWidget() {
               </div>
             </div>
 
-            <div className="grid gap-3 lg:grid-cols-12">
+            <div className="grid items-start gap-3 lg:grid-cols-12">
               <div className="rounded-2xl border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))] p-4 lg:col-span-5">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">Lead story</p>
