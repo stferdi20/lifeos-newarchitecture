@@ -312,7 +312,7 @@ export default function ResourceCard({
   const captureStatusLabel = getGenericCaptureStatusLabel(resource);
   const [thumbnailAspectRatio, setThumbnailAspectRatio] = useState(null);
   const showRetryButton = Boolean(onRetry) && (
-    (isInstagram && (resource.download_status !== 'uploaded' || !driveUrl))
+    (isInstagram && (resource.download_status !== 'uploaded' || !driveUrl || resource.instagram_enrichment_status === 'failed'))
     || showGenericCaptureStatus
   );
   const previewItemTextLength = previewItem?.text?.length || 0;

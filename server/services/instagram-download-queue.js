@@ -81,6 +81,10 @@ function buildCompletedEnrichmentMessage() {
   return 'Instagram enrichment completed.';
 }
 
+function buildWeakEnrichmentMessage() {
+  return 'Instagram download finished, but enrichment did not return enough metadata to upgrade this resource. Retry when your downloader worker is online.';
+}
+
 function buildFailedEnrichmentMessage(message = '') {
   return message ? `Instagram enrichment failed: ${message}` : 'Instagram enrichment failed.';
 }
@@ -297,6 +301,35 @@ function chooseInstagramDisplayTitle({
   }
 
   return metadataTitle || analysisTitle || current.title || fallback;
+}
+
+function isRawInstagramTitle(value = '', sourceUrl = '') {
+  const title = String(value || '').trim();
+  const normalizedSourceUrl = normalizeUrlString(sourceUrl);
+  if (!title) return true;
+  if (normalizedSourceUrl && title === normalizedSourceUrl) return true;
+  if (/^https?:\/\/(?:www\.)?instagram\.com\//i.test(title)) return true;
+  if (/^queued from /i.test(title)) return true;
+  return false;
+}
+
+export function hasMeaningfulInstagramEnrichment(resource = {}, sourceUrl = '') {
+  const tags = Array.isArray(resource.tags) ? resource.tags.filter(Boolean) : [];
+  const title = String(resource.instagram_display_title || resource.title || '').trim();
+  const enrichmentStatus = String(resource.enrichment_status || '').trim().toLowerCase();
+
+  const hasMeaningfulTitle = title && !isRawInstagramTitle(title, sourceUrl) && title !== buildPendingTitle(sourceUrl);
+  const hasBodyCopy = Boolean(
+    String(resource.summary || '').trim()
+    || String(resource.why_it_matters || '').trim()
+    || String(resource.who_its_for || '').trim()
+    || String(resource.explanation_for_newbies || '').trim()
+  );
+  const hasArea = Boolean(String(resource.area_id || '').trim() || String(resource.area_name || '').trim());
+  const hasMeaningfulTags = tags.some((tag) => String(tag || '').trim().toLowerCase() !== 'instagram');
+  const hasStructuredOutcome = ['partial', 'rich'].includes(enrichmentStatus);
+
+  return hasMeaningfulTitle && (hasBodyCopy || hasArea || hasMeaningfulTags || hasStructuredOutcome);
 }
 
 function getJobType(job = {}) {
@@ -658,11 +691,14 @@ async function buildInstagramEnrichmentPayload(userId, sourceUrl, current = {}, 
 export async function completeInstagramResourceEnrichment(userId, resourceId, sourceUrl, download = {}) {
   const current = await getCompatEntity(userId, 'Resource', resourceId);
   const enrichmentPayload = await buildInstagramEnrichmentPayload(userId, sourceUrl, current, download);
+  const enrichmentWorked = hasMeaningfulInstagramEnrichment(enrichmentPayload, sourceUrl);
   return updateCompatEntity(userId, 'Resource', resourceId, mergeInstagramResourceState(current, {
     ...enrichmentPayload,
-    instagram_enrichment_status: 'completed',
-    instagram_enrichment_error: '',
-    instagram_enrichment_message: buildCompletedEnrichmentMessage(),
+    instagram_enrichment_status: enrichmentWorked ? 'completed' : 'failed',
+    instagram_enrichment_error: enrichmentWorked ? '' : 'Instagram enrichment returned only placeholder metadata.',
+    instagram_enrichment_message: enrichmentWorked
+      ? buildCompletedEnrichmentMessage()
+      : buildWeakEnrichmentMessage(),
     downloader_updated_at: new Date().toISOString(),
   }));
 }
@@ -688,9 +724,12 @@ export async function applySuccessfulInstagramDownload(userId, resourceId, sourc
   if (shouldRunAnalysisInline) {
     try {
       enrichmentPayload = await buildInstagramEnrichmentPayload(userId, sourceUrl, current, download);
-      enrichmentStatus = 'completed';
-      enrichmentError = '';
-      enrichmentMessage = buildCompletedEnrichmentMessage();
+      const enrichmentWorked = hasMeaningfulInstagramEnrichment(enrichmentPayload, sourceUrl);
+      enrichmentStatus = enrichmentWorked ? 'completed' : 'failed';
+      enrichmentError = enrichmentWorked ? '' : 'Instagram enrichment returned only placeholder metadata.';
+      enrichmentMessage = enrichmentWorked
+        ? buildCompletedEnrichmentMessage()
+        : buildWeakEnrichmentMessage();
     } catch (error) {
       enrichmentStatus = 'failed';
       enrichmentError = error?.message || 'Instagram enrichment failed.';
@@ -939,7 +978,10 @@ export async function getInstagramDownloaderStatusForUser(userId) {
     const driveFiles = Array.isArray(resource.drive_files) ? resource.drive_files : [];
     const resourceType = String(resource.resource_type || '');
     const needsQueueRepair = ['queued', 'downloading', 'uploading'].includes(downloadStatus);
-    const needsEnrichmentRepair = ['queued', 'analyzing'].includes(String(resource.instagram_enrichment_status || ''));
+    const enrichmentStatus = String(resource.instagram_enrichment_status || '');
+    const hasWeakCompletedEnrichment = enrichmentStatus === 'completed'
+      && !hasMeaningfulInstagramEnrichment(resource, resource.source_url || resource.url || '');
+    const needsEnrichmentRepair = ['queued', 'analyzing'].includes(enrichmentStatus) || hasWeakCompletedEnrichment;
     const thumbnailValue = normalizeUrlString(resource.thumbnail);
     const needsThumbnailRepair = (
       ['', 'uploaded', 'downloaded', 'complete', 'completed'].includes(downloadStatus)
@@ -950,6 +992,17 @@ export async function getInstagramDownloaderStatusForUser(userId) {
       && /too many values to unpack \(expected 2\)/i.test(downloadStatusMessage)
     );
     if (!needsQueueRepair && !needsEnrichmentRepair && !needsThumbnailRepair && !previewRetryNeeded) continue;
+
+    if (hasWeakCompletedEnrichment) {
+      await updateCompatEntity(userId, 'Resource', resource.id, mergeInstagramResourceState(resource, {
+        instagram_enrichment_status: 'failed',
+        instagram_enrichment_error: 'Instagram enrichment returned only placeholder metadata.',
+        instagram_enrichment_message: buildWeakEnrichmentMessage(),
+        downloader_updated_at: new Date().toISOString(),
+      })).catch(() => null);
+      repaired = true;
+      if (!needsQueueRepair && !needsThumbnailRepair) continue;
+    }
 
     if (previewRetryNeeded) {
       await retryInstagramDownloadForResource(userId, resource.id).catch(() => null);

@@ -216,6 +216,7 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
   const genericCaptureStatusText = getGenericCaptureStatusLabel(resource);
   const showYouTubeRetryAction = isYouTube && ['queued', 'processing', 'error', 'failed', 'no_subtitles', 'subtitle_download_empty', 'subtitle_parse_empty', 'worker_unavailable', 'unauthorized'].includes(String(resource.youtube_transcript_status || ''));
   const showRetryAction = (isInstagram && (resource.download_status !== 'uploaded' || !(resource.drive_files?.length || resource.drive_folder_url)))
+    || (isInstagram && resource.instagram_enrichment_status === 'failed')
     || showYouTubeRetryAction
     || showGenericCaptureStatus;
   const retryActionPending = isInstagram
