@@ -969,7 +969,10 @@ export default function Resources() {
           {projectFilter && projectResourcesLoading && (
             <p className="text-xs text-muted-foreground">Applying project filter…</p>
           )}
-          {downloaderStatus?.worker?.online === false && (
+          {downloaderStatus?.worker?.state === 'stale' && (
+            <p className="text-xs text-muted-foreground">Local worker heartbeat is stale. Queue recovery is active and queued captures should resume shortly.</p>
+          )}
+          {downloaderStatus?.worker?.state !== 'stale' && downloaderStatus?.worker?.online === false && (
             <p className="text-xs text-muted-foreground">Local worker offline. Queued captures will resume when it comes back online.</p>
           )}
           <div className="inline-flex rounded-xl border border-border/60 bg-card/70 p-1">

@@ -1,4 +1,5 @@
 import { HttpError } from '../lib/http.js';
+import { randomUUID } from 'node:crypto';
 import { getServerEnv } from '../config/env.js';
 import { getServiceRoleClient } from '../lib/supabase.js';
 import { analyzeResource } from './resources.js';
@@ -94,6 +95,51 @@ function isTimestampOlderThan(value, thresholdMs) {
   return Date.now() - parsed > thresholdMs;
 }
 
+function buildRecoveredPayload(payload = {}, { recoveredAt, workerId, reason }) {
+  return {
+    ...payload,
+    claim_token: null,
+    recovery_count: Number(payload?.recovery_count || 0) + 1,
+    recovered_at: recoveredAt,
+    recovery_reason: reason,
+    recovered_from_worker_id: workerId || '',
+  };
+}
+
+function buildClaimedPayload(payload = {}) {
+  return {
+    ...payload,
+    claim_token: randomUUID(),
+    claimed_at: new Date().toISOString(),
+  };
+}
+
+function assertJobOwnership(job, { workerId = '', claimToken = '', action = 'complete' } = {}) {
+  if (!job) {
+    throw new HttpError(404, 'Resource capture job not found.');
+  }
+
+  const expectedClaimToken = String(job.payload?.claim_token || '');
+  const currentWorkerId = String(job.worker_id || '');
+  const ownershipMismatch = (
+    job.status !== 'processing'
+    || (workerId && currentWorkerId && currentWorkerId !== workerId)
+    || (expectedClaimToken && claimToken !== expectedClaimToken)
+  );
+
+  if (!ownershipMismatch) return;
+
+  console.warn('[resource-capture-worker] rejected stale worker mutation', {
+    action,
+    jobId: job.id,
+    status: job.status,
+    workerId,
+    currentWorkerId,
+    claimTokenMatches: expectedClaimToken ? claimToken === expectedClaimToken : null,
+  });
+  throw new HttpError(409, 'This resource capture job is no longer owned by the current worker.');
+}
+
 function getProcessingRecoveryThresholdMs() {
   const env = getServerEnv();
   const staleMs = Math.max(Number(env.INSTAGRAM_DOWNLOADER_STATUS_STALE_MS || 90000), 10000);
@@ -120,6 +166,11 @@ function normalizeJob(row) {
     completed_at: row.completed_at || null,
     payload: row.payload || {},
     job_type: row.payload?.job_type || RESOURCE_CAPTURE_JOB_TYPE,
+    claim_token: row.payload?.claim_token || '',
+    recovery_count: Number(row.payload?.recovery_count || 0),
+    recovered_at: row.payload?.recovered_at || null,
+    recovery_reason: row.payload?.recovery_reason || '',
+    recovered_from_worker_id: row.payload?.recovered_from_worker_id || '',
     created_at: row.created_at || null,
     updated_at: row.updated_at || null,
   };
@@ -410,6 +461,11 @@ async function recoverStaleResourceCaptureJobs() {
         completed_at: null,
         worker_id: null,
         last_error: row.last_error || null,
+        payload: buildRecoveredPayload(row.payload || {}, {
+          recoveredAt: now,
+          workerId: row.worker_id || '',
+          reason: 'stale_worker_heartbeat',
+        }),
       })
       .eq('id', row.id)
       .eq('status', 'processing')
@@ -419,6 +475,11 @@ async function recoverStaleResourceCaptureJobs() {
     if (recovered.error) throw new HttpError(500, recovered.error.message);
     if (recovered.data) {
       const job = normalizeJob(recovered.data);
+      console.warn('[resource-capture-worker] recovered stale processing job', {
+        jobId: job.id,
+        previousWorkerId: row.worker_id || '',
+        recoveredAt: job.recovered_at,
+      });
       await updateResourceQueued(job.owner_user_id, job.resource_id, job).catch(() => null);
     }
   }
@@ -446,6 +507,7 @@ export async function claimNextResourceCaptureJob(workerId = 'resource-capture-w
         status: 'processing',
         started_at: new Date().toISOString(),
         worker_id: workerId,
+        payload: buildClaimedPayload(row.payload || {}),
       })
       .eq('id', row.id)
       .eq('status', 'queued')
@@ -456,6 +518,11 @@ export async function claimNextResourceCaptureJob(workerId = 'resource-capture-w
     if (!claimed.data) continue;
 
     const job = normalizeJob(claimed.data);
+    console.info('[resource-capture-worker] claimed job', {
+      jobId: job.id,
+      workerId,
+      resourceId: job.resource_id,
+    });
     await updateResourceProcessing(job.owner_user_id, job.resource_id, job).catch(() => null);
     return job;
   }
@@ -482,6 +549,11 @@ export async function completeResourceCaptureJob(jobId, analyzed) {
   if (!currentJobRes.data) throw new HttpError(404, 'Resource capture job not found.');
 
   const job = normalizeJob(currentJobRes.data);
+  assertJobOwnership(job, {
+    workerId: analyzed?.worker_id || '',
+    claimToken: analyzed?.claim_token || '',
+    action: 'complete',
+  });
   const currentResource = await getCompatEntity(job.owner_user_id, 'Resource', job.resource_id);
   const normalized = normalizeResourceRecord(job.source_url, analyzed?.data || {});
   const updated = await updateCompatEntity(
@@ -503,6 +575,11 @@ export async function completeResourceCaptureJob(jobId, analyzed) {
     .single();
 
   if (done.error) throw new HttpError(500, done.error.message);
+  console.info('[resource-capture-worker] completed job', {
+    jobId: job.id,
+    workerId: job.worker_id || analyzed?.worker_id || '',
+    resourceId: job.resource_id,
+  });
 
   if (updated?.resource_type === 'youtube' && updated?.content_source !== 'youtube_transcript') {
     try {
@@ -517,7 +594,7 @@ export async function completeResourceCaptureJob(jobId, analyzed) {
   return { job: normalizeJob(done.data), resource: updated };
 }
 
-export async function completeGenericCaptureJob(jobId) {
+export async function completeGenericCaptureJob(jobId, workerMeta = {}) {
   const jobRes = await getAdmin()
     .from('resource_capture_jobs')
     .select('*')
@@ -533,6 +610,7 @@ export async function completeGenericCaptureJob(jobId) {
     const { retryInstagramDownloadForResource } = await import('./instagram-download-queue.js');
     const handoff = await retryInstagramDownloadForResource(job.owner_user_id, job.resource_id);
     await completeResourceCaptureJob(jobId, {
+      ...workerMeta,
       data: {
         title: handoff?.resource?.title || buildPendingCaptureTitle(job.source_url),
         summary: handoff?.resource?.download_status_message || 'Instagram download queued.',
@@ -553,10 +631,16 @@ export async function completeGenericCaptureJob(jobId) {
     url: job.source_url,
     userId: job.owner_user_id,
   });
-  return completeResourceCaptureJob(jobId, analyzed);
+  return completeResourceCaptureJob(jobId, {
+    ...analyzed,
+    ...workerMeta,
+  });
 }
 
 export async function failResourceCaptureJob(jobId, message = '') {
+  const workerId = typeof message === 'object' ? (message?.workerId || '') : '';
+  const claimToken = typeof message === 'object' ? (message?.claimToken || '') : '';
+  const resolvedMessage = typeof message === 'object' ? (message?.message || '') : message;
   const currentJobRes = await getAdmin()
     .from('resource_capture_jobs')
     .select('*')
@@ -567,20 +651,31 @@ export async function failResourceCaptureJob(jobId, message = '') {
   if (!currentJobRes.data) throw new HttpError(404, 'Resource capture job not found.');
 
   const currentJob = normalizeJob(currentJobRes.data);
+  assertJobOwnership(currentJob, {
+    workerId,
+    claimToken,
+    action: 'fail',
+  });
   const result = await getAdmin()
     .from('resource_capture_jobs')
     .update({
       status: 'failed',
       retry_count: Number(currentJob.retry_count || 0) + 1,
-      last_error: message || 'Resource capture failed.',
+      last_error: resolvedMessage || 'Resource capture failed.',
       completed_at: new Date().toISOString(),
     })
     .eq('id', jobId)
+    .eq('status', 'processing')
     .select('*')
     .single();
 
   if (result.error) throw new HttpError(500, result.error.message);
   const job = normalizeJob(result.data);
+  console.warn('[resource-capture-worker] failed job', {
+    jobId: job.id,
+    workerId: workerId || job.worker_id || '',
+    error: job.last_error,
+  });
   await updateResourceFailed(job.owner_user_id, job.resource_id, job.last_error, job).catch(() => null);
   return job;
 }

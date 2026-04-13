@@ -1,4 +1,5 @@
 import { HttpError } from '../lib/http.js';
+import { randomUUID } from 'node:crypto';
 import { getServiceRoleClient } from '../lib/supabase.js';
 import { getServerEnv } from '../config/env.js';
 import { createCompatEntity, getCompatEntity, updateCompatEntity } from './compat-store.js';
@@ -45,6 +46,56 @@ function isTimestampOlderThan(value, thresholdMs) {
   const parsed = Date.parse(value || '');
   if (!Number.isFinite(parsed)) return true;
   return Date.now() - parsed > thresholdMs;
+}
+
+function getWorkerState(lastHeartbeatAt, staleThresholdMs) {
+  if (!lastHeartbeatAt) return 'offline';
+  return isTimestampOlderThan(lastHeartbeatAt, staleThresholdMs) ? 'stale' : 'online';
+}
+
+function buildRecoveredPayload(payload = {}, { recoveredAt, workerId, reason }) {
+  return {
+    ...payload,
+    claim_token: null,
+    recovery_count: Number(payload?.recovery_count || 0) + 1,
+    recovered_at: recoveredAt,
+    recovery_reason: reason,
+    recovered_from_worker_id: workerId || '',
+  };
+}
+
+function buildClaimedPayload(payload = {}) {
+  return {
+    ...payload,
+    claim_token: randomUUID(),
+    claimed_at: new Date().toISOString(),
+  };
+}
+
+function assertJobOwnership(job, { workerId = '', claimToken = '', action = 'complete' } = {}) {
+  if (!job) {
+    throw new HttpError(404, 'Instagram download job not found.');
+  }
+
+  const expectedClaimToken = String(job.payload?.claim_token || '');
+  const currentWorkerId = String(job.worker_id || '');
+  const ownershipMismatch = (
+    job.status !== 'processing'
+    || (workerId && currentWorkerId && currentWorkerId !== workerId)
+    || (expectedClaimToken && claimToken !== expectedClaimToken)
+  );
+
+  if (!ownershipMismatch) return;
+
+  console.warn('[instagram-worker] rejected stale worker mutation', {
+    action,
+    jobId: job.id,
+    status: job.status,
+    workerId,
+    currentWorkerId,
+    claimTokenMatches: expectedClaimToken ? claimToken === expectedClaimToken : null,
+  });
+  throw new HttpError(409, 'This Instagram job is no longer owned by the current worker.');
 }
 
 function getProcessingRecoveryThresholdMs() {
@@ -357,6 +408,11 @@ function normalizeJob(row) {
     completed_at: row.completed_at || null,
     payload: row.payload || {},
     job_type: row.payload?.job_type || INSTAGRAM_JOB_TYPE,
+    claim_token: row.payload?.claim_token || '',
+    recovery_count: Number(row.payload?.recovery_count || 0),
+    recovered_at: row.payload?.recovered_at || null,
+    recovery_reason: row.payload?.recovery_reason || '',
+    recovered_from_worker_id: row.payload?.recovered_from_worker_id || '',
     created_at: row.created_at || null,
     updated_at: row.updated_at || null,
   };
@@ -595,6 +651,11 @@ async function recoverStaleInstagramProcessingJobs() {
         completed_at: null,
         worker_id: null,
         last_error: row.last_error || null,
+        payload: buildRecoveredPayload(row.payload || {}, {
+          recoveredAt: now,
+          workerId: row.worker_id || '',
+          reason: 'stale_worker_heartbeat',
+        }),
       })
       .eq('id', row.id)
       .eq('status', 'processing')
@@ -604,6 +665,11 @@ async function recoverStaleInstagramProcessingJobs() {
     if (recovered.error) throw new HttpError(500, recovered.error.message);
     if (recovered.data) {
       const job = normalizeJob(recovered.data);
+      console.warn('[instagram-worker] recovered stale processing job', {
+        jobId: job.id,
+        previousWorkerId: row.worker_id || '',
+        recoveredAt: job.recovered_at,
+      });
       await updateInstagramResourceQueued(job.owner_user_id, job.resource_id, job.id).catch(() => null);
     }
   }
@@ -938,6 +1004,7 @@ export async function retryInstagramDownloadForResource(userId, resourceId) {
 
 export async function getInstagramDownloaderStatusForUser(userId) {
   const env = getServerEnv();
+  const staleMs = Math.max(Number(env.INSTAGRAM_DOWNLOADER_STATUS_STALE_MS || 90000), 10000);
   const settings = await getInstagramDownloaderSettingsForUser(userId);
   const workerRes = await getAdmin()
     .from('instagram_downloader_workers')
@@ -1074,7 +1141,8 @@ export async function getInstagramDownloaderStatusForUser(userId) {
         current_job_id: workerRes.data.current_job_id || '',
         version: workerRes.data.version || '',
         metadata: workerRes.data.metadata || {},
-        online: Date.now() - Date.parse(workerRes.data.last_heartbeat_at) <= Math.max(env.INSTAGRAM_DOWNLOADER_STATUS_STALE_MS || 90000, 10000),
+        state: getWorkerState(workerRes.data.last_heartbeat_at, staleMs),
+        online: getWorkerState(workerRes.data.last_heartbeat_at, staleMs) === 'online',
       }
     : {
         worker_id: '',
@@ -1084,6 +1152,7 @@ export async function getInstagramDownloaderStatusForUser(userId) {
         current_job_id: '',
         version: '',
         metadata: {},
+        state: 'offline',
         online: false,
       };
 
@@ -1092,8 +1161,9 @@ export async function getInstagramDownloaderStatusForUser(userId) {
     if (job.status === 'queued') acc.queued += 1;
     if (job.status === 'processing') acc.processing += 1;
     if (job.status === 'failed') acc.failed += 1;
+    if (job.recovery_reason === 'stale_worker_heartbeat') acc.recovered += 1;
     return acc;
-  }, { total: 0, queued: 0, processing: 0, failed: 0 });
+  }, { total: 0, queued: 0, processing: 0, failed: 0, recovered: 0 });
 
   return {
     worker,
@@ -1147,6 +1217,7 @@ export async function claimNextInstagramDownloadJob(workerId) {
         status: 'processing',
         started_at: new Date().toISOString(),
         worker_id: workerId,
+        payload: buildClaimedPayload(row.payload || {}),
       })
       .eq('id', row.id)
       .eq('status', 'queued')
@@ -1157,6 +1228,12 @@ export async function claimNextInstagramDownloadJob(workerId) {
     if (!claimed.data) continue;
 
     const job = normalizeJob(claimed.data);
+    console.info('[instagram-worker] claimed job', {
+      jobId: job.id,
+      workerId,
+      jobType: job.job_type,
+      resourceId: job.resource_id,
+    });
 
     await updateInstagramResourceProcessing(job.owner_user_id, job.resource_id, workerId).catch(() => null);
 
@@ -1236,6 +1313,11 @@ export async function completeInstagramDownloadJob(jobId, download) {
   if (!result.data) throw new HttpError(404, 'Instagram download job not found.');
 
   const job = normalizeJob(result.data);
+  assertJobOwnership(job, {
+    workerId: download?.worker_id || '',
+    claimToken: download?.claim_token || '',
+    action: 'complete',
+  });
   const resource = job.job_type === YOUTUBE_TRANSCRIPT_JOB_TYPE
     ? await applySuccessfulYouTubeTranscript(job.owner_user_id, job.resource_id, job.source_url, download)
     : await applySuccessfulInstagramDownload(job.owner_user_id, job.resource_id, job.source_url, download, {
@@ -1248,6 +1330,11 @@ export async function completeInstagramDownloadJob(jobId, download) {
     .eq('id', jobId);
 
   if (deleteResult.error) throw new HttpError(500, deleteResult.error.message);
+  console.info('[instagram-worker] completed job', {
+    jobId: job.id,
+    workerId: job.worker_id || download?.worker_id || '',
+    jobType: job.job_type,
+  });
 
   await registerInstagramWorkerHeartbeat({
     workerId: job.worker_id || 'worker',
@@ -1258,6 +1345,9 @@ export async function completeInstagramDownloadJob(jobId, download) {
 }
 
 export async function failInstagramDownloadJob(jobId, errorMessage) {
+  const workerId = typeof errorMessage === 'object' ? (errorMessage?.workerId || '') : '';
+  const claimToken = typeof errorMessage === 'object' ? (errorMessage?.claimToken || '') : '';
+  const resolvedErrorMessage = typeof errorMessage === 'object' ? errorMessage?.message : errorMessage;
   const current = await getAdmin()
     .from('instagram_download_jobs')
     .select('*')
@@ -1268,22 +1358,33 @@ export async function failInstagramDownloadJob(jobId, errorMessage) {
   if (!current.data) throw new HttpError(404, 'Instagram download job not found.');
 
   const row = current.data;
+  assertJobOwnership(normalizeJob(row), {
+    workerId,
+    claimToken,
+    action: 'fail',
+  });
   const retryCount = Number(row.retry_count || 0) + 1;
   const result = await getAdmin()
     .from('instagram_download_jobs')
     .update({
       status: 'failed',
       retry_count: retryCount,
-      last_error: errorMessage || 'Instagram download failed.',
+      last_error: resolvedErrorMessage || 'Instagram download failed.',
       completed_at: new Date().toISOString(),
     })
     .eq('id', jobId)
+    .eq('status', 'processing')
     .select('*')
     .single();
 
   if (result.error) throw new HttpError(500, result.error.message);
 
   const job = normalizeJob(result.data);
+  console.warn('[instagram-worker] failed job', {
+    jobId: job.id,
+    workerId: workerId || job.worker_id || '',
+    error: job.last_error,
+  });
   await updateInstagramResourceFailed(job.owner_user_id, job.resource_id, job.last_error).catch(() => null);
   return job;
 }

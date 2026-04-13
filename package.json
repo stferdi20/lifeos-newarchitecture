@@ -8,6 +8,8 @@
     "dev:web": "vite",
     "dev:api": "node server/dev.js",
     "dev:instagram-downloader": "cd 'instagram-downloader-service' && ./.venv/bin/python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 9001",
+    "worker:install:macos": "zsh 'instagram-downloader-service/scripts/install_launch_agent.sh'",
+    "worker:uninstall:macos": "zsh 'instagram-downloader-service/scripts/uninstall_launch_agent.sh'",
     "build": "vite build",
     "lint": "eslint . --quiet",
     "lint:fix": "eslint . --fix",

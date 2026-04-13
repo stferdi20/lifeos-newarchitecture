@@ -36,6 +36,7 @@ const workerHeartbeatSchema = z.object({
 
 const workerFailSchema = z.object({
   error: z.string().min(1),
+  claim_token: z.string().optional(),
 });
 
 const settingsSchema = z.object({
@@ -94,6 +95,8 @@ const workerCompleteSchema = z.object({
   extractor: z.string().optional(),
   review_state: z.string().optional(),
   review_reason: z.string().optional(),
+  claim_token: z.string().optional(),
+  worker_id: z.string().optional(),
   error: z.string().nullable().optional(),
 });
 
@@ -136,6 +139,8 @@ const workerThumbnailUploadSchema = z.object({
 
 const genericCaptureCompleteSchema = z.object({
   success: z.boolean().optional().default(true),
+  claim_token: z.string().optional(),
+  worker_id: z.string().optional(),
 });
 
 function assertWorkerSecret(c) {
@@ -208,7 +213,11 @@ instagramDownloaderRoutes.post('/worker/claim', async (c) => {
 
 instagramDownloaderRoutes.post('/worker/jobs/:jobId/complete', zValidator('json', workerCompleteSchema), async (c) => {
   assertWorkerSecret(c);
-  const result = await completeInstagramDownloadJob(c.req.param('jobId'), c.req.valid('json'));
+  const body = c.req.valid('json');
+  const result = await completeInstagramDownloadJob(c.req.param('jobId'), {
+    ...body,
+    worker_id: c.req.header('x-worker-id') || body.worker_id || '',
+  });
   return c.json({ success: true, job: result.job, resource: result.resource });
 });
 
@@ -258,7 +267,12 @@ instagramDownloaderRoutes.post('/worker/thumbnails/upload', zValidator('json', w
 
 instagramDownloaderRoutes.post('/worker/jobs/:jobId/fail', zValidator('json', workerFailSchema), async (c) => {
   assertWorkerSecret(c);
-  const job = await failInstagramDownloadJob(c.req.param('jobId'), c.req.valid('json').error);
+  const body = c.req.valid('json');
+  const job = await failInstagramDownloadJob(c.req.param('jobId'), {
+    message: body.error,
+    claimToken: body.claim_token || '',
+    workerId: c.req.header('x-worker-id') || '',
+  });
   return c.json({ success: true, job });
 });
 
@@ -271,13 +285,22 @@ instagramDownloaderRoutes.post('/worker/resource-capture/claim', async (c) => {
 
 instagramDownloaderRoutes.post('/worker/resource-capture/jobs/:jobId/complete', zValidator('json', genericCaptureCompleteSchema), async (c) => {
   assertWorkerSecret(c);
-  const result = await completeGenericCaptureJob(c.req.param('jobId'));
+  const body = c.req.valid('json');
+  const result = await completeGenericCaptureJob(c.req.param('jobId'), {
+    claim_token: body.claim_token || '',
+    worker_id: c.req.header('x-worker-id') || body.worker_id || '',
+  });
   return c.json({ success: true, job: result.job, resource: result.resource });
 });
 
 instagramDownloaderRoutes.post('/worker/resource-capture/jobs/:jobId/fail', zValidator('json', workerFailSchema), async (c) => {
   assertWorkerSecret(c);
-  const job = await failResourceCaptureJob(c.req.param('jobId'), c.req.valid('json').error);
+  const body = c.req.valid('json');
+  const job = await failResourceCaptureJob(c.req.param('jobId'), {
+    message: body.error,
+    claimToken: body.claim_token || '',
+    workerId: c.req.header('x-worker-id') || '',
+  });
   return c.json({ success: true, job });
 });
 

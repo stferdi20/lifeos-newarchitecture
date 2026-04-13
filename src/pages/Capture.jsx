@@ -34,8 +34,7 @@ export default function Capture() {
   const lookupWorkerState = async () => {
     try {
       const response = await apiGet('/instagram-downloader/status');
-      const workerOnline = Boolean(response?.worker?.online);
-      return workerOnline ? 'online' : 'offline';
+      return response?.worker?.state || (response?.worker?.online ? 'online' : 'offline');
     } catch {
       return 'unknown';
     }
@@ -108,6 +107,13 @@ export default function Capture() {
               : 'Saved. Worker is processing this now. Redirecting to Resources...'
           );
           toast.success('Saved to queue. Worker is processing this now.');
+        } else if (workerState === 'stale') {
+          setMessage(
+            isShortcutReturnMode
+              ? 'Saved. Worker heartbeat is stale, so queue recovery will resume this shortly.'
+              : 'Saved. Worker heartbeat is stale, so queue recovery will resume this shortly. Redirecting to Resources...'
+          );
+          toast.success('Saved to queue. Waiting for worker recovery.');
         } else if (workerState === 'offline') {
           setMessage(
             isShortcutReturnMode

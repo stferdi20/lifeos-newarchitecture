@@ -1,4 +1,5 @@
 import { HttpError } from '../lib/http.js';
+import { randomUUID } from 'node:crypto';
 import { getServiceRoleClient } from '../lib/supabase.js';
 import { getServerEnv } from '../config/env.js';
 import { getCompatEntity, updateCompatEntity } from './compat-store.js';
@@ -150,6 +151,11 @@ function normalizeJob(row) {
     completed_at: row.completed_at || null,
     payload: row.payload || {},
     job_type: row.payload?.job_type || YOUTUBE_TRANSCRIPT_JOB_TYPE,
+    claim_token: row.payload?.claim_token || '',
+    recovery_count: Number(row.payload?.recovery_count || 0),
+    recovered_at: row.payload?.recovered_at || null,
+    recovery_reason: row.payload?.recovery_reason || '',
+    recovered_from_worker_id: row.payload?.recovered_from_worker_id || '',
     created_at: row.created_at || null,
     updated_at: row.updated_at || null,
   };
@@ -159,6 +165,56 @@ function isTimestampOlderThan(value, thresholdMs) {
   const parsed = Date.parse(value || '');
   if (!Number.isFinite(parsed)) return true;
   return Date.now() - parsed > thresholdMs;
+}
+
+function getWorkerState(lastHeartbeatAt, staleThresholdMs) {
+  if (!lastHeartbeatAt) return 'offline';
+  return isTimestampOlderThan(lastHeartbeatAt, staleThresholdMs) ? 'stale' : 'online';
+}
+
+function buildRecoveredPayload(payload = {}, { recoveredAt, workerId, reason }) {
+  return {
+    ...payload,
+    claim_token: null,
+    recovery_count: Number(payload?.recovery_count || 0) + 1,
+    recovered_at: recoveredAt,
+    recovery_reason: reason,
+    recovered_from_worker_id: workerId || '',
+  };
+}
+
+function buildClaimedPayload(payload = {}) {
+  return {
+    ...payload,
+    claim_token: randomUUID(),
+    claimed_at: new Date().toISOString(),
+  };
+}
+
+function assertJobOwnership(job, { workerId = '', claimToken = '', action = 'complete' } = {}) {
+  if (!job) {
+    throw new HttpError(404, 'YouTube transcript job not found.');
+  }
+
+  const expectedClaimToken = String(job.payload?.claim_token || '');
+  const currentWorkerId = String(job.worker_id || '');
+  const ownershipMismatch = (
+    job.status !== 'processing'
+    || (workerId && currentWorkerId && currentWorkerId !== workerId)
+    || (expectedClaimToken && claimToken !== expectedClaimToken)
+  );
+
+  if (!ownershipMismatch) return;
+
+  console.warn('[youtube-worker] rejected stale worker mutation', {
+    action,
+    jobId: job.id,
+    status: job.status,
+    workerId,
+    currentWorkerId,
+    claimTokenMatches: expectedClaimToken ? claimToken === expectedClaimToken : null,
+  });
+  throw new HttpError(409, 'This YouTube transcript job is no longer owned by the current worker.');
 }
 
 function getStatusStaleMs() {
@@ -592,7 +648,131 @@ export async function registerYouTubeTranscriptWorkerHeartbeat({
   return result.data;
 }
 
+async function recoverStaleYouTubeTranscriptJobs() {
+  const recoveryThresholdMs = getProcessingRecoveryThresholdMs();
+  const [jobsRes, workersRes] = await Promise.all([
+    getAdmin()
+      .from('youtube_transcript_jobs')
+      .select('*')
+      .eq('status', 'processing')
+      .order('started_at', { ascending: true })
+      .limit(25),
+    getAdmin()
+      .from('youtube_transcript_workers')
+      .select('*'),
+  ]);
+
+  if (jobsRes.error && !isMissingYouTubeTranscriptQueueTableError(jobsRes.error)) {
+    throw new HttpError(500, jobsRes.error.message);
+  }
+  if (workersRes.error && !isMissingYouTubeTranscriptQueueTableError(workersRes.error)) {
+    throw new HttpError(500, workersRes.error.message);
+  }
+
+  if (jobsRes.error || workersRes.error) {
+    const [legacyJobsRes, legacyWorkersRes] = await Promise.all([
+      getAdmin()
+        .from(LEGACY_QUEUE_TABLE)
+        .select('*')
+        .eq('status', 'processing')
+        .order('started_at', { ascending: true })
+        .limit(50),
+      getAdmin()
+        .from(LEGACY_WORKER_TABLE)
+        .select('*'),
+    ]);
+
+    if (legacyJobsRes.error) throw new HttpError(500, legacyJobsRes.error.message);
+    if (legacyWorkersRes.error) throw new HttpError(500, legacyWorkersRes.error.message);
+
+    const workersById = new Map((legacyWorkersRes.data || []).map((worker) => [worker.worker_id, worker]));
+    const now = new Date().toISOString();
+
+    for (const row of (legacyJobsRes.data || []).filter((item) => (item.payload?.job_type || '') === YOUTUBE_TRANSCRIPT_JOB_TYPE)) {
+      const worker = row.worker_id ? workersById.get(row.worker_id) : null;
+      const workerHeartbeatStale = !worker || isTimestampOlderThan(worker.last_heartbeat_at, recoveryThresholdMs);
+      const jobStartedTooLongAgo = isTimestampOlderThan(row.started_at || row.updated_at || row.created_at, recoveryThresholdMs);
+      if (!workerHeartbeatStale || !jobStartedTooLongAgo) continue;
+
+      const recovered = await getAdmin()
+        .from(LEGACY_QUEUE_TABLE)
+        .update({
+          status: 'queued',
+          scheduled_for: now,
+          started_at: null,
+          completed_at: null,
+          worker_id: null,
+          last_error: row.last_error || null,
+          payload: buildRecoveredPayload(row.payload || {}, {
+            recoveredAt: now,
+            workerId: row.worker_id || '',
+            reason: 'stale_worker_heartbeat',
+          }),
+        })
+        .eq('id', row.id)
+        .eq('status', 'processing')
+        .select('*')
+        .maybeSingle();
+
+      if (recovered.error) throw new HttpError(500, recovered.error.message);
+      if (recovered.data) {
+        const job = normalizeJob(recovered.data);
+        console.warn('[youtube-worker] recovered stale processing job', {
+          jobId: job.id,
+          previousWorkerId: row.worker_id || '',
+          recoveredAt: job.recovered_at,
+        });
+        await updateYouTubeTranscriptQueued(job.owner_user_id, job.resource_id, job.id).catch(() => null);
+      }
+    }
+    return;
+  }
+
+  const workersById = new Map((workersRes.data || []).map((worker) => [worker.worker_id, worker]));
+  const now = new Date().toISOString();
+
+  for (const row of jobsRes.data || []) {
+    const worker = row.worker_id ? workersById.get(row.worker_id) : null;
+    const workerHeartbeatStale = !worker || isTimestampOlderThan(worker.last_heartbeat_at, recoveryThresholdMs);
+    const jobStartedTooLongAgo = isTimestampOlderThan(row.started_at || row.updated_at || row.created_at, recoveryThresholdMs);
+    if (!workerHeartbeatStale || !jobStartedTooLongAgo) continue;
+
+    const recovered = await getAdmin()
+      .from('youtube_transcript_jobs')
+      .update({
+        status: 'queued',
+        scheduled_for: now,
+        started_at: null,
+        completed_at: null,
+        worker_id: null,
+        last_error: row.last_error || null,
+        payload: buildRecoveredPayload(row.payload || {}, {
+          recoveredAt: now,
+          workerId: row.worker_id || '',
+          reason: 'stale_worker_heartbeat',
+        }),
+      })
+      .eq('id', row.id)
+      .eq('status', 'processing')
+      .select('*')
+      .maybeSingle();
+
+    if (recovered.error) throw new HttpError(500, recovered.error.message);
+    if (recovered.data) {
+      const job = normalizeJob(recovered.data);
+      console.warn('[youtube-worker] recovered stale processing job', {
+        jobId: job.id,
+        previousWorkerId: row.worker_id || '',
+        recoveredAt: job.recovered_at,
+      });
+      await updateYouTubeTranscriptQueued(job.owner_user_id, job.resource_id, job.id).catch(() => null);
+    }
+  }
+}
+
 export async function claimNextYouTubeTranscriptJob(workerId) {
+  await recoverStaleYouTubeTranscriptJobs();
+
   const queued = await getAdmin()
     .from('youtube_transcript_jobs')
     .select('*')
@@ -623,6 +803,7 @@ export async function claimNextYouTubeTranscriptJob(workerId) {
           status: 'processing',
           started_at: new Date().toISOString(),
           worker_id: workerId,
+          payload: buildClaimedPayload(row.payload || {}),
         })
         .eq('id', row.id)
         .eq('status', 'queued')
@@ -633,6 +814,11 @@ export async function claimNextYouTubeTranscriptJob(workerId) {
       if (!claimed.data) continue;
 
       const job = normalizeJob(claimed.data);
+      console.info('[youtube-worker] claimed job', {
+        jobId: job.id,
+        workerId,
+        resourceId: job.resource_id,
+      });
       await updateYouTubeTranscriptProcessing(job.owner_user_id, job.resource_id, workerId, job.id).catch(() => null);
       return {
         job,
@@ -650,6 +836,7 @@ export async function claimNextYouTubeTranscriptJob(workerId) {
         status: 'processing',
         started_at: new Date().toISOString(),
         worker_id: workerId,
+        payload: buildClaimedPayload(row.payload || {}),
       })
       .eq('id', row.id)
       .eq('status', 'queued')
@@ -660,6 +847,11 @@ export async function claimNextYouTubeTranscriptJob(workerId) {
     if (!claimed.data) continue;
 
     const job = normalizeJob(claimed.data);
+    console.info('[youtube-worker] claimed job', {
+      jobId: job.id,
+      workerId,
+      resourceId: job.resource_id,
+    });
     await updateYouTubeTranscriptProcessing(job.owner_user_id, job.resource_id, workerId, job.id).catch(() => null);
     return {
       job,
@@ -695,6 +887,11 @@ export async function completeYouTubeTranscriptJob(jobId, transcript) {
   if (!row) throw new HttpError(404, 'YouTube transcript job not found.');
 
   const job = normalizeJob(row);
+  assertJobOwnership(job, {
+    workerId: transcript?.worker_id || '',
+    claimToken: transcript?.claim_token || '',
+    action: 'complete',
+  });
   const normalizedTranscript = normalizeYouTubeTranscriptResult(transcript);
 
   let resource;
@@ -717,6 +914,11 @@ export async function completeYouTubeTranscriptJob(jobId, transcript) {
     .eq('id', jobId);
 
   if (deleteResult.error) throw new HttpError(500, deleteResult.error.message);
+  console.info('[youtube-worker] completed job', {
+    jobId: job.id,
+    workerId: job.worker_id || transcript?.worker_id || '',
+    resourceId: job.resource_id,
+  });
 
   await registerYouTubeTranscriptWorkerHeartbeat({
     workerId: job.worker_id || 'worker',
@@ -727,6 +929,9 @@ export async function completeYouTubeTranscriptJob(jobId, transcript) {
 }
 
 export async function failYouTubeTranscriptJob(jobId, errorMessage) {
+  const workerId = typeof errorMessage === 'object' ? (errorMessage?.workerId || '') : '';
+  const claimToken = typeof errorMessage === 'object' ? (errorMessage?.claimToken || '') : '';
+  const resolvedErrorMessage = typeof errorMessage === 'object' ? (errorMessage?.message || '') : errorMessage;
   const current = await getAdmin()
     .from('youtube_transcript_jobs')
     .select('*')
@@ -750,28 +955,40 @@ export async function failYouTubeTranscriptJob(jobId, errorMessage) {
 
   if (!row) throw new HttpError(404, 'YouTube transcript job not found.');
 
+  assertJobOwnership(normalizeJob(row), {
+    workerId,
+    claimToken,
+    action: 'fail',
+  });
   const retryCount = Number(row.retry_count || 0) + 1;
   const result = await getAdmin()
     .from(current.error ? LEGACY_QUEUE_TABLE : 'youtube_transcript_jobs')
     .update({
       status: 'failed',
       retry_count: retryCount,
-      last_error: errorMessage || 'YouTube transcript failed.',
+      last_error: resolvedErrorMessage || 'YouTube transcript failed.',
       completed_at: new Date().toISOString(),
     })
     .eq('id', jobId)
+    .eq('status', 'processing')
     .select('*')
     .single();
 
   if (result.error) throw new HttpError(500, result.error.message);
 
   const job = normalizeJob(result.data);
+  console.warn('[youtube-worker] failed job', {
+    jobId: job.id,
+    workerId: workerId || job.worker_id || '',
+    error: job.last_error,
+  });
   await updateYouTubeTranscriptFailed(job.owner_user_id, job.resource_id, job.last_error).catch(() => null);
   return job;
 }
 
 export async function getYouTubeTranscriptStatusForUser(userId) {
   const env = getServerEnv();
+  const staleMs = getStatusStaleMs();
   const settings = await getYouTubeTranscriptSettingsForUser(userId);
 
   const workerRes = await getAdmin()
@@ -818,19 +1035,32 @@ export async function getYouTubeTranscriptStatusForUser(userId) {
   for (const job of jobs) {
     if (job.status !== 'processing') continue;
     if (!isTimestampOlderThan(job.started_at || job.requested_at || job.created_at, thresholdMs)) continue;
+    const recoveredAt = new Date().toISOString();
     await getAdmin()
       .from(jobsRes.error ? LEGACY_QUEUE_TABLE : 'youtube_transcript_jobs')
       .update({
         status: 'queued',
+        scheduled_for: recoveredAt,
         started_at: null,
+        completed_at: null,
         worker_id: null,
-        updated_at: new Date().toISOString(),
+        updated_at: recoveredAt,
+        payload: buildRecoveredPayload(job.payload || {}, {
+          recoveredAt,
+          workerId: job.worker_id || '',
+          reason: 'stale_worker_heartbeat',
+        }),
       })
       .eq('id', job.id)
       .eq('status', 'processing')
       .select('*')
       .maybeSingle()
       .catch(() => null);
+    console.warn('[youtube-worker] recovered stale processing job from status repair', {
+      jobId: job.id,
+      previousWorkerId: job.worker_id || '',
+      recoveredAt,
+    });
     await updateYouTubeTranscriptQueued(userId, job.resource_id, job.id).catch(() => null);
     repaired = true;
   }
@@ -854,8 +1084,9 @@ export async function getYouTubeTranscriptStatusForUser(userId) {
     if (job.status === 'queued') acc.queued += 1;
     if (job.status === 'processing') acc.processing += 1;
     if (job.status === 'failed') acc.failed += 1;
+    if (job.recovery_reason === 'stale_worker_heartbeat') acc.recovered += 1;
     return acc;
-  }, { total: 0, queued: 0, processing: 0, failed: 0 });
+  }, { total: 0, queued: 0, processing: 0, failed: 0, recovered: 0 });
 
   const workerRow = workerRes.error
     ? await getAdmin()
@@ -879,7 +1110,8 @@ export async function getYouTubeTranscriptStatusForUser(userId) {
         current_job_id: workerRow.current_job_id || '',
         version: workerRow.version || '',
         metadata: workerRow.metadata || {},
-        online: !isTimestampOlderThan(workerRow.last_heartbeat_at, getStatusStaleMs()),
+        state: getWorkerState(workerRow.last_heartbeat_at, staleMs),
+        online: getWorkerState(workerRow.last_heartbeat_at, staleMs) === 'online',
       }
     : {
         worker_id: '',
@@ -889,6 +1121,7 @@ export async function getYouTubeTranscriptStatusForUser(userId) {
         current_job_id: '',
         version: '',
         metadata: {},
+        state: 'offline',
         online: false,
       };
 

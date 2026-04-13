@@ -28,6 +28,7 @@ const workerHeartbeatSchema = z.object({
 
 const workerFailSchema = z.object({
   error: z.string().min(1),
+  claim_token: z.string().optional(),
 });
 
 const workerCompleteSchema = z.object({
@@ -39,6 +40,8 @@ const workerCompleteSchema = z.object({
   error: z.string().nullable().optional(),
   transcript_source: z.string().optional(),
   selected_mode: z.string().optional(),
+  claim_token: z.string().optional(),
+  worker_id: z.string().optional(),
 });
 
 const settingsSchema = z.object({
@@ -113,13 +116,22 @@ youtubeTranscriptRoutes.post('/worker/claim', async (c) => {
 
 youtubeTranscriptRoutes.post('/worker/jobs/:jobId/complete', zValidator('json', workerCompleteSchema), async (c) => {
   assertWorkerSecret(c);
-  const result = await completeYouTubeTranscriptJob(c.req.param('jobId'), c.req.valid('json'));
+  const body = c.req.valid('json');
+  const result = await completeYouTubeTranscriptJob(c.req.param('jobId'), {
+    ...body,
+    worker_id: c.req.header('x-worker-id') || body.worker_id || '',
+  });
   return c.json({ success: true, job: result.job, resource: result.resource });
 });
 
 youtubeTranscriptRoutes.post('/worker/jobs/:jobId/fail', zValidator('json', workerFailSchema), async (c) => {
   assertWorkerSecret(c);
-  const result = await failYouTubeTranscriptJob(c.req.param('jobId'), c.req.valid('json').error);
+  const body = c.req.valid('json');
+  const result = await failYouTubeTranscriptJob(c.req.param('jobId'), {
+    message: body.error,
+    claimToken: body.claim_token || '',
+    workerId: c.req.header('x-worker-id') || '',
+  });
   return c.json({ success: true, job: result });
 });
 

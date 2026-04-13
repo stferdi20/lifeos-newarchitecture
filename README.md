@@ -165,6 +165,13 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --host 127.0.0.1 --port 9001
 ```
 
+For local Mac use, you can install the included LaunchAgent so the worker restarts automatically after login or reboot:
+
+```bash
+cd "/Users/stefanusferdi/Documents/Data Penting/Antigravity Projects/LifeOS Trifecta/lifeos-new architecture"
+npm run worker:install:macos
+```
+
 For Instagram reel preview images, make sure `ffmpeg` is installed on the Mac running the local worker.
 
 Then point the existing backend at it:
@@ -187,9 +194,13 @@ Queue-backed production flow:
 - the web app submits Instagram URLs to the Vercel-backed API
 - the API creates a visible pending resource and queue job
 - your self-hosted Python worker polls the queue when it is online
+- stale in-flight jobs are requeued automatically after heartbeat loss, so sleep/reboot does not leave them stuck forever
 - on success, media is uploaded to Google Drive and the pending resource is updated
 - successful queue rows are deleted so the queue stays small
 - repeated image and thumbnail uploads now reuse content-addressed storage paths, which keeps identical assets from minting a new Supabase object and helps browser caching work across refreshes
+
+For personal/local use, OS-level auto-start is acceptable.
+For a future shipped SaaS version, prefer letting the menubar app own worker restart behavior instead of relying on an invisible OS daemon.
 
 Third-party public provider calls are backend-owned now. Stock search, crypto search, CoinGecko FX conversion, and TCG lookups run through `/api`, so Vercel does not need separate frontend env vars for those services.
 

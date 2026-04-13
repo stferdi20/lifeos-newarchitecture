@@ -1,7 +1,7 @@
 import React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { formatDistanceToNow } from 'date-fns';
-import { CheckCircle2, Loader2, RefreshCw, ServerCrash, TimerReset, Youtube } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, ServerCrash, TimerReset, Youtube } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   getYouTubeTranscriptSettings,
@@ -10,9 +10,39 @@ import {
   updateYouTubeTranscriptSettings,
 } from '@/lib/youtube-transcript-api';
 
-function StatusDot({ online }) {
+function getWorkerPresentation(state = 'offline') {
+  switch (state) {
+    case 'online':
+      return {
+        dotClass: 'bg-emerald-400 shadow-[0_0_12px_rgba(74,222,128,0.75)]',
+        badgeClass: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
+        icon: CheckCircle2,
+        label: 'Running',
+        summary: 'YouTube Transcript System is running',
+      };
+    case 'stale':
+      return {
+        dotClass: 'bg-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.55)]',
+        badgeClass: 'border-amber-500/30 bg-amber-500/10 text-amber-200',
+        icon: AlertTriangle,
+        label: 'Stale',
+        summary: 'Worker heartbeat is stale. Queue recovery is active.',
+      };
+    default:
+      return {
+        dotClass: 'bg-rose-400',
+        badgeClass: 'border-rose-500/30 bg-rose-500/10 text-rose-200',
+        icon: ServerCrash,
+        label: 'Offline',
+        summary: 'YouTube Transcript System is offline',
+      };
+  }
+}
+
+function StatusDot({ state }) {
+  const presentation = getWorkerPresentation(state);
   return (
-    <span className={`inline-flex h-2.5 w-2.5 rounded-full ${online ? 'bg-emerald-400 shadow-[0_0_12px_rgba(74,222,128,0.75)]' : 'bg-amber-400'}`} />
+    <span className={`inline-flex h-2.5 w-2.5 rounded-full ${presentation.dotClass}`} />
   );
 }
 
@@ -63,7 +93,10 @@ export default function YouTubeTranscriptPanel() {
     },
   });
 
-  const worker = statusQuery.data?.worker || { online: false, label: 'YouTube Transcript Worker', last_heartbeat_at: null };
+  const worker = statusQuery.data?.worker || { online: false, state: 'offline', label: 'YouTube Transcript Worker', last_heartbeat_at: null };
+  const workerState = worker.state || (worker.online ? 'online' : 'offline');
+  const workerPresentation = getWorkerPresentation(workerState);
+  const WorkerStateIcon = workerPresentation.icon;
   const queue = statusQuery.data?.queue || { queued: 0, processing: 0, failed: 0, items: [] };
 
   return (
@@ -82,10 +115,10 @@ export default function YouTubeTranscriptPanel() {
       </div>
 
       <div className="mt-4 flex items-center gap-3 rounded-xl border border-border/40 bg-secondary/20 p-3">
-        <StatusDot online={worker.online} />
+        <StatusDot state={workerState} />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-foreground">
-            {worker.online ? 'YouTube Transcript System is running' : 'YouTube Transcript System is offline'}
+            {workerPresentation.summary}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
             {worker.last_heartbeat_at
@@ -93,11 +126,17 @@ export default function YouTubeTranscriptPanel() {
               : 'No worker heartbeat received yet.'}
           </p>
         </div>
-        <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] ${worker.online ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' : 'border-amber-500/30 bg-amber-500/10 text-amber-200'}`}>
-          {worker.online ? <CheckCircle2 className="h-3 w-3" /> : <ServerCrash className="h-3 w-3" />}
-          {worker.online ? 'Running' : 'Offline'}
+        <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] ${workerPresentation.badgeClass}`}>
+          <WorkerStateIcon className="h-3 w-3" />
+          {workerPresentation.label}
         </span>
       </div>
+
+      {queue.recovered ? (
+        <div className="mt-3 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+          {queue.recovered} queued job{queue.recovered !== 1 ? 's were' : ' was'} auto-recovered after a stale worker heartbeat.
+        </div>
+      ) : null}
 
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
         <div className="rounded-xl border border-border/40 bg-secondary/20 p-3">
@@ -207,6 +246,11 @@ export default function YouTubeTranscriptPanel() {
                 </span>
               </div>
               {item.last_error ? <p className="mt-2 text-xs text-amber-200">{item.last_error}</p> : null}
+              {item.recovery_reason === 'stale_worker_heartbeat' && item.recovered_at ? (
+                <p className="mt-2 text-xs text-amber-100">
+                  Auto-requeued {formatDistanceToNow(new Date(item.recovered_at), { addSuffix: true })} after the previous worker heartbeat went stale.
+                </p>
+              ) : null}
             </div>
           ))
         ) : (

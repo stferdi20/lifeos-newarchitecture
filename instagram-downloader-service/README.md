@@ -44,6 +44,30 @@ cd "/Users/stefanusferdi/Documents/Data Penting/Antigravity Projects/LifeOS Trif
 uvicorn app.main:app --reload --host 127.0.0.1 --port 9001
 ```
 
+## macOS Auto-Start
+
+For local development and personal ops on your own Mac, the repo now includes a LaunchAgent installer so the worker comes back after login or reboot:
+
+```bash
+cd "/Users/stefanusferdi/Documents/Data Penting/Antigravity Projects/LifeOS Trifecta/lifeos-new architecture"
+npm run worker:install:macos
+```
+
+That command writes `~/Library/LaunchAgents/com.lifeos.instagram-downloader.plist`, starts it immediately, and keeps logs in `~/Library/Logs/LifeOS/`.
+
+Useful commands:
+
+```bash
+npm run worker:uninstall:macos
+tail -f ~/Library/Logs/LifeOS/instagram-downloader.log
+tail -f ~/Library/Logs/LifeOS/instagram-downloader-error.log
+```
+
+The LaunchAgent uses [`scripts/run_worker.sh`](/Users/stefanusferdi/Documents/Data%20Penting/Antigravity%20Projects/LifeOS%20Trifecta/lifeos-new%20architecture/instagram-downloader-service/scripts/run_worker.sh), so make sure `.venv` exists and your worker `.env` / `.env.local` is already set up first.
+
+For now, this OS-level startup path is the recommended local setup on your own machine.
+For future SaaS-style distribution, prefer making the menubar app own worker startup and restart behavior so users can see, control, and uninstall that background work more safely.
+
 Optional environment variables:
 
 ```bash
@@ -157,3 +181,11 @@ curl -X POST http://127.0.0.1:9001/youtube-transcript \
 - Your existing web app should call the current Node backend route, not this service directly. The app-facing route is `POST /api/resources/instagram-download`.
 - The main backend now uses the same worker for queued Instagram downloads and queued YouTube transcript jobs.
 - If `LIFEOS_API_BASE_URL` and `YOUTUBE_TRANSCRIPT_WORKER_SHARED_SECRET` are set, the worker polls the backend queue and processes both job types automatically. The legacy `INSTAGRAM_DOWNLOADER_SHARED_SECRET` still works as a fallback.
+- If a Mac sleeps or powers off mid-job, the backend now requeues stale `processing` jobs automatically after the heartbeat goes stale long enough. Late completion attempts from the old worker are rejected with a claim token check so they cannot overwrite the newer queue owner.
+
+## Queue Recovery Runbook
+
+- If the worker shows `stale`, the backend has stopped receiving heartbeats but will auto-requeue stuck `processing` jobs after the stale recovery threshold.
+- If the worker shows `offline`, no heartbeat has been recorded recently; queued jobs stay safe and will resume after the worker returns.
+- If the queue looks stuck after reboot, first check `~/Library/Logs/LifeOS/instagram-downloader-error.log`, then run `launchctl print "gui/$(id -u)/com.lifeos.instagram-downloader"` to confirm the LaunchAgent is loaded.
+- If jobs are still stuck in `processing`, open the Settings status panel or call the worker claim routes again; the backend now logs stale recovery and rejected late completions to help trace ownership issues.

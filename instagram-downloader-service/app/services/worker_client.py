@@ -194,55 +194,90 @@ class WorkerLoop:
         return payload.get("job")
 
     async def complete_job(self, client: httpx.AsyncClient, job_id: str, download: DownloadResponse):
+        payload = download.model_dump()
+        payload["worker_id"] = self.worker_id
         response = await client.post(
             f"{self.api_base_url}/instagram-downloader/worker/jobs/{job_id}/complete",
-            headers={"x-downloader-secret": self.shared_secret},
-            json=download.model_dump(),
+            headers={
+                "x-downloader-secret": self.shared_secret,
+                "x-worker-id": self.worker_id,
+            },
+            json=payload,
             timeout=60.0,
         )
         response.raise_for_status()
 
     async def complete_youtube_transcript_job(self, client: httpx.AsyncClient, job_id: str, transcript):
+        payload = transcript.model_dump()
+        payload["worker_id"] = self.worker_id
         response = await client.post(
             f"{self.api_base_url}/youtube-transcript/worker/jobs/{job_id}/complete",
-            headers={"x-downloader-secret": self.shared_secret},
-            json=transcript.model_dump(),
+            headers={
+                "x-downloader-secret": self.shared_secret,
+                "x-worker-id": self.worker_id,
+            },
+            json=payload,
             timeout=60.0,
         )
         response.raise_for_status()
 
-    async def fail_job(self, client: httpx.AsyncClient, job_id: str, error_message: str):
+    async def fail_job(self, client: httpx.AsyncClient, job_id: str, error_message: str, claim_token: str = ""):
         response = await client.post(
             f"{self.api_base_url}/instagram-downloader/worker/jobs/{job_id}/fail",
-            headers={"x-downloader-secret": self.shared_secret},
-            json={"error": error_message},
+            headers={
+                "x-downloader-secret": self.shared_secret,
+                "x-worker-id": self.worker_id,
+            },
+            json={
+                "error": error_message,
+                "claim_token": claim_token,
+            },
             timeout=30.0,
         )
         response.raise_for_status()
 
-    async def fail_youtube_transcript_job(self, client: httpx.AsyncClient, job_id: str, error_message: str):
+    async def fail_youtube_transcript_job(self, client: httpx.AsyncClient, job_id: str, error_message: str, claim_token: str = ""):
         response = await client.post(
             f"{self.api_base_url}/youtube-transcript/worker/jobs/{job_id}/fail",
-            headers={"x-downloader-secret": self.shared_secret},
-            json={"error": error_message},
+            headers={
+                "x-downloader-secret": self.shared_secret,
+                "x-worker-id": self.worker_id,
+            },
+            json={
+                "error": error_message,
+                "claim_token": claim_token,
+            },
             timeout=30.0,
         )
         response.raise_for_status()
 
-    async def complete_resource_capture_job(self, client: httpx.AsyncClient, job_id: str):
+    async def complete_resource_capture_job(self, client: httpx.AsyncClient, job_id: str, claim_token: str = ""):
         response = await client.post(
             f"{self.api_base_url}/instagram-downloader/worker/resource-capture/jobs/{job_id}/complete",
-            headers={"x-downloader-secret": self.shared_secret},
-            json={"success": True},
+            headers={
+                "x-downloader-secret": self.shared_secret,
+                "x-worker-id": self.worker_id,
+            },
+            json={
+                "success": True,
+                "claim_token": claim_token,
+                "worker_id": self.worker_id,
+            },
             timeout=180.0,
         )
         response.raise_for_status()
 
-    async def fail_resource_capture_job(self, client: httpx.AsyncClient, job_id: str, error_message: str):
+    async def fail_resource_capture_job(self, client: httpx.AsyncClient, job_id: str, error_message: str, claim_token: str = ""):
         response = await client.post(
             f"{self.api_base_url}/instagram-downloader/worker/resource-capture/jobs/{job_id}/fail",
-            headers={"x-downloader-secret": self.shared_secret},
-            json={"error": error_message},
+            headers={
+                "x-downloader-secret": self.shared_secret,
+                "x-worker-id": self.worker_id,
+            },
+            json={
+                "error": error_message,
+                "claim_token": claim_token,
+            },
             timeout=30.0,
         )
         response.raise_for_status()
@@ -345,7 +380,9 @@ class WorkerLoop:
         job = claimed_job.get("job") or {}
         google_drive = claimed_job.get("google_drive") or {}
         job_type = (job.get("payload") or {}).get("job_type") or INSTAGRAM_JOB_TYPE
+        claim_token = (job.get("payload") or {}).get("claim_token") or ""
         self.current_job_id = job.get("id")
+        logger.info("Claimed worker job", extra={"job_id": job.get("id"), "job_type": job_type, "worker_id": self.worker_id})
 
         async def send_heartbeat():
             await self.heartbeat(
@@ -362,7 +399,7 @@ class WorkerLoop:
 
         try:
             if job_type == RESOURCE_CAPTURE_JOB_TYPE:
-                await self.complete_resource_capture_job(client, job["id"])
+                await self.complete_resource_capture_job(client, job["id"], claim_token)
             elif job_type == YOUTUBE_TRANSCRIPT_JOB_TYPE:
                 settings = claimed_job.get("settings") or {}
                 transcript = await fetch_youtube_transcript(
@@ -376,6 +413,7 @@ class WorkerLoop:
                         prefer_manual_captions=bool(settings.get("prefer_manual_captions", True)),
                     )
                 )
+                transcript.claim_token = claim_token
                 await self.complete_youtube_transcript_job(client, job["id"], transcript)
             else:
                 download_dir = None
@@ -447,6 +485,7 @@ class WorkerLoop:
                         extractor=metadata.get("extractor"),
                         review_state=metadata.get("review_state"),
                         review_reason=metadata.get("review_reason"),
+                        claim_token=claim_token,
                         error=None,
                     )
                     await self.complete_job(client, job["id"], download)
@@ -456,19 +495,33 @@ class WorkerLoop:
         except InstagramDownloaderError as error:
             logger.exception("Worker job failed with InstagramDownloaderError", extra={"job_id": job.get("id"), "job_type": job_type})
             if job_type == RESOURCE_CAPTURE_JOB_TYPE:
-                await self.fail_resource_capture_job(client, job["id"], error.message)
+                await self.fail_resource_capture_job(client, job["id"], error.message, claim_token)
             elif job_type == YOUTUBE_TRANSCRIPT_JOB_TYPE:
-                await self.fail_youtube_transcript_job(client, job["id"], error.message)
+                await self.fail_youtube_transcript_job(client, job["id"], error.message, claim_token)
             else:
-                await self.fail_job(client, job["id"], error.message)
+                await self.fail_job(client, job["id"], error.message, claim_token)
+        except httpx.HTTPStatusError as error:
+            if error.response is not None and error.response.status_code == 409:
+                logger.warning(
+                    "Worker job ownership changed; ignoring stale completion attempt",
+                    extra={"job_id": job.get("id"), "job_type": job_type, "worker_id": self.worker_id},
+                )
+            else:
+                logger.exception("Worker job failed with upstream HTTP error", extra={"job_id": job.get("id"), "job_type": job_type})
+                if job_type == RESOURCE_CAPTURE_JOB_TYPE:
+                    await self.fail_resource_capture_job(client, job["id"], str(error), claim_token)
+                elif job_type == YOUTUBE_TRANSCRIPT_JOB_TYPE:
+                    await self.fail_youtube_transcript_job(client, job["id"], str(error), claim_token)
+                else:
+                    await self.fail_job(client, job["id"], str(error), claim_token)
         except Exception as error:
             logger.exception("Worker job failed", extra={"job_id": job.get("id"), "job_type": job_type})
             if job_type == RESOURCE_CAPTURE_JOB_TYPE:
-                await self.fail_resource_capture_job(client, job["id"], str(error))
+                await self.fail_resource_capture_job(client, job["id"], str(error), claim_token)
             elif job_type == YOUTUBE_TRANSCRIPT_JOB_TYPE:
-                await self.fail_youtube_transcript_job(client, job["id"], str(error))
+                await self.fail_youtube_transcript_job(client, job["id"], str(error), claim_token)
             else:
-                await self.fail_job(client, job["id"], str(error))
+                await self.fail_job(client, job["id"], str(error), claim_token)
         finally:
             heartbeat_task.cancel()
             with suppress(asyncio.CancelledError):

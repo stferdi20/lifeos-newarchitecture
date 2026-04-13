@@ -70,6 +70,8 @@ class DownloadResponse(BaseModel):
     extractor: str | None = None
     review_state: str | None = None
     review_reason: str | None = None
+    claim_token: str | None = None
+    worker_id: str | None = None
     error: str | None = None
 
 
@@ -88,6 +90,8 @@ class YouTubeTranscriptResponse(BaseModel):
     error: str | None = None
     transcript_source: str = "worker_youtube_transcript_api"
     selected_mode: str = ""
+    claim_token: str | None = None
+    worker_id: str | None = None
 
 
 class WorkerHeartbeatRequest(BaseModel):
