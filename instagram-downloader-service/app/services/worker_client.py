@@ -193,9 +193,11 @@ class WorkerLoop:
         payload = response.json()
         return payload.get("job")
 
-    async def complete_job(self, client: httpx.AsyncClient, job_id: str, download: DownloadResponse):
+    async def complete_job(self, client: httpx.AsyncClient, job_id: str, download: DownloadResponse, claim_token: str = ""):
         payload = download.model_dump()
         payload["worker_id"] = self.worker_id
+        if claim_token and not payload.get("claim_token"):
+            payload["claim_token"] = claim_token
         response = await client.post(
             f"{self.api_base_url}/instagram-downloader/worker/jobs/{job_id}/complete",
             headers={
@@ -488,7 +490,7 @@ class WorkerLoop:
                         claim_token=claim_token,
                         error=None,
                     )
-                    await self.complete_job(client, job["id"], download)
+                    await self.complete_job(client, job["id"], download, claim_token)
                 finally:
                     if download_dir:
                         cleanup_download_dir(download_dir)
