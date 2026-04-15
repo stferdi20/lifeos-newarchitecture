@@ -60,6 +60,8 @@ async function storeGoogleTokens({ userId, service, tokenPayload }) {
     status: 'connected',
     scope: tokenPayload.scope || GOOGLE_SERVICE_SCOPES[service].join(' '),
     last_connected_at: new Date().toISOString(),
+    disconnected_at: null,
+    reconnect_reason: null,
   }, { onConflict: 'user_id,service' });
   if (connectionResult.error) throw new HttpError(500, connectionResult.error.message);
 
@@ -93,6 +95,96 @@ async function markConnectionReconnectRequired(userId, service, reason) {
     .eq('service', service);
 
   if (result.error) throw new HttpError(500, result.error.message);
+}
+
+async function markConnectionReconnectRequiredSafely(userId, service, reason) {
+  try {
+    await markConnectionReconnectRequired(userId, service, reason);
+  } catch {
+    // Preserve the original Google auth failure if the status row cannot be updated.
+  }
+}
+
+function isReconnectRequiredError(error) {
+  return error instanceof HttpError && error.status === 409;
+}
+
+function isTemporaryGoogleError(error) {
+  return error instanceof HttpError && error.status === 502;
+}
+
+function isStoredTokenDataError(error) {
+  if (!(error instanceof HttpError) || error.status !== 500) return false;
+
+  return [
+    'Stored Google token payload is malformed.',
+    'Missing GOOGLE_TOKEN_ENCRYPTION_KEY for Google token storage.',
+  ].includes(error.message);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isPermanentRefreshFailure(refreshRes, refreshPayload) {
+  const errorCode = String(refreshPayload?.error || '').trim().toLowerCase();
+  if (errorCode === 'invalid_grant' || errorCode === 'invalid_client' || errorCode === 'unauthorized_client') {
+    return true;
+  }
+
+  return refreshRes.status === 400;
+}
+
+function getRefreshFailureMessage(service, refreshPayload) {
+  return refreshPayload?.error_description
+    || refreshPayload?.error
+    || `Failed to refresh Google ${service} token.`;
+}
+
+async function refreshGoogleAccessToken({ service, refreshToken, env }) {
+  let lastError = null;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const refreshRes = await fetch(GOOGLE_TOKEN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: env.GOOGLE_CLIENT_ID,
+          client_secret: env.GOOGLE_CLIENT_SECRET,
+          refresh_token: refreshToken,
+          grant_type: 'refresh_token',
+        }),
+      });
+
+      const refreshPayload = await refreshRes.json().catch(() => null);
+      if (refreshRes.ok) {
+        return { refreshPayload };
+      }
+
+      if (isPermanentRefreshFailure(refreshRes, refreshPayload)) {
+        return {
+          refreshPayload,
+          permanentFailure: true,
+          reason: getRefreshFailureMessage(service, refreshPayload),
+        };
+      }
+
+      lastError = new HttpError(502, `Temporary Google ${service} token refresh failure.`, {
+        details: refreshPayload,
+      });
+    } catch (error) {
+      lastError = new HttpError(502, `Temporary Google ${service} token refresh failure.`, {
+        details: { cause: error instanceof Error ? error.message : String(error || 'Unknown error') },
+      });
+    }
+
+    if (attempt < 2) {
+      await sleep(250 * (attempt + 1));
+    }
+  }
+
+  throw lastError || new HttpError(502, `Temporary Google ${service} token refresh failure.`);
 }
 
 export async function exchangeGoogleCode(reqUrl) {
@@ -180,11 +272,25 @@ export async function listGoogleConnections(userId) {
       await getGoogleAccessToken(userId, connection.service);
       return connection;
     } catch (error) {
-      if (error instanceof HttpError && (error.status === 409 || error.status === 502)) {
+      if (isReconnectRequiredError(error)) {
         return {
           ...connection,
           status: 'reconnect_required',
           reconnect_reason: error.message,
+        };
+      }
+
+      if (isTemporaryGoogleError(error)) {
+        return connection;
+      }
+
+      if (isStoredTokenDataError(error)) {
+        const reconnectReason = `Google ${connection.service} needs to be reconnected.`;
+        await markConnectionReconnectRequiredSafely(userId, connection.service, reconnectReason);
+        return {
+          ...connection,
+          status: 'reconnect_required',
+          reconnect_reason: reconnectReason,
         };
       }
 
@@ -214,7 +320,16 @@ export async function getGoogleAccessToken(userId, service) {
   const stillValid = expiresAt && expiresAt > (Date.now() + 60_000);
 
   if (stillValid && tokenRow.encrypted_access_token) {
-    return decryptSecret(tokenRow.encrypted_access_token);
+    try {
+      return decryptSecret(tokenRow.encrypted_access_token);
+    } catch (error) {
+      if (isStoredTokenDataError(error)) {
+        await markConnectionReconnectRequiredSafely(userId, service, `Google ${service} needs to be reconnected.`);
+        throw new HttpError(409, `Google ${service} needs to be reconnected.`);
+      }
+
+      throw error;
+    }
   }
 
   if (!tokenRow.encrypted_refresh_token) {
@@ -222,28 +337,31 @@ export async function getGoogleAccessToken(userId, service) {
     throw new HttpError(409, `Google ${service} needs to be reconnected.`);
   }
 
-  const refreshToken = decryptSecret(tokenRow.encrypted_refresh_token);
-  const refreshRes = await fetch(GOOGLE_TOKEN_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: env.GOOGLE_CLIENT_ID,
-      client_secret: env.GOOGLE_CLIENT_SECRET,
-      refresh_token: refreshToken,
-      grant_type: 'refresh_token',
-    }),
+  let refreshToken = '';
+  try {
+    refreshToken = decryptSecret(tokenRow.encrypted_refresh_token);
+  } catch (error) {
+    if (isStoredTokenDataError(error)) {
+      await markConnectionReconnectRequiredSafely(userId, service, `Google ${service} needs to be reconnected.`);
+      throw new HttpError(409, `Google ${service} needs to be reconnected.`);
+    }
+
+    throw error;
+  }
+  const refreshResult = await refreshGoogleAccessToken({
+    service,
+    refreshToken,
+    env,
   });
 
-  const refreshPayload = await refreshRes.json().catch(() => null);
-  if (!refreshRes.ok) {
-    const refreshReason = refreshPayload?.error_description
-      || refreshPayload?.error
-      || `Failed to refresh Google ${service} token.`;
-    await markConnectionReconnectRequired(userId, service, refreshReason);
-    throw new HttpError(502, `Failed to refresh Google ${service} token.`, {
-      details: refreshPayload,
+  if (refreshResult.permanentFailure) {
+    await markConnectionReconnectRequired(userId, service, refreshResult.reason);
+    throw new HttpError(409, `Google ${service} needs to be reconnected.`, {
+      details: refreshResult.refreshPayload,
     });
   }
+
+  const { refreshPayload } = refreshResult;
 
   await storeGoogleTokens({
     userId,
