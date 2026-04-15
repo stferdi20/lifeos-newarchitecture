@@ -72,6 +72,14 @@ function buildClaimedPayload(payload = {}) {
   };
 }
 
+export function buildInstagramClaimFailurePayload(job = {}, message = '', workerId = '') {
+  return {
+    message: message || 'Google Drive is not connected for this account.',
+    workerId,
+    claimToken: job?.claim_token || '',
+  };
+}
+
 function assertJobOwnership(job, { workerId = '', claimToken = '', action = 'complete' } = {}) {
   if (!job) {
     throw new HttpError(404, 'Instagram download job not found.');
@@ -1241,7 +1249,14 @@ export async function claimNextInstagramDownloadJob(workerId) {
     try {
       driveAccessToken = await getGoogleAccessToken(job.owner_user_id, 'drive');
     } catch (error) {
-      await failInstagramDownloadJob(job.id, error?.message || 'Google Drive is not connected for this account.');
+      await failInstagramDownloadJob(
+        job.id,
+        buildInstagramClaimFailurePayload(
+          job,
+          error?.message || 'Google Drive is not connected for this account.',
+          workerId,
+        ),
+      );
       continue;
     }
 
