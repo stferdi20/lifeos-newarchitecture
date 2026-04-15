@@ -80,6 +80,49 @@ export function buildInstagramClaimFailurePayload(job = {}, message = '', worker
   };
 }
 
+async function failClaimedInstagramDownloadJob(job, message = '', workerId = '') {
+  const normalizedJob = normalizeJob(job);
+  if (!normalizedJob?.id) {
+    throw new HttpError(404, 'Instagram download job not found.');
+  }
+
+  const result = await getAdmin()
+    .from('instagram_download_jobs')
+    .update({
+      status: 'failed',
+      retry_count: Number(normalizedJob.retry_count || 0) + 1,
+      last_error: message || 'Instagram download failed.',
+      completed_at: new Date().toISOString(),
+    })
+    .eq('id', normalizedJob.id)
+    .eq('status', 'processing')
+    .eq('worker_id', workerId || normalizedJob.worker_id || '')
+    .select('*')
+    .maybeSingle();
+
+  if (result.error) throw new HttpError(500, result.error.message);
+  if (!result.data) {
+    throw new HttpError(409, 'This Instagram job is no longer owned by the current worker.');
+  }
+
+  const failedJob = normalizeJob(result.data);
+  console.warn('[instagram-worker] failed claimed job during preflight', {
+    jobId: failedJob.id,
+    workerId: workerId || failedJob.worker_id || '',
+    error: failedJob.last_error,
+  });
+  await updateInstagramResourceFailed(
+    failedJob.owner_user_id,
+    failedJob.resource_id,
+    failedJob.last_error,
+  ).catch(() => null);
+  await registerInstagramWorkerHeartbeat({
+    workerId: workerId || failedJob.worker_id || 'worker',
+    currentJobId: null,
+  }).catch(() => null);
+  return failedJob;
+}
+
 function assertJobOwnership(job, { workerId = '', claimToken = '', action = 'complete' } = {}) {
   if (!job) {
     throw new HttpError(404, 'Instagram download job not found.');
@@ -1010,35 +1053,28 @@ export async function retryInstagramDownloadForResource(userId, resourceId) {
   return { resource: updated, job: newJob, queued: true };
 }
 
-export async function getInstagramDownloaderStatusForUser(userId) {
-  const env = getServerEnv();
-  const staleMs = Math.max(Number(env.INSTAGRAM_DOWNLOADER_STATUS_STALE_MS || 90000), 10000);
-  const settings = await getInstagramDownloaderSettingsForUser(userId);
-  const workerRes = await getAdmin()
-    .from('instagram_downloader_workers')
-    .select('*')
-    .order('last_heartbeat_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (workerRes.error) throw new HttpError(500, workerRes.error.message);
-
-  const fetchJobs = async () => {
-    const jobsRes = await getAdmin()
-      .from('instagram_download_jobs')
-      .select('*')
-      .eq('owner_user_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(25);
-
-    if (jobsRes.error) throw new HttpError(500, jobsRes.error.message);
-    return (jobsRes.data || [])
-      .map(normalizeJob)
-      .filter((job) => job.job_type !== YOUTUBE_TRANSCRIPT_JOB_TYPE);
-  };
-
-  let jobs = await fetchJobs();
+export async function reconcileInstagramResourceStatesForUser(userId) {
   const instagramResources = await fetchInstagramResourcesForUser(userId);
+  if (!instagramResources.length) {
+    return {
+      repaired: false,
+      jobs: [],
+      instagramResources,
+    };
+  }
+
+  const jobsRes = await getAdmin()
+    .from('instagram_download_jobs')
+    .select('*')
+    .eq('owner_user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(25);
+
+  if (jobsRes.error) throw new HttpError(500, jobsRes.error.message);
+
+  let jobs = (jobsRes.data || [])
+    .map(normalizeJob)
+    .filter((job) => job.job_type !== YOUTUBE_TRANSCRIPT_JOB_TYPE);
   const jobsById = new Map(jobs.map((job) => [job.id, job]));
   const activeJobByResourceId = new Map(
     jobs
@@ -1136,8 +1172,41 @@ export async function getInstagramDownloaderStatusForUser(userId) {
   }
 
   if (repaired) {
-    jobs = await fetchJobs();
+    jobs = await getAdmin()
+      .from('instagram_download_jobs')
+      .select('*')
+      .eq('owner_user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(25)
+      .then((result) => {
+        if (result.error) throw new HttpError(500, result.error.message);
+        return (result.data || [])
+          .map(normalizeJob)
+          .filter((job) => job.job_type !== YOUTUBE_TRANSCRIPT_JOB_TYPE);
+      });
   }
+
+  return {
+    repaired,
+    jobs,
+    instagramResources,
+  };
+}
+
+export async function getInstagramDownloaderStatusForUser(userId) {
+  const env = getServerEnv();
+  const staleMs = Math.max(Number(env.INSTAGRAM_DOWNLOADER_STATUS_STALE_MS || 90000), 10000);
+  const settings = await getInstagramDownloaderSettingsForUser(userId);
+  const workerRes = await getAdmin()
+    .from('instagram_downloader_workers')
+    .select('*')
+    .order('last_heartbeat_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (workerRes.error) throw new HttpError(500, workerRes.error.message);
+
+  const { jobs } = await reconcileInstagramResourceStatesForUser(userId);
 
   const resourcesById = await fetchResourceRecords(userId, jobs.map((job) => job.resource_id));
   const worker = workerRes.data
@@ -1243,19 +1312,21 @@ export async function claimNextInstagramDownloadJob(workerId) {
       resourceId: job.resource_id,
     });
 
+    await registerInstagramWorkerHeartbeat({
+      workerId,
+      currentJobId: job.id,
+    }).catch(() => null);
+
     await updateInstagramResourceProcessing(job.owner_user_id, job.resource_id, workerId).catch(() => null);
 
     let driveAccessToken = '';
     try {
       driveAccessToken = await getGoogleAccessToken(job.owner_user_id, 'drive');
     } catch (error) {
-      await failInstagramDownloadJob(
-        job.id,
-        buildInstagramClaimFailurePayload(
-          job,
-          error?.message || 'Google Drive is not connected for this account.',
-          workerId,
-        ),
+      await failClaimedInstagramDownloadJob(
+        job,
+        error?.message || 'Google Drive is not connected for this account.',
+        workerId,
       );
       continue;
     }

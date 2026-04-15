@@ -4,7 +4,10 @@ import { zValidator } from '@hono/zod-validator';
 import { requireUser } from '../lib/supabase.js';
 import { safeJson } from '../lib/http.js';
 import { invokeCompatFunction } from '../services/compat-functions.js';
-import { submitInstagramDownload } from '../services/instagram-download-queue.js';
+import {
+  reconcileInstagramResourceStatesForUser,
+  submitInstagramDownload,
+} from '../services/instagram-download-queue.js';
 import {
   getResourceCaptureStatusForUser,
   retryResourceCaptureForResource,
@@ -55,6 +58,31 @@ const resourceReenrichSchema = z.object({
 });
 
 const resourceRoutes = new Hono();
+
+const INSTAGRAM_RESOURCE_REPAIR_FIELDS = new Set([
+  'download_status',
+  'download_status_message',
+  'instagram_display_title',
+  'instagram_author_handle',
+  'instagram_media_type_label',
+  'drive_folder_url',
+  'drive_files',
+  'instagram_media_items',
+  'thumbnail',
+  'summary',
+]);
+
+function shouldRepairInstagramResourceState(fields) {
+  if (!fields) return true;
+  const normalized = Array.isArray(fields)
+    ? fields
+    : String(fields)
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+  if (!normalized.length) return true;
+  return normalized.some((field) => INSTAGRAM_RESOURCE_REPAIR_FIELDS.has(field));
+}
 
 resourceRoutes.post('/analyze', zValidator('json', resourceAnalyzeSchema), async (c) => {
   const auth = await requireUser(c);
@@ -119,12 +147,16 @@ resourceRoutes.post('/re-enrich', zValidator('json', resourceReenrichSchema), as
 resourceRoutes.get('/', async (c) => {
   const auth = await requireUser(c);
   const query = c.req.query();
+  const fields = query.fields ? query.fields.split(',') : null;
+  if (shouldRepairInstagramResourceState(fields)) {
+    await reconcileInstagramResourceStatesForUser(auth.user.id).catch(() => null);
+  }
   const resources = await listCompatEntities(auth.user.id, 'Resource', {
     filter: query.q ? JSON.parse(query.q) : {},
     sort: query.sort || '-created_date',
     limit: query.limit,
     skip: query.skip,
-    fields: query.fields ? query.fields.split(',') : null,
+    fields,
   });
   return c.json({ resources });
 });
@@ -132,6 +164,9 @@ resourceRoutes.get('/', async (c) => {
 resourceRoutes.post('/query', async (c) => {
   const auth = await requireUser(c);
   const body = await safeJson(c.req.raw);
+  if (shouldRepairInstagramResourceState(body?.fields || null)) {
+    await reconcileInstagramResourceStatesForUser(auth.user.id).catch(() => null);
+  }
   const resources = await listCompatEntities(auth.user.id, 'Resource', body);
   return c.json({ resources });
 });
