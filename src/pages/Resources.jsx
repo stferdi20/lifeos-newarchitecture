@@ -732,7 +732,10 @@ export default function Resources() {
   });
 
   const deleteDirectMutation = useMutation({
-    mutationFn: async (resourceId) => {
+    mutationFn: async (resource) => {
+      const resourceId = resource?.id;
+      if (!resourceId) throw new Error('Resource id is missing.');
+
       const [projectLinks, cardLinks] = await Promise.all([
         fetchResourceLinks(ProjectResource, resourceId),
         fetchResourceLinks(CardResource, resourceId),
@@ -743,12 +746,40 @@ export default function Resources() {
       ]);
       await Resource.delete(resourceId);
     },
+    onMutate: async (resource) => {
+      const resourceId = resource?.id;
+      if (!resourceId) return { previousResources: null };
+
+      await queryClient.cancelQueries({ queryKey: ['resources'] });
+      const previousResources = queryClient.getQueryData(['resources']);
+
+      queryClient.setQueryData(['resources'], (current) => {
+        if (!Array.isArray(current)) return current;
+        return current.filter((item) => item?.id !== resourceId);
+      });
+      setSelectedResource((current) => (
+        current?.id === resourceId ? null : current
+      ));
+      setSelectedIds((current) => {
+        if (!current.has(resourceId)) return current;
+        const next = new Set(current);
+        next.delete(resourceId);
+        return next;
+      });
+
+      return { previousResources };
+    },
     onSuccess: () => {
-      invalidateResourceQueries();
       toast.success('Resource deleted.');
     },
-    onError: (error) => {
+    onError: (error, _resource, context) => {
+      if (Array.isArray(context?.previousResources)) {
+        queryClient.setQueryData(['resources'], context.previousResources);
+      }
       toast.error(error?.message || 'Failed to delete resource.');
+    },
+    onSettled: () => {
+      invalidateResourceQueries();
     },
   });
 
@@ -849,7 +880,7 @@ export default function Resources() {
       resource={resource}
       onClick={handleCardClick}
       onArchiveToggle={handleArchiveToggle}
-      onDelete={(id) => deleteDirectMutation.mutate(id)}
+      onDelete={(targetResource) => deleteDirectMutation.mutate(targetResource)}
       onRetry={(targetResource) => retryResourceMutation.mutate(targetResource)}
       onTagClick={handleTagClick}
       areas={areas}
@@ -858,6 +889,7 @@ export default function Resources() {
       layoutMode={layoutMode}
       gridDensity={gridDensity}
       archiveLoading={archiveToggleMutation.isPending && archiveToggleMutation.variables?.resourceId === resource.id}
+      deleteLoading={deleteDirectMutation.isPending && deleteDirectMutation.variables?.id === resource.id}
       retryLoading={retryResourceMutation.isPending && retryResourceMutation.variables?.id === resource.id}
     />
   );

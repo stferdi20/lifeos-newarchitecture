@@ -5,6 +5,17 @@ import { format } from 'date-fns';
 import { getGenericCaptureStatusLabel, isGenericCaptureActive, isGenericCaptureFailed } from '@/lib/resource-capture';
 import { useResourceImage } from '@/lib/drive-images';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+import {
   Youtube, MessageSquare, Newspaper, GraduationCap, FileText, Globe, FileDown,
   ExternalLink, Star, Github, CheckSquare, Archive, ArchiveRestore, Clapperboard, Trash2, FolderOpen, AlertTriangle, RefreshCw
 } from 'lucide-react';
@@ -290,6 +301,7 @@ export default function ResourceCard({
   className,
   archiveLoading = false,
   retryLoading = false,
+  deleteLoading = false,
 }) {
   const area = (areas || []).find(a => a.id === resource.area_id);
   const cfg = typeConfig[resource.resource_type] || typeConfig.website;
@@ -486,23 +498,52 @@ export default function ResourceCard({
         </button>
       )}
       {!selectMode && onDelete && (
-        <button
-          type="button"
-          aria-label="Delete resource"
-          title="Delete resource"
-          onClick={(e) => {
-            e.stopPropagation();
-            if (window.confirm("Are you sure you want to completely delete this resource?")) {
-              onDelete(resource.id);
-            }
-          }}
-          className={cn(
-            'absolute top-10 z-20 inline-flex h-7 w-7 items-center justify-center rounded-full border border-red-500/15 bg-black/70 text-red-400/80 transition-all duration-200 opacity-0 group-hover:opacity-100 hover:bg-red-500/20 hover:text-red-300 hover:scale-110',
-            onArchiveToggle ? 'right-11' : 'right-2'
-          )}
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <button
+              type="button"
+              aria-label="Delete resource"
+              title="Delete resource"
+              disabled={deleteLoading}
+              onClick={(e) => {
+                e.stopPropagation();
+              }}
+              className={cn(
+                'absolute top-10 z-20 inline-flex h-7 w-7 items-center justify-center rounded-full border border-red-500/15 bg-black/70 text-red-400/80 transition-all duration-200 opacity-0 group-hover:opacity-100',
+                deleteLoading
+                  ? 'cursor-not-allowed opacity-60'
+                  : 'hover:bg-red-500/20 hover:text-red-300 hover:scale-110',
+                onArchiveToggle ? 'right-11' : 'right-2'
+              )}
+            >
+              {deleteLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+            </button>
+          </AlertDialogTrigger>
+          <AlertDialogContent
+            className="border-border bg-card"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete this resource?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This permanently deletes "{safeTitle}" and removes linked project or card references.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deleteLoading}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={deleteLoading}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(resource);
+                }}
+                className="bg-red-600 text-white hover:bg-red-500"
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       )}
       <div className={cn(
         'relative overflow-hidden bg-secondary/30',
