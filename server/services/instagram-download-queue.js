@@ -994,20 +994,22 @@ export async function requeueFailedInstagramJobs(userId) {
     .map(normalizeJob)
     .filter((job) => job.job_type !== YOUTUBE_TRANSCRIPT_JOB_TYPE);
 
-  await Promise.all(rows.map((job) => getAdmin()
-    .from('instagram_download_jobs')
-    .update({
-      status: 'queued',
-      scheduled_for: now,
-      started_at: null,
-      completed_at: null,
-      worker_id: null,
-      updated_at: now,
-    })
-    .eq('id', job.id)
-    .select('*')
-    .single()
-    .catch((error) => { throw error; })));
+  await Promise.all(rows.map(async (job) => {
+    const updateResult = await getAdmin()
+      .from('instagram_download_jobs')
+      .update({
+        status: 'queued',
+        scheduled_for: now,
+        started_at: null,
+        completed_at: null,
+        worker_id: null,
+        updated_at: now,
+      })
+      .eq('id', job.id)
+      .select('*')
+      .single();
+    if (updateResult.error) throw new HttpError(500, updateResult.error.message);
+  }));
 
   await Promise.all(rows.map((job) => updateInstagramResourceQueued(userId, job.resource_id, job.id).catch(() => null)));
   return rows;
@@ -1026,21 +1028,23 @@ export async function requeueAllFailedInstagramJobs() {
     .map(normalizeJob)
     .filter((job) => job.job_type !== YOUTUBE_TRANSCRIPT_JOB_TYPE);
 
-  await Promise.all(rows.map((job) => getAdmin()
-    .from('instagram_download_jobs')
-    .update({
-      status: 'queued',
-      last_error: null,
-      scheduled_for: now,
-      started_at: null,
-      completed_at: null,
-      worker_id: null,
-      updated_at: now,
-    })
-    .eq('id', job.id)
-    .select('*')
-    .single()
-    .catch((error) => { throw error; })));
+  await Promise.all(rows.map(async (job) => {
+    const updateResult = await getAdmin()
+      .from('instagram_download_jobs')
+      .update({
+        status: 'queued',
+        last_error: null,
+        scheduled_for: now,
+        started_at: null,
+        completed_at: null,
+        worker_id: null,
+        updated_at: now,
+      })
+      .eq('id', job.id)
+      .select('*')
+      .single();
+    if (updateResult.error) throw new HttpError(500, updateResult.error.message);
+  }));
 
   await Promise.all(rows.map((job) => updateInstagramResourceQueued(job.owner_user_id, job.resource_id, job.id).catch(() => null)));
   return rows;
@@ -1061,21 +1065,23 @@ export async function requeueGoogleDriveBlockedInstagramJobs(userId) {
     .filter((job) => job.job_type !== YOUTUBE_TRANSCRIPT_JOB_TYPE)
     .filter((job) => isGoogleDriveAuthRequiredError(job.last_error));
 
-  await Promise.all(rows.map((job) => getAdmin()
-    .from('instagram_download_jobs')
-    .update({
-      status: 'queued',
-      last_error: null,
-      scheduled_for: now,
-      started_at: null,
-      completed_at: null,
-      worker_id: null,
-      updated_at: now,
-    })
-    .eq('id', job.id)
-    .select('*')
-    .single()
-    .catch((error) => { throw error; })));
+  await Promise.all(rows.map(async (job) => {
+    const updateResult = await getAdmin()
+      .from('instagram_download_jobs')
+      .update({
+        status: 'queued',
+        last_error: null,
+        scheduled_for: now,
+        started_at: null,
+        completed_at: null,
+        worker_id: null,
+        updated_at: now,
+      })
+      .eq('id', job.id)
+      .select('*')
+      .single();
+    if (updateResult.error) throw new HttpError(500, updateResult.error.message);
+  }));
 
   await Promise.all(rows.map((job) => updateInstagramResourceQueued(userId, job.resource_id, job.id).catch(() => null)));
   return rows;
