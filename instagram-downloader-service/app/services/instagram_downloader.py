@@ -363,6 +363,79 @@ def resolve_ffmpeg_binary() -> str:
     return ""
 
 
+def build_drive_safe_video_path(file_path: Path) -> Path:
+    return file_path.with_name(f"{file_path.stem}__drive.mp4")
+
+
+def transcode_video_for_drive_preview(file_path: Path) -> Path:
+    ffmpeg_bin = resolve_ffmpeg_binary()
+    if not ffmpeg_bin or not file_path.exists():
+        return file_path
+
+    output_path = build_drive_safe_video_path(file_path)
+    if output_path.exists():
+        output_path.unlink(missing_ok=True)
+
+    command = [
+        ffmpeg_bin,
+        "-y",
+        "-i",
+        str(file_path),
+        "-map",
+        "0:v:0",
+        "-map",
+        "0:a?",
+        "-c:v",
+        "libx264",
+        "-profile:v",
+        "main",
+        "-level",
+        "4.0",
+        "-pix_fmt",
+        "yuv420p",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "28",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-ac",
+        "2",
+        "-movflags",
+        "+faststart",
+        "-map_metadata",
+        "-1",
+        str(output_path),
+    ]
+
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=600,
+        )
+    except Exception:
+        logger.exception("Failed to transcode Instagram video for Drive preview", extra={"file_path": str(file_path)})
+        return file_path
+
+    if completed.returncode == 0 and output_path.exists() and output_path.stat().st_size > 0:
+        return output_path
+
+    logger.warning(
+        "FFmpeg could not create Drive-safe Instagram video; uploading original",
+        extra={
+            "file_path": str(file_path),
+            "stderr": completed.stderr[-1000:],
+        },
+    )
+    output_path.unlink(missing_ok=True)
+    return file_path
+
+
 def build_drive_image_url(file_id: str) -> str:
     identifier = str(file_id or "").strip()
     if not identifier:
@@ -1134,13 +1207,18 @@ async def maybe_upload_to_drive(
 
         uploaded_files = []
         for item in files:
+            upload_path = Path(item.filepath)
+            upload_name = item.filename
+            if item.type == "video":
+                upload_path = transcode_video_for_drive_preview(upload_path)
+                upload_name = f"{Path(item.filename).stem}.mp4"
             uploaded_files.append(
                 await upload_file_to_drive(
                     client,
                     request.google_drive.access_token,
                     drive_folder.id,
-                    Path(item.filepath),
-                    item.filename,
+                    upload_path,
+                    upload_name,
                 )
             )
 
