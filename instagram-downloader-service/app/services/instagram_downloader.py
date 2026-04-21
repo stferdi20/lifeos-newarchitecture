@@ -319,6 +319,34 @@ def detect_file_type(file_path: Path) -> str:
     return "unknown"
 
 
+def resolve_drive_upload_mime_type(file_path: Path, upload_name: str | None = None) -> str:
+    candidates = []
+    if upload_name:
+        candidates.append(str(upload_name))
+    candidates.append(str(file_path))
+
+    for candidate in candidates:
+        guessed, _ = mimetypes.guess_type(candidate)
+        if guessed:
+            return guessed
+
+    suffix = Path(upload_name or file_path.name).suffix.lower()
+    if suffix in {".mp4", ".m4v"}:
+        return "video/mp4"
+    if suffix == ".mov":
+        return "video/quicktime"
+    if suffix == ".webm":
+        return "video/webm"
+    if suffix in {".jpg", ".jpeg"}:
+        return "image/jpeg"
+    if suffix == ".png":
+        return "image/png"
+    if suffix == ".webp":
+        return "image/webp"
+
+    return "application/octet-stream"
+
+
 def resolve_ffmpeg_binary() -> str:
     candidates = [
         os.getenv("FFMPEG_BIN", "").strip(),
@@ -1035,9 +1063,9 @@ async def upload_file_to_drive(
     file_path: Path,
     upload_name: str | None = None,
 ) -> GoogleDriveFile:
-    mime_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
     boundary = f"boundary-{hashlib.sha1(file_path.name.encode('utf-8')).hexdigest()[:12]}"
     target_name = sanitize_filename(upload_name or file_path.name)
+    mime_type = resolve_drive_upload_mime_type(file_path, target_name)
     metadata = f'--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{{"name":"{target_name}","parents":["{folder_id}"]}}\r\n'
     media_header = f"--{boundary}\r\nContent-Type: {mime_type}\r\n\r\n".encode("utf-8")
     footer = f"\r\n--{boundary}--".encode("utf-8")

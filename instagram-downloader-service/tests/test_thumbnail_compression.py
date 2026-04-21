@@ -1,9 +1,14 @@
 import io
+from pathlib import Path
 import unittest
 
 from PIL import Image, ImageDraw
 
-from app.services.instagram_downloader import compress_thumbnail_bytes, make_thumbnail_payload
+from app.services.instagram_downloader import (
+    compress_thumbnail_bytes,
+    make_thumbnail_payload,
+    resolve_drive_upload_mime_type,
+)
 
 
 class ThumbnailCompressionTests(unittest.TestCase):
@@ -47,6 +52,16 @@ class ThumbnailCompressionTests(unittest.TestCase):
         self.assertEqual(payload['filename'], 'preview_image.webp')
         self.assertEqual(payload['content_type'], 'image/webp')
         self.assertGreater(len(payload['data_base64']), 0)
+
+    def test_drive_upload_mime_type_uses_upload_name_for_temp_files(self):
+        self.assertEqual(
+            resolve_drive_upload_mime_type(Path('/tmp/compressed-output'), 'instagram_reel.mp4'),
+            'video/mp4',
+        )
+        self.assertEqual(
+            resolve_drive_upload_mime_type(Path('/tmp/compressed-output.bin'), 'preview.webp'),
+            'image/webp',
+        )
 
 
 if __name__ == '__main__':
