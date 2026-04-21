@@ -611,8 +611,23 @@ async function analyzeInstagramResource(userId, url, download = {}) {
 }
 
 export async function createPendingInstagramResource(userId, { url, projectId = '' }) {
+  const resource = await createCompatEntity(userId, 'Resource', buildPendingInstagramResourcePayload(url));
+
+  if (projectId) {
+    await createCompatEntity(userId, 'ProjectResource', {
+      project_id: projectId,
+      resource_id: resource.id,
+      created_date: new Date().toISOString(),
+    });
+  }
+
+  return resource;
+}
+
+function buildPendingInstagramResourcePayload(url, overrides = {}) {
   const resourceType = inferResourceType(url);
-  const resource = await createCompatEntity(userId, 'Resource', withInstagramReadyState({
+  return withInstagramReadyState({
+    ...overrides,
     title: buildPendingTitle(url),
     url,
     source_url: url,
@@ -639,21 +654,44 @@ export async function createPendingInstagramResource(userId, { url, projectId = 
     drive_folder_id: '',
     drive_target: GLOBAL_DRIVE_TARGET,
     is_archived: false,
-  }));
+  });
+}
 
-  if (projectId) {
-    await createCompatEntity(userId, 'ProjectResource', {
-      project_id: projectId,
-      resource_id: resource.id,
-      created_date: new Date().toISOString(),
-    });
+function isMissingCompatResourceError(error) {
+  return error instanceof HttpError && error.status === 404 && /Resource record not found/i.test(error.message || '');
+}
+
+async function getOrCreateInstagramJobResource(userId, resourceId, sourceUrl = '') {
+  try {
+    return await getCompatEntity(userId, 'Resource', resourceId);
+  } catch (error) {
+    if (!isMissingCompatResourceError(error)) throw error;
   }
 
-  return resource;
+  const jobSourceUrl = sourceUrl || await getAdmin()
+    .from('instagram_download_jobs')
+    .select('source_url')
+    .eq('owner_user_id', userId)
+    .eq('resource_id', resourceId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+    .then((result) => {
+      if (result.error) throw new HttpError(500, result.error.message);
+      return result.data?.source_url || '';
+    });
+
+  if (!jobSourceUrl) {
+    throw new HttpError(404, 'Resource record not found.');
+  }
+
+  return createCompatEntity(userId, 'Resource', buildPendingInstagramResourcePayload(jobSourceUrl, {
+    id: resourceId,
+  }));
 }
 
 export async function updateInstagramResourceQueued(userId, resourceId, jobId) {
-  const current = await getCompatEntity(userId, 'Resource', resourceId);
+  const current = await getOrCreateInstagramJobResource(userId, resourceId);
   const sourceUrl = current.source_url || current.url || '';
   const resourceType = inferResourceType(sourceUrl) || current.resource_type || '';
   const nextTitle = shouldReplaceWithPendingInstagramTitle(current.title)
@@ -744,7 +782,7 @@ async function recoverStaleInstagramProcessingJobs() {
 }
 
 export async function updateInstagramResourceProcessing(userId, resourceId, workerId = '') {
-  const current = await getCompatEntity(userId, 'Resource', resourceId);
+  const current = await getOrCreateInstagramJobResource(userId, resourceId);
   return updateCompatEntity(userId, 'Resource', resourceId, mergeInstagramResourceState(current, {
     download_status: 'downloading',
     download_status_message: buildDownloadingMessage(),
@@ -762,7 +800,7 @@ export async function updateInstagramResourceProcessing(userId, resourceId, work
 }
 
 export async function updateInstagramResourceUploading(userId, resourceId) {
-  const current = await getCompatEntity(userId, 'Resource', resourceId);
+  const current = await getOrCreateInstagramJobResource(userId, resourceId);
   return updateCompatEntity(userId, 'Resource', resourceId, mergeInstagramResourceState(current, {
     download_status: 'uploading',
     download_status_message: buildUploadingMessage(),
@@ -771,7 +809,7 @@ export async function updateInstagramResourceUploading(userId, resourceId) {
 }
 
 export async function updateInstagramResourceFailed(userId, resourceId, errorMessage) {
-  const current = await getCompatEntity(userId, 'Resource', resourceId);
+  const current = await getOrCreateInstagramJobResource(userId, resourceId);
   const failureStatus = getInstagramFailureStatus(errorMessage);
   return updateCompatEntity(userId, 'Resource', resourceId, mergeInstagramResourceState(current, {
     download_status: failureStatus,
@@ -823,7 +861,7 @@ async function buildInstagramEnrichmentPayload(userId, sourceUrl, current = {}, 
 }
 
 export async function completeInstagramResourceEnrichment(userId, resourceId, sourceUrl, download = {}) {
-  const current = await getCompatEntity(userId, 'Resource', resourceId);
+  const current = await getOrCreateInstagramJobResource(userId, resourceId, sourceUrl);
   const enrichmentPayload = await buildInstagramEnrichmentPayload(userId, sourceUrl, current, download);
   const enrichmentWorked = hasMeaningfulInstagramEnrichment(enrichmentPayload, sourceUrl);
   return updateCompatEntity(userId, 'Resource', resourceId, mergeInstagramResourceState(current, {
@@ -838,7 +876,7 @@ export async function completeInstagramResourceEnrichment(userId, resourceId, so
 }
 
 export async function failInstagramResourceEnrichment(userId, resourceId, errorMessage) {
-  const current = await getCompatEntity(userId, 'Resource', resourceId);
+  const current = await getOrCreateInstagramJobResource(userId, resourceId);
   return updateCompatEntity(userId, 'Resource', resourceId, mergeInstagramResourceState(current, {
     instagram_enrichment_status: 'failed',
     instagram_enrichment_error: errorMessage || 'Instagram enrichment failed.',
@@ -848,7 +886,7 @@ export async function failInstagramResourceEnrichment(userId, resourceId, errorM
 }
 
 export async function applySuccessfulInstagramDownload(userId, resourceId, sourceUrl, download, { includeAnalysis = true } = {}) {
-  const current = await getCompatEntity(userId, 'Resource', resourceId);
+  const current = await getOrCreateInstagramJobResource(userId, resourceId, sourceUrl);
   const shouldRunAnalysisInline = includeAnalysis && current.instagram_enrichment_status !== 'completed';
   let enrichmentPayload = {};
   let enrichmentStatus = current.instagram_enrichment_status || 'queued';
