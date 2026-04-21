@@ -12,6 +12,10 @@ export function retryInstagramDownloadForResource(resourceId) {
   return apiPost(`/instagram-downloader/resources/${resourceId}/retry`, {});
 }
 
+export function retryInstagramEnrichmentForResource(resourceId) {
+  return apiPost(`/instagram-downloader/resources/${resourceId}/retry-enrichment`, {});
+}
+
 export function removeInstagramDownloadJob(jobId) {
   return apiDelete(`/instagram-downloader/jobs/${jobId}`);
 }

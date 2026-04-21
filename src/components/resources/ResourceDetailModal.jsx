@@ -4,7 +4,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ExternalLink, Star, Trash2, Tag, Zap, Heart, Clock, Github, Archive, ArchiveRestore, Lightbulb, CheckCircle2, Quote, Users, BookOpen, MessageSquareText, ArrowUpCircle, MessagesSquare, Clapperboard, Download, FolderOpen, RefreshCw, AlertTriangle, GraduationCap, FileText } from 'lucide-react';
 import { LifeArea, Resource, retryResourceCapture } from '@/lib/resources-api';
-import { retryInstagramDownloadForResource } from '@/lib/instagram-downloader-api';
+import { retryInstagramDownloadForResource, retryInstagramEnrichmentForResource } from '@/lib/instagram-downloader-api';
 import { retryYouTubeTranscriptForResource } from '@/lib/youtube-transcript-api';
 import { getGenericCaptureStatusLabel, isGenericCaptureActive, isGenericCaptureFailed } from '@/lib/resource-capture';
 import { useResourceImage } from '@/lib/drive-images';
@@ -154,7 +154,14 @@ export default function ResourceDetailModal({ open, onClose, resource }) {
   });
 
   const retryInstagramMutation = useMutation({
-    mutationFn: () => retryInstagramDownloadForResource(resource.id),
+    mutationFn: () => {
+      const current = resourceQuery.data || resource;
+      const canRetryEnrichmentOnly = current?.instagram_enrichment_status === 'failed'
+        && (current?.download_status === 'uploaded' || current?.drive_files?.length || current?.drive_folder_url);
+      return canRetryEnrichmentOnly
+        ? retryInstagramEnrichmentForResource(resource.id)
+        : retryInstagramDownloadForResource(resource.id);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['resources'] });
       queryClient.invalidateQueries({ queryKey: ['instagram-downloader-status'] });

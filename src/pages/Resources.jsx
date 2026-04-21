@@ -17,7 +17,7 @@ import {
   reEnrichResources,
   retryResourceCapture,
 } from '@/lib/resources-api';
-import { retryInstagramDownloadForResource } from '@/lib/instagram-downloader-api';
+import { retryInstagramDownloadForResource, retryInstagramEnrichmentForResource } from '@/lib/instagram-downloader-api';
 import { retryYouTubeTranscriptForResource } from '@/lib/youtube-transcript-api';
 import {
   getResourceProfileSnapshot,
@@ -650,7 +650,11 @@ export default function Resources() {
       const isInstagram = ['instagram_reel', 'instagram_carousel', 'instagram_post'].includes(targetResource?.resource_type);
       const isYouTube = targetResource?.resource_type === 'youtube';
       if (isInstagram) {
-        return retryInstagramDownloadForResource(targetResource.id);
+        const canRetryEnrichmentOnly = targetResource?.instagram_enrichment_status === 'failed'
+          && (targetResource?.download_status === 'uploaded' || targetResource?.drive_files?.length || targetResource?.drive_folder_url);
+        return canRetryEnrichmentOnly
+          ? retryInstagramEnrichmentForResource(targetResource.id)
+          : retryInstagramDownloadForResource(targetResource.id);
       }
       if (isYouTube) {
         return retryYouTubeTranscriptForResource(targetResource.id);

@@ -19,6 +19,7 @@ import {
   requeueAllGoogleDriveBlockedInstagramJobs,
   requeueFailedInstagramJobs,
   retryInstagramDownloadForResource,
+  retryInstagramEnrichmentForResource,
   updateInstagramResourceUploading,
   updateInstagramDownloaderSettingsForUser,
 } from '../services/instagram-download-queue.js';
@@ -191,6 +192,12 @@ instagramDownloaderRoutes.post('/retry-failed', async (c) => {
 instagramDownloaderRoutes.post('/resources/:resourceId/retry', async (c) => {
   const auth = await requireUser(c);
   const result = await retryInstagramDownloadForResource(auth.user.id, c.req.param('resourceId'));
+  return c.json({ success: true, ...result });
+});
+
+instagramDownloaderRoutes.post('/resources/:resourceId/retry-enrichment', async (c) => {
+  const auth = await requireUser(c);
+  const result = await retryInstagramEnrichmentForResource(auth.user.id, c.req.param('resourceId'));
   return c.json({ success: true, ...result });
 });
 

@@ -1230,6 +1230,50 @@ export async function retryInstagramDownloadForResource(userId, resourceId) {
   return { resource: updated, job: newJob, queued: true };
 }
 
+export async function retryInstagramEnrichmentForResource(userId, resourceId) {
+  const resource = await getCompatEntity(userId, 'Resource', resourceId);
+  const resourceType = resource?.resource_type || '';
+  if (!['instagram_reel', 'instagram_carousel', 'instagram_post'].includes(resourceType)) {
+    throw new HttpError(400, 'This resource is not an Instagram download.');
+  }
+
+  const sourceUrl = resource.source_url || resource.url || '';
+  if (!sourceUrl) {
+    throw new HttpError(400, 'This Instagram resource has no source URL to enrich.');
+  }
+
+  await updateCompatEntity(userId, 'Resource', resourceId, mergeInstagramResourceState(resource, {
+    instagram_enrichment_status: 'analyzing',
+    instagram_enrichment_error: '',
+    instagram_enrichment_message: buildAnalyzingEnrichmentMessage(),
+    downloader_updated_at: new Date().toISOString(),
+  }));
+
+  const mediaType = resourceType.replace(/^instagram_/, '') || 'post';
+  const retried = await completeInstagramResourceEnrichment(userId, resourceId, sourceUrl, {
+    input_url: sourceUrl,
+    media_type: mediaType,
+    media_type_label: resource.instagram_media_type_label || getInstagramMediaTypeLabel(mediaType),
+    normalized_title: resource.instagram_display_title || resource.title || '',
+    creator_handle: resource.instagram_author_handle || '',
+    caption: resource.instagram_caption || '',
+    transcript: resource.instagram_transcript || '',
+    published_at: resource.instagram_posted_at || '',
+    thumbnail_url: resource.thumbnail || '',
+    media_items: Array.isArray(resource.instagram_media_items) ? resource.instagram_media_items : [],
+    drive_folder: resource.drive_folder_id || resource.drive_folder_url
+      ? {
+          id: resource.drive_folder_id || '',
+          name: resource.drive_folder_name || INSTAGRAM_IMPORTS_FOLDER_NAME,
+          url: resource.drive_folder_url || '',
+        }
+      : null,
+    drive_files: Array.isArray(resource.drive_files) ? resource.drive_files : [],
+  });
+
+  return { resource: retried, queued: false };
+}
+
 export async function removeInstagramDownloadJob(userId, jobId) {
   const result = await getAdmin()
     .from('instagram_download_jobs')
