@@ -985,9 +985,9 @@ export async function requeueFailedInstagramJobs(userId) {
   const now = new Date().toISOString();
   const result = await getAdmin()
     .from('instagram_download_jobs')
+    .select('*')
     .eq('owner_user_id', userId)
-    .eq('status', 'failed')
-    .select('*');
+    .eq('status', 'failed');
 
   if (result.error) throw new HttpError(500, result.error.message);
   const rows = (result.data || [])
@@ -1013,13 +1013,46 @@ export async function requeueFailedInstagramJobs(userId) {
   return rows;
 }
 
+export async function requeueAllFailedInstagramJobs() {
+  const now = new Date().toISOString();
+  const result = await getAdmin()
+    .from('instagram_download_jobs')
+    .select('*')
+    .eq('status', 'failed');
+
+  if (result.error) throw new HttpError(500, result.error.message);
+
+  const rows = (result.data || [])
+    .map(normalizeJob)
+    .filter((job) => job.job_type !== YOUTUBE_TRANSCRIPT_JOB_TYPE);
+
+  await Promise.all(rows.map((job) => getAdmin()
+    .from('instagram_download_jobs')
+    .update({
+      status: 'queued',
+      last_error: null,
+      scheduled_for: now,
+      started_at: null,
+      completed_at: null,
+      worker_id: null,
+      updated_at: now,
+    })
+    .eq('id', job.id)
+    .select('*')
+    .single()
+    .catch((error) => { throw error; })));
+
+  await Promise.all(rows.map((job) => updateInstagramResourceQueued(job.owner_user_id, job.resource_id, job.id).catch(() => null)));
+  return rows;
+}
+
 export async function requeueGoogleDriveBlockedInstagramJobs(userId) {
   const now = new Date().toISOString();
   const result = await getAdmin()
     .from('instagram_download_jobs')
+    .select('*')
     .eq('owner_user_id', userId)
-    .eq('status', 'failed')
-    .select('*');
+    .eq('status', 'failed');
 
   if (result.error) throw new HttpError(500, result.error.message);
 
@@ -1052,8 +1085,8 @@ export async function requeueAllGoogleDriveBlockedInstagramJobs() {
   const now = new Date().toISOString();
   const result = await getAdmin()
     .from('instagram_download_jobs')
-    .eq('status', 'failed')
-    .select('*');
+    .select('*')
+    .eq('status', 'failed');
 
   if (result.error) throw new HttpError(500, result.error.message);
 

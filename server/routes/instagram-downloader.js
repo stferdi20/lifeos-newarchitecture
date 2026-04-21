@@ -14,6 +14,7 @@ import {
   getInstagramDownloaderStatusForUser,
   getInstagramDownloaderSettingsForUser,
   registerInstagramWorkerHeartbeat,
+  requeueAllFailedInstagramJobs,
   requeueAllGoogleDriveBlockedInstagramJobs,
   requeueFailedInstagramJobs,
   retryInstagramDownloadForResource,
@@ -216,6 +217,17 @@ instagramDownloaderRoutes.post('/worker/requeue-drive-blocked', async (c) => {
   assertWorkerSecret(c);
   try {
     const jobs = await requeueAllGoogleDriveBlockedInstagramJobs();
+    return c.json({ success: true, jobs, count: jobs.length });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error || 'Unknown requeue error');
+    throw new HttpError(500, message);
+  }
+});
+
+instagramDownloaderRoutes.post('/worker/requeue-failed', async (c) => {
+  assertWorkerSecret(c);
+  try {
+    const jobs = await requeueAllFailedInstagramJobs();
     return c.json({ success: true, jobs, count: jobs.length });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error || 'Unknown requeue error');
