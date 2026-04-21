@@ -266,6 +266,17 @@ function getInstagramMediaTypeLabel(mediaType = '') {
   }
 }
 
+export function buildInstagramMediaOnlySummary(download = {}) {
+  const mediaItems = Array.isArray(download.media_items) ? download.media_items.filter(Boolean) : [];
+  const driveFiles = Array.isArray(download.drive_files) ? download.drive_files.filter(Boolean) : [];
+  const count = mediaItems.length || driveFiles.length;
+  if (!count) return '';
+
+  const mediaTypeLabel = getInstagramMediaTypeLabel(download.media_type || 'post').toLowerCase();
+  const itemLabel = count === 1 ? 'media item' : 'media items';
+  return `Downloaded Instagram ${mediaTypeLabel} with ${count} ${itemLabel}. Caption and creator metadata were unavailable from Instagram, but the media was saved successfully.`;
+}
+
 function normalizeCreatorHandle(value = '') {
   return String(value || '').replace(/^@+/, '').trim();
 }
@@ -824,6 +835,7 @@ export async function updateInstagramResourceFailed(userId, resourceId, errorMes
 async function buildInstagramEnrichmentPayload(userId, sourceUrl, current = {}, download = {}) {
   const analysis = await analyzeInstagramResource(userId, sourceUrl, download);
   const normalized = normalizeResourceRecord(sourceUrl, analysis);
+  const mediaOnlySummary = buildInstagramMediaOnlySummary(download);
   const creatorHandle = normalizeCreatorHandle(download.creator_handle || normalized.instagram_author_handle || current.instagram_author_handle || '');
   const displayTitle = chooseInstagramDisplayTitle({
     sourceUrl,
@@ -834,6 +846,8 @@ async function buildInstagramEnrichmentPayload(userId, sourceUrl, current = {}, 
   const merged = preserveStrongerExistingData(current, {
     ...current,
     ...normalized,
+    summary: normalized.summary || current.summary || mediaOnlySummary,
+    enrichment_status: normalized.enrichment_status || current.enrichment_status || (mediaOnlySummary ? 'partial' : ''),
     title: displayTitle,
     author: normalized.author || (creatorHandle ? `@${creatorHandle}` : current.author || ''),
     thumbnail: chooseInstagramThumbnail(download, current, normalized),
