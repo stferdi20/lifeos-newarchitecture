@@ -1,11 +1,12 @@
 import React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { formatDistanceToNow } from 'date-fns';
-import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, ServerCrash, TimerReset } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Loader2, RefreshCw, ServerCrash, TimerReset, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   getInstagramDownloaderSettings,
   getInstagramDownloaderStatus,
+  removeInstagramDownloadJob,
   retryFailedInstagramDownloads,
   updateInstagramDownloaderSettings,
 } from '@/lib/instagram-downloader-api';
@@ -81,6 +82,14 @@ export default function InstagramDownloaderPanel() {
 
   const retryMutation = useMutation({
     mutationFn: retryFailedInstagramDownloads,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['instagram-downloader-status'] });
+      queryClient.invalidateQueries({ queryKey: ['resources'] });
+    },
+  });
+
+  const removeMutation = useMutation({
+    mutationFn: removeInstagramDownloadJob,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['instagram-downloader-status'] });
       queryClient.invalidateQueries({ queryKey: ['resources'] });
@@ -249,14 +258,36 @@ export default function InstagramDownloaderPanel() {
         {queue.items?.length ? (
           queue.items.slice(0, 6).map((item) => (
             <div key={item.id} className="rounded-xl border border-border/40 bg-secondary/10 p-3">
-              <div className="flex items-center justify-between gap-3">
+              <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-foreground">{item.resource_title}</p>
                   <p className="mt-1 truncate text-xs text-muted-foreground">{item.source_url}</p>
                 </div>
-                <span className={`rounded-full px-2 py-0.5 text-[11px] ${item.status === 'failed' ? 'bg-red-500/10 text-red-300' : item.status === 'processing' ? 'bg-sky-500/10 text-sky-300' : 'bg-secondary text-muted-foreground'}`}>
-                  {item.status}
-                </span>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className={`rounded-full px-2 py-0.5 text-[11px] ${item.status === 'failed' ? 'bg-red-500/10 text-red-300' : item.status === 'processing' ? 'bg-sky-500/10 text-sky-300' : 'bg-secondary text-muted-foreground'}`}>
+                    {item.status}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                    title="Remove from pending"
+                    aria-label="Remove from pending"
+                    disabled={removeMutation.isPending}
+                    onClick={() => {
+                      if (window.confirm('Remove this Instagram item from pending?')) {
+                        removeMutation.mutate(item.id);
+                      }
+                    }}
+                  >
+                    {removeMutation.isPending && removeMutation.variables === item.id ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
               </div>
               {item.last_error ? <p className="mt-2 text-xs text-amber-200">{item.last_error}</p> : null}
               {item.recovery_reason === 'stale_worker_heartbeat' && item.recovered_at ? (

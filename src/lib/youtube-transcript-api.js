@@ -1,4 +1,4 @@
-import { apiGet, apiPatch, apiPost } from '@/lib/api-client';
+import { apiDelete, apiGet, apiPatch, apiPost } from '@/lib/api-client';
 
 export function getYouTubeTranscriptStatus() {
   return apiGet('/youtube-transcript/status');
@@ -10,6 +10,10 @@ export function retryFailedYouTubeTranscripts() {
 
 export function retryYouTubeTranscriptForResource(resourceId) {
   return apiPost(`/youtube-transcript/resources/${resourceId}/retry`, {});
+}
+
+export function removeYouTubeTranscriptJob(jobId) {
+  return apiDelete(`/youtube-transcript/jobs/${jobId}`);
 }
 
 export function getYouTubeTranscriptSettings() {

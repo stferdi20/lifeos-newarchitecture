@@ -1216,6 +1216,50 @@ export async function retryInstagramDownloadForResource(userId, resourceId) {
   return { resource: updated, job: newJob, queued: true };
 }
 
+export async function removeInstagramDownloadJob(userId, jobId) {
+  const result = await getAdmin()
+    .from('instagram_download_jobs')
+    .select('*')
+    .eq('id', jobId)
+    .eq('owner_user_id', userId)
+    .maybeSingle();
+
+  if (result.error) throw new HttpError(500, result.error.message);
+  if (!result.data) throw new HttpError(404, 'Instagram download job not found.');
+
+  const job = normalizeJob(result.data);
+  if (job.job_type === YOUTUBE_TRANSCRIPT_JOB_TYPE) {
+    throw new HttpError(400, 'This is not an Instagram download job.');
+  }
+
+  const deleteResult = await getAdmin()
+    .from('instagram_download_jobs')
+    .delete()
+    .eq('id', jobId)
+    .eq('owner_user_id', userId);
+
+  if (deleteResult.error) throw new HttpError(500, deleteResult.error.message);
+
+  const removedAt = new Date().toISOString();
+  const resource = await getCompatEntity(userId, 'Resource', job.resource_id)
+    .then((current) => updateCompatEntity(userId, 'Resource', job.resource_id, mergeInstagramResourceState(current, {
+      download_status: 'blocked',
+      download_status_message: 'Removed from the Instagram downloader queue.',
+      ingestion_error: 'Removed from pending queue manually.',
+      instagram_review_state: 'needs_review',
+      instagram_review_reason: 'Removed from pending queue manually.',
+      downloader_job_id: '',
+      downloader_updated_at: removedAt,
+      downloader_completed_at: removedAt,
+    })))
+    .catch((error) => {
+      if (error instanceof HttpError && error.status === 404) return null;
+      throw error;
+    });
+
+  return { job, resource };
+}
+
 export async function reconcileInstagramResourceStatesForUser(userId) {
   const instagramResources = await fetchInstagramResourcesForUser(userId);
   if (!instagramResources.length) {

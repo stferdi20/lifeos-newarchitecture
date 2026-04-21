@@ -14,6 +14,7 @@ import {
   getInstagramDownloaderStatusForUser,
   getInstagramDownloaderSettingsForUser,
   registerInstagramWorkerHeartbeat,
+  removeInstagramDownloadJob,
   requeueAllFailedInstagramJobs,
   requeueAllGoogleDriveBlockedInstagramJobs,
   requeueFailedInstagramJobs,
@@ -190,6 +191,12 @@ instagramDownloaderRoutes.post('/retry-failed', async (c) => {
 instagramDownloaderRoutes.post('/resources/:resourceId/retry', async (c) => {
   const auth = await requireUser(c);
   const result = await retryInstagramDownloadForResource(auth.user.id, c.req.param('resourceId'));
+  return c.json({ success: true, ...result });
+});
+
+instagramDownloaderRoutes.delete('/jobs/:jobId', async (c) => {
+  const auth = await requireUser(c);
+  const result = await removeInstagramDownloadJob(auth.user.id, c.req.param('jobId'));
   return c.json({ success: true, ...result });
 });
 

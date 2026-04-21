@@ -558,6 +558,63 @@ export async function retryYouTubeTranscriptForResource(userId, resourceId) {
   return { resource: updated, job: newJob, queued: true };
 }
 
+export async function removeYouTubeTranscriptJob(userId, jobId) {
+  const primary = await getAdmin()
+    .from('youtube_transcript_jobs')
+    .select('*')
+    .eq('id', jobId)
+    .eq('owner_user_id', userId)
+    .maybeSingle();
+
+  if (primary.error && !isMissingYouTubeTranscriptQueueTableError(primary.error)) {
+    throw new HttpError(500, primary.error.message);
+  }
+
+  const tableName = primary.error ? LEGACY_QUEUE_TABLE : 'youtube_transcript_jobs';
+  const row = primary.error
+    ? await getAdmin()
+      .from(LEGACY_QUEUE_TABLE)
+      .select('*')
+      .eq('id', jobId)
+      .eq('owner_user_id', userId)
+      .maybeSingle()
+      .then((fallback) => {
+        if (fallback.error) throw new HttpError(500, fallback.error.message);
+        return fallback.data;
+      })
+    : primary.data;
+
+  if (!row) throw new HttpError(404, 'YouTube transcript job not found.');
+
+  const job = normalizeJob(row);
+  if (job.job_type !== YOUTUBE_TRANSCRIPT_JOB_TYPE) {
+    throw new HttpError(400, 'This is not a YouTube transcript job.');
+  }
+
+  const deleteResult = await getAdmin()
+    .from(tableName)
+    .delete()
+    .eq('id', jobId)
+    .eq('owner_user_id', userId);
+
+  if (deleteResult.error) throw new HttpError(500, deleteResult.error.message);
+
+  const resource = await getCompatEntity(userId, 'Resource', job.resource_id)
+    .then((current) => updateCompatEntity(userId, 'Resource', job.resource_id, mergeYouTubeTranscriptResourceState(current, {
+      youtube_transcript_status: 'skipped',
+      youtube_transcript_source: YOUTUBE_TRANSCRIPT_PRIMARY_SOURCE,
+      youtube_transcript_error: 'Removed from pending queue manually.',
+      youtube_transcript_job_id: '',
+      downloader_updated_at: new Date().toISOString(),
+    })))
+    .catch((error) => {
+      if (error instanceof HttpError && error.status === 404) return null;
+      throw error;
+    });
+
+  return { job, resource };
+}
+
 export async function requeueFailedYouTubeTranscriptJobs(userId) {
   const now = new Date().toISOString();
   const jobsRes = await getAdmin()

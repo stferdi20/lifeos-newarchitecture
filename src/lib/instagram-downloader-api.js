@@ -1,4 +1,4 @@
-import { apiGet, apiPatch, apiPost } from '@/lib/api-client';
+import { apiDelete, apiGet, apiPatch, apiPost } from '@/lib/api-client';
 
 export function getInstagramDownloaderStatus() {
   return apiGet('/instagram-downloader/status');
@@ -10,6 +10,10 @@ export function retryFailedInstagramDownloads() {
 
 export function retryInstagramDownloadForResource(resourceId) {
   return apiPost(`/instagram-downloader/resources/${resourceId}/retry`, {});
+}
+
+export function removeInstagramDownloadJob(jobId) {
+  return apiDelete(`/instagram-downloader/jobs/${jobId}`);
 }
 
 export function getInstagramDownloaderSettings() {

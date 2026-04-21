@@ -12,6 +12,7 @@ import {
   getYouTubeTranscriptStatusForUser,
   getYouTubeTranscriptWorkerQueueSummary,
   registerYouTubeTranscriptWorkerHeartbeat,
+  removeYouTubeTranscriptJob,
   requeueFailedYouTubeTranscriptJobs,
   retryYouTubeTranscriptForResource,
   updateYouTubeTranscriptSettingsForUser,
@@ -92,6 +93,12 @@ youtubeTranscriptRoutes.post('/retry-failed', async (c) => {
 youtubeTranscriptRoutes.post('/resources/:resourceId/retry', async (c) => {
   const auth = await requireUser(c);
   const result = await retryYouTubeTranscriptForResource(auth.user.id, c.req.param('resourceId'));
+  return c.json({ success: true, ...result });
+});
+
+youtubeTranscriptRoutes.delete('/jobs/:jobId', async (c) => {
+  const auth = await requireUser(c);
+  const result = await removeYouTubeTranscriptJob(auth.user.id, c.req.param('jobId'));
   return c.json({ success: true, ...result });
 });
 
