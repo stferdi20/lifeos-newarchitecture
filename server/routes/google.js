@@ -9,6 +9,7 @@ import {
   getGoogleAccessToken,
   listGoogleConnections,
 } from '../services/google.js';
+import { requeueGoogleDriveBlockedInstagramJobs } from '../services/instagram-download-queue.js';
 
 const googleRoutes = new Hono();
 
@@ -47,15 +48,28 @@ googleRoutes.post('/disconnect/:service', async (c) => {
 
 googleRoutes.get('/callback', async (c) => {
   const result = await exchangeGoogleCode(c.req.url);
+  let requeuedInstagramDownloads = 0;
+  if (result.service === 'drive') {
+    try {
+      const jobs = await requeueGoogleDriveBlockedInstagramJobs(result.userId);
+      requeuedInstagramDownloads = jobs.length;
+    } catch (error) {
+      console.warn('[google-oauth] failed to requeue Google Drive blocked Instagram downloads', {
+        userId: result.userId,
+        error: error instanceof Error ? error.message : String(error || 'Unknown error'),
+      });
+    }
+  }
   return c.html(`<!doctype html>
 <html>
   <head><meta charset="utf-8"><title>Google Connected</title></head>
   <body style="font-family: sans-serif; background: #10131a; color: white; padding: 32px;">
     <h1 style="margin: 0 0 12px;">Google ${result.service} connected</h1>
     <p style="opacity: 0.8;">You can close this window and return to LifeOS.</p>
+    ${requeuedInstagramDownloads > 0 ? `<p style="opacity: 0.8;">Requeued ${requeuedInstagramDownloads} Instagram download${requeuedInstagramDownloads === 1 ? '' : 's'} that were waiting for Google Drive.</p>` : ''}
     <script>
       if (window.opener) {
-        window.opener.postMessage({ type: 'lifeos-google-oauth-complete', service: ${JSON.stringify(result.service)} }, '*');
+        window.opener.postMessage({ type: 'lifeos-google-oauth-complete', service: ${JSON.stringify(result.service)}, requeuedInstagramDownloads: ${JSON.stringify(requeuedInstagramDownloads)} }, '*');
       }
       window.setTimeout(() => window.close(), 800);
     </script>

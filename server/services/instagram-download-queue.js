@@ -80,6 +80,16 @@ export function buildInstagramClaimFailurePayload(job = {}, message = '', worker
   };
 }
 
+export function isGoogleDriveAuthRequiredError(message = '') {
+  const lowered = String(message || '').toLowerCase();
+  return lowered.includes('google drive')
+    && (
+      lowered.includes('not connected')
+      || lowered.includes('reconnect')
+      || lowered.includes('needs to be reconnected')
+    );
+}
+
 async function failClaimedInstagramDownloadJob(job, message = '', workerId = '') {
   const normalizedJob = normalizeJob(job);
   if (!normalizedJob?.id) {
@@ -196,6 +206,9 @@ function buildFailedSummary(message = '') {
 }
 
 function buildNeedsReviewMessage(message = '') {
+  if (isGoogleDriveAuthRequiredError(message)) {
+    return 'Reconnect Google Drive; LifeOS will retry this Instagram download automatically.';
+  }
   return message
     ? `Instagram media needs review: ${message}`
     : 'Instagram media needs review. LifeOS could not fetch downloadable media for this post automatically.';
@@ -226,7 +239,11 @@ function mergeInstagramResourceState(current = {}, patch = {}) {
 function getInstagramFailureStatus(message = '') {
   const lowered = String(message || '').toLowerCase();
   if (
-    lowered.includes('empty media response')
+    isGoogleDriveAuthRequiredError(message)
+    || lowered.includes('google drive is not connected')
+    || lowered.includes('google drive needs to be reconnected')
+    || lowered.includes('google drive reconnect')
+    || lowered.includes('empty media response')
     || lowered.includes('extractor-blocked')
     || lowered.includes('blocked by instagram')
     || lowered.includes('needs review')
@@ -981,6 +998,41 @@ export async function requeueFailedInstagramJobs(userId) {
     .from('instagram_download_jobs')
     .update({
       status: 'queued',
+      scheduled_for: now,
+      started_at: null,
+      completed_at: null,
+      worker_id: null,
+      updated_at: now,
+    })
+    .eq('id', job.id)
+    .select('*')
+    .single()
+    .catch((error) => { throw error; })));
+
+  await Promise.all(rows.map((job) => updateInstagramResourceQueued(userId, job.resource_id, job.id).catch(() => null)));
+  return rows;
+}
+
+export async function requeueGoogleDriveBlockedInstagramJobs(userId) {
+  const now = new Date().toISOString();
+  const result = await getAdmin()
+    .from('instagram_download_jobs')
+    .eq('owner_user_id', userId)
+    .eq('status', 'failed')
+    .select('*');
+
+  if (result.error) throw new HttpError(500, result.error.message);
+
+  const rows = (result.data || [])
+    .map(normalizeJob)
+    .filter((job) => job.job_type !== YOUTUBE_TRANSCRIPT_JOB_TYPE)
+    .filter((job) => isGoogleDriveAuthRequiredError(job.last_error));
+
+  await Promise.all(rows.map((job) => getAdmin()
+    .from('instagram_download_jobs')
+    .update({
+      status: 'queued',
+      last_error: null,
       scheduled_for: now,
       started_at: null,
       completed_at: null,
