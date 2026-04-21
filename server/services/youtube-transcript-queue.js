@@ -584,21 +584,23 @@ export async function requeueFailedYouTubeTranscriptJobs(userId) {
       })
     : (jobsRes.data || []).map(normalizeJob);
 
-  await Promise.all(jobs.map((job) => getAdmin()
-    .from(jobsRes.error ? LEGACY_QUEUE_TABLE : 'youtube_transcript_jobs')
-    .update({
-      status: 'queued',
-      last_error: null,
-      scheduled_for: now,
-      started_at: null,
-      completed_at: null,
-      worker_id: null,
-      updated_at: now,
-    })
-    .eq('id', job.id)
-    .select('*')
-    .single()
-    .catch((error) => { throw error; })));
+  await Promise.all(jobs.map(async (job) => {
+    const updateResult = await getAdmin()
+      .from(jobsRes.error ? LEGACY_QUEUE_TABLE : 'youtube_transcript_jobs')
+      .update({
+        status: 'queued',
+        last_error: null,
+        scheduled_for: now,
+        started_at: null,
+        completed_at: null,
+        worker_id: null,
+        updated_at: now,
+      })
+      .eq('id', job.id)
+      .select('*')
+      .single();
+    if (updateResult.error) throw new HttpError(500, updateResult.error.message);
+  }));
 
   await Promise.all(jobs.map((job) => updateYouTubeTranscriptQueued(userId, job.resource_id, job.id).catch(() => null)));
   return jobs;
@@ -1036,7 +1038,7 @@ export async function getYouTubeTranscriptStatusForUser(userId) {
     if (job.status !== 'processing') continue;
     if (!isTimestampOlderThan(job.started_at || job.requested_at || job.created_at, thresholdMs)) continue;
     const recoveredAt = new Date().toISOString();
-    await getAdmin()
+    const recovered = await getAdmin()
       .from(jobsRes.error ? LEGACY_QUEUE_TABLE : 'youtube_transcript_jobs')
       .update({
         status: 'queued',
@@ -1054,8 +1056,8 @@ export async function getYouTubeTranscriptStatusForUser(userId) {
       .eq('id', job.id)
       .eq('status', 'processing')
       .select('*')
-      .maybeSingle()
-      .catch(() => null);
+      .maybeSingle();
+    if (recovered.error) throw new HttpError(500, recovered.error.message);
     console.warn('[youtube-worker] recovered stale processing job from status repair', {
       jobId: job.id,
       previousWorkerId: job.worker_id || '',
