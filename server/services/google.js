@@ -48,13 +48,28 @@ export function buildGoogleConnectUrl(service, userId) {
   return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 }
 
+function isMissingReconnectReasonColumn(error) {
+  const message = String(error?.message || '');
+  return message.includes('reconnect_reason') && message.includes('schema cache');
+}
+
+async function upsertGoogleConnection(admin, row) {
+  const result = await admin.from('google_connections').upsert(row, { onConflict: 'user_id,service' });
+  if (!result.error || !isMissingReconnectReasonColumn(result.error)) {
+    return result;
+  }
+
+  const { reconnect_reason: _reconnectReason, ...compatRow } = row;
+  return admin.from('google_connections').upsert(compatRow, { onConflict: 'user_id,service' });
+}
+
 async function storeGoogleTokens({ userId, service, tokenPayload }) {
   const admin = getServiceRoleClient();
   const expiresAt = tokenPayload.expires_in
     ? new Date(Date.now() + (Number(tokenPayload.expires_in) * 1000)).toISOString()
     : null;
 
-  const connectionResult = await admin.from('google_connections').upsert({
+  const connectionResult = await upsertGoogleConnection(admin, {
     user_id: userId,
     service,
     status: 'connected',
@@ -62,7 +77,7 @@ async function storeGoogleTokens({ userId, service, tokenPayload }) {
     last_connected_at: new Date().toISOString(),
     disconnected_at: null,
     reconnect_reason: null,
-  }, { onConflict: 'user_id,service' });
+  });
   if (connectionResult.error) throw new HttpError(500, connectionResult.error.message);
 
   const row = pickDefinedEntries({
@@ -93,6 +108,17 @@ async function markConnectionReconnectRequired(userId, service, reason) {
     })
     .eq('user_id', userId)
     .eq('service', service);
+
+  if (result.error && isMissingReconnectReasonColumn(result.error)) {
+    const fallbackResult = await admin
+      .from('google_connections')
+      .update({ status: 'reconnect_required' })
+      .eq('user_id', userId)
+      .eq('service', service);
+
+    if (fallbackResult.error) throw new HttpError(500, fallbackResult.error.message);
+    return;
+  }
 
   if (result.error) throw new HttpError(500, result.error.message);
 }
