@@ -10,6 +10,7 @@ import {
   failYouTubeTranscriptJob,
   getYouTubeTranscriptSettingsForUser,
   getYouTubeTranscriptStatusForUser,
+  getYouTubeTranscriptWorkerQueueSummary,
   registerYouTubeTranscriptWorkerHeartbeat,
   requeueFailedYouTubeTranscriptJobs,
   retryYouTubeTranscriptForResource,
@@ -112,6 +113,12 @@ youtubeTranscriptRoutes.post('/worker/claim', async (c) => {
   const workerId = c.req.header('x-worker-id') || 'youtube-worker';
   const claimed = await claimNextYouTubeTranscriptJob(workerId);
   return c.json({ success: true, job: claimed });
+});
+
+youtubeTranscriptRoutes.post('/worker/status', async (c) => {
+  assertWorkerSecret(c);
+  const status = await getYouTubeTranscriptWorkerQueueSummary();
+  return c.json({ success: true, ...status });
 });
 
 youtubeTranscriptRoutes.post('/worker/jobs/:jobId/complete', zValidator('json', workerCompleteSchema), async (c) => {

@@ -1151,3 +1151,91 @@ export async function getYouTubeTranscriptStatusForUser(userId) {
     worker_enabled: true,
   };
 }
+
+export async function getYouTubeTranscriptWorkerQueueSummary() {
+  await recoverStaleYouTubeTranscriptJobs();
+
+  const [jobsRes, workerRes] = await Promise.all([
+    getAdmin()
+      .from('youtube_transcript_jobs')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(50),
+    getAdmin()
+      .from('youtube_transcript_workers')
+      .select('*')
+      .order('last_heartbeat_at', { ascending: false })
+      .limit(5),
+  ]);
+
+  if (jobsRes.error && !isMissingYouTubeTranscriptQueueTableError(jobsRes.error)) {
+    throw new HttpError(500, jobsRes.error.message);
+  }
+  if (workerRes.error && !isMissingYouTubeTranscriptQueueTableError(workerRes.error)) {
+    throw new HttpError(500, workerRes.error.message);
+  }
+
+  const jobs = jobsRes.error
+    ? await getAdmin()
+      .from(LEGACY_QUEUE_TABLE)
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(100)
+      .then((fallback) => {
+        if (fallback.error) throw new HttpError(500, fallback.error.message);
+        return (fallback.data || [])
+          .map(normalizeJob)
+          .filter((job) => job.job_type === YOUTUBE_TRANSCRIPT_JOB_TYPE)
+          .slice(0, 50);
+      })
+    : (jobsRes.data || []).map(normalizeJob);
+
+  const counts = jobs.reduce((acc, job) => {
+    acc.total += 1;
+    if (job.status === 'queued') acc.queued += 1;
+    if (job.status === 'processing') acc.processing += 1;
+    if (job.status === 'failed') acc.failed += 1;
+    if (job.recovery_reason === 'stale_worker_heartbeat') acc.recovered += 1;
+    return acc;
+  }, { total: 0, queued: 0, processing: 0, failed: 0, recovered: 0 });
+
+  const workerRows = workerRes.error
+    ? await getAdmin()
+      .from(LEGACY_WORKER_TABLE)
+      .select('*')
+      .order('last_heartbeat_at', { ascending: false })
+      .limit(5)
+      .then((fallback) => {
+        if (fallback.error) throw new HttpError(500, fallback.error.message);
+        return fallback.data || [];
+      })
+    : (workerRes.data || []);
+
+  return {
+    queue: {
+      ...counts,
+      items: jobs.slice(0, 10).map((job) => ({
+        id: job.id,
+        resource_id: job.resource_id,
+        source_url: job.source_url,
+        status: job.status,
+        last_error: job.last_error || '',
+        worker_id: job.worker_id || '',
+        requested_at: job.requested_at,
+        scheduled_for: job.scheduled_for,
+        started_at: job.started_at,
+        completed_at: job.completed_at,
+        recovered_at: job.recovered_at,
+        recovery_reason: job.recovery_reason,
+      })),
+    },
+    workers: workerRows.map((worker) => ({
+      worker_id: worker.worker_id,
+      label: worker.label || worker.worker_id,
+      status: worker.status || 'unknown',
+      last_heartbeat_at: worker.last_heartbeat_at,
+      current_job_id: worker.current_job_id || '',
+      state: getWorkerState(worker.last_heartbeat_at, getStatusStaleMs()),
+    })),
+  };
+}
