@@ -1048,6 +1048,40 @@ export async function requeueGoogleDriveBlockedInstagramJobs(userId) {
   return rows;
 }
 
+export async function requeueAllGoogleDriveBlockedInstagramJobs() {
+  const now = new Date().toISOString();
+  const result = await getAdmin()
+    .from('instagram_download_jobs')
+    .eq('status', 'failed')
+    .select('*');
+
+  if (result.error) throw new HttpError(500, result.error.message);
+
+  const rows = (result.data || [])
+    .map(normalizeJob)
+    .filter((job) => job.job_type !== YOUTUBE_TRANSCRIPT_JOB_TYPE)
+    .filter((job) => isGoogleDriveAuthRequiredError(job.last_error));
+
+  await Promise.all(rows.map((job) => getAdmin()
+    .from('instagram_download_jobs')
+    .update({
+      status: 'queued',
+      last_error: null,
+      scheduled_for: now,
+      started_at: null,
+      completed_at: null,
+      worker_id: null,
+      updated_at: now,
+    })
+    .eq('id', job.id)
+    .select('*')
+    .single()
+    .catch((error) => { throw error; })));
+
+  await Promise.all(rows.map((job) => updateInstagramResourceQueued(job.owner_user_id, job.resource_id, job.id).catch(() => null)));
+  return rows;
+}
+
 export async function retryInstagramDownloadForResource(userId, resourceId) {
   const resource = await getCompatEntity(userId, 'Resource', resourceId);
   const resourceType = resource?.resource_type || '';

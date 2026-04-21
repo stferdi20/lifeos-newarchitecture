@@ -14,6 +14,7 @@ import {
   getInstagramDownloaderStatusForUser,
   getInstagramDownloaderSettingsForUser,
   registerInstagramWorkerHeartbeat,
+  requeueAllGoogleDriveBlockedInstagramJobs,
   requeueFailedInstagramJobs,
   retryInstagramDownloadForResource,
   updateInstagramResourceUploading,
@@ -209,6 +210,12 @@ instagramDownloaderRoutes.post('/worker/claim', async (c) => {
   const workerId = c.req.header('x-worker-id') || 'instagram-worker';
   const claimed = await claimNextInstagramDownloadJob(workerId);
   return c.json({ success: true, job: claimed });
+});
+
+instagramDownloaderRoutes.post('/worker/requeue-drive-blocked', async (c) => {
+  assertWorkerSecret(c);
+  const jobs = await requeueAllGoogleDriveBlockedInstagramJobs();
+  return c.json({ success: true, jobs, count: jobs.length });
 });
 
 instagramDownloaderRoutes.post('/worker/jobs/:jobId/complete', zValidator('json', workerCompleteSchema), async (c) => {
