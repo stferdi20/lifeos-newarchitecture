@@ -214,8 +214,13 @@ instagramDownloaderRoutes.post('/worker/claim', async (c) => {
 
 instagramDownloaderRoutes.post('/worker/requeue-drive-blocked', async (c) => {
   assertWorkerSecret(c);
-  const jobs = await requeueAllGoogleDriveBlockedInstagramJobs();
-  return c.json({ success: true, jobs, count: jobs.length });
+  try {
+    const jobs = await requeueAllGoogleDriveBlockedInstagramJobs();
+    return c.json({ success: true, jobs, count: jobs.length });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error || 'Unknown requeue error');
+    throw new HttpError(500, message);
+  }
 });
 
 instagramDownloaderRoutes.post('/worker/jobs/:jobId/complete', zValidator('json', workerCompleteSchema), async (c) => {
