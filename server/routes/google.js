@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { HttpError } from '../lib/http.js';
+import { getServerEnv, hasSupabaseServerConfig } from '../config/env.js';
 import { getServiceRoleClient, requireUser } from '../lib/supabase.js';
 import {
   assertGoogleService,
@@ -28,6 +29,11 @@ async function resolveGoogleRouteUser(c) {
 }
 
 googleRoutes.get('/connections', async (c) => {
+  const env = getServerEnv();
+  if (env.NODE_ENV !== 'production' && !hasSupabaseServerConfig()) {
+    return c.json({ connections: [] });
+  }
+
   const auth = await requireUser(c);
   const connections = await listGoogleConnections(auth.user.id);
   return c.json({ connections });
