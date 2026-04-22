@@ -81,6 +81,24 @@ const PERSISTED_QUERY_PREFIXES = new Set([
 
 let dbPromise = null;
 
+export function getPersistedQueryPrefixes() {
+  return [...PERSISTED_QUERY_PREFIXES];
+}
+
+export function getLocalQueryCachePolicy(queryKeyOrPrefix) {
+  const prefix = Array.isArray(queryKeyOrPrefix)
+    ? String(queryKeyOrPrefix[0] || '')
+    : String(queryKeyOrPrefix || '');
+  const ttl = QUERY_TTLS[prefix];
+
+  if (!ttl || !PERSISTED_QUERY_PREFIXES.has(prefix)) return null;
+
+  return {
+    staleTime: ttl,
+    gcTime: ttl,
+  };
+}
+
 function canUseIndexedDb() {
   return typeof window !== 'undefined' && typeof window.indexedDB !== 'undefined';
 }

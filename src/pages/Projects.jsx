@@ -32,6 +32,7 @@ import { MobileActionOverflow } from '@/components/layout/MobileActionOverflow';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { getLocalQueryCachePolicy } from '@/lib/local-query-cache';
 import {
   createBoardCard,
   createBoardList,
@@ -166,7 +167,8 @@ export default function Projects() {
   const { data: workspaces = [], isLoading: workspacesLoading } = useQuery({
     queryKey: ['workspaces'],
     queryFn: listBoardWorkspaces,
-    staleTime: PROJECTS_CACHE_MS,
+    staleTime: getLocalQueryCachePolicy(['workspaces'])?.staleTime || PROJECTS_CACHE_MS,
+    gcTime: getLocalQueryCachePolicy(['workspaces'])?.gcTime,
   });
 
   const visibleWorkspaces = useMemo(
@@ -184,14 +186,16 @@ export default function Projects() {
     queryKey: ['workspace-lists', selectedWorkspaceId],
     queryFn: () => listBoardLists(selectedWorkspaceId),
     enabled: Boolean(selectedWorkspaceId),
-    staleTime: PROJECTS_CACHE_MS,
+    staleTime: getLocalQueryCachePolicy(['workspace-lists'])?.staleTime || PROJECTS_CACHE_MS,
+    gcTime: getLocalQueryCachePolicy(['workspace-lists'])?.gcTime,
   });
 
   const { data: cards = [], isLoading: cardsLoading } = useQuery({
     queryKey: cardsQueryKey,
     queryFn: () => listBoardCards(selectedWorkspaceId, { includeArchived: showArchived }),
     enabled: Boolean(selectedWorkspaceId),
-    staleTime: PROJECTS_CACHE_MS,
+    staleTime: getLocalQueryCachePolicy(['cards'])?.staleTime || PROJECTS_CACHE_MS,
+    gcTime: getLocalQueryCachePolicy(['cards'])?.gcTime,
   });
 
   useEffect(() => {

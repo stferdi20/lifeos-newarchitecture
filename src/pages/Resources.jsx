@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { getLocalQueryCachePolicy } from '@/lib/local-query-cache';
 import { listBoardWorkspaces } from '@/lib/projects-api';
 import {
   CardResource,
@@ -293,8 +294,8 @@ export default function Resources() {
         throw error;
       }
     },
-    staleTime: RESOURCE_QUERY_STALE_TIME,
-    gcTime: RESOURCE_QUERY_GC_TIME,
+    staleTime: getLocalQueryCachePolicy(['resources'])?.staleTime || RESOURCE_QUERY_STALE_TIME,
+    gcTime: getLocalQueryCachePolicy(['resources'])?.gcTime || RESOURCE_QUERY_GC_TIME,
     refetchOnMount: false,
     refetchInterval: (query) => {
       const currentResources = Array.isArray(query.state.data) ? query.state.data : [];
@@ -350,8 +351,8 @@ export default function Resources() {
         throw error;
       }
     },
-    staleTime: RESOURCE_QUERY_STALE_TIME,
-    gcTime: RESOURCE_QUERY_GC_TIME,
+    staleTime: getLocalQueryCachePolicy(['projects'])?.staleTime || RESOURCE_QUERY_STALE_TIME,
+    gcTime: getLocalQueryCachePolicy(['projects'])?.gcTime || RESOURCE_QUERY_GC_TIME,
   });
 
   const { data: areas = [] } = useQuery({
@@ -367,8 +368,8 @@ export default function Resources() {
         throw error;
       }
     },
-    staleTime: RESOURCE_QUERY_STALE_TIME,
-    gcTime: RESOURCE_QUERY_GC_TIME,
+    staleTime: getLocalQueryCachePolicy(['lifeAreas'])?.staleTime || RESOURCE_QUERY_STALE_TIME,
+    gcTime: getLocalQueryCachePolicy(['lifeAreas'])?.gcTime || RESOURCE_QUERY_GC_TIME,
   });
 
   const { data: projectResources = [], isLoading: projectResourcesLoading } = useQuery({
@@ -387,8 +388,8 @@ export default function Resources() {
       }
     },
     enabled: Boolean(projectFilter),
-    staleTime: RESOURCE_QUERY_STALE_TIME,
-    gcTime: RESOURCE_QUERY_GC_TIME,
+    staleTime: getLocalQueryCachePolicy(['projectResources'])?.staleTime || RESOURCE_QUERY_STALE_TIME,
+    gcTime: getLocalQueryCachePolicy(['projectResources'])?.gcTime || RESOURCE_QUERY_GC_TIME,
   });
 
   const projectResourceIds = useMemo(() => {
