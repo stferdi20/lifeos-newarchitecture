@@ -1,4 +1,5 @@
 const STATUS_TO_LIST = {
+  backlog: 'Backlog',
   todo: 'To Do',
   doing: 'Doing',
   done: 'Done',

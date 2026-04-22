@@ -2,9 +2,11 @@ import { HttpError, pickDefinedEntries, toSlug } from '../lib/http.js';
 import { getAccessibleWorkspaceIds, getServiceRoleClient } from '../lib/supabase.js';
 
 const DEFAULT_LISTS = [
-  { name: 'To Do', position: 0 },
-  { name: 'In Progress', position: 10 },
-  { name: 'Done', position: 20 },
+  { name: 'Backlog', position: 0 },
+  { name: 'To Do', position: 10 },
+  { name: 'In Progress', position: 20 },
+  { name: 'Done', position: 30 },
+  { name: 'Archived', position: 40 },
 ];
 
 function normalizeArray(value) {

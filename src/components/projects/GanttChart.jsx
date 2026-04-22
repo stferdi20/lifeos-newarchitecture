@@ -4,6 +4,7 @@ import { differenceInDays, addDays, format, startOfDay, parseISO, isValid } from
 import { Circle, Play, CheckCircle2, AlertTriangle, CalendarPlus } from 'lucide-react';
 
 const statusConfig = {
+  backlog: { color: 'bg-slate-500', icon: Circle },
   todo: { color: 'bg-zinc-500', icon: Circle },
   doing: { color: 'bg-blue-500', icon: Play },
   done: { color: 'bg-emerald-500', icon: CheckCircle2 },

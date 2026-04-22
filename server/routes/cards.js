@@ -24,7 +24,7 @@ const cardSchema = z.object({
   list_id: z.string().min(1),
   title: z.string().min(1),
   description: z.string().optional(),
-  status: z.enum(['todo', 'doing', 'done', 'archived']).optional(),
+  status: z.enum(['backlog', 'todo', 'doing', 'done', 'archived']).optional(),
   priority: z.enum(['low', 'medium', 'high']).optional(),
   start_date: z.string().optional(),
   due_date: z.string().optional(),

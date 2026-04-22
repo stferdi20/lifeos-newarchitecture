@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import {
-  Trash2, Calendar, Tag, AlignLeft, CheckSquare, Plus, X,
+  Archive, Inbox, Trash2, Calendar, Tag, AlignLeft, CheckSquare, Plus, X,
   Sparkles, Loader2, Check, Link2, CalendarRange, Palette, Clock3, UploadCloud, BookOpen, ExternalLink, BellRing
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -70,7 +70,11 @@ async function invokeFunction(name, payload) {
   return res?.data || res;
 }
 
-export function CardDetailModal({ open, onClose, task, allTasks, onSave, onDelete }) {
+function normalizeListName(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+export function CardDetailModal({ open, onClose, task, allTasks, lists = [], onSave, onDelete, onMoveToList }) {
   const queryClient = useQueryClient();
   const backendMode = true;
   const [form, setForm] = useState({ title: '', description: '', priority: 'medium', start_date: new Date().toISOString().slice(0, 10), due_date: '', dependencies: [] });
@@ -281,6 +285,16 @@ export function CardDetailModal({ open, onClose, task, allTasks, onSave, onDelet
   const progress = checklist.length > 0 ? Math.round((completedCount / checklist.length) * 100) : 0;
   const modalTask = currentTask || task;
   const cardId = modalTask?.id || '';
+  const backlogList = useMemo(
+    () => lists.find((list) => normalizeListName(list.name) === 'backlog') || null,
+    [lists],
+  );
+  const archivedList = useMemo(
+    () => lists.find((list) => normalizeListName(list.name) === 'archived') || null,
+    [lists],
+  );
+  const isInBacklog = Boolean(backlogList && modalTask?.list_id === backlogList.id);
+  const isArchived = Boolean(archivedList && modalTask?.list_id === archivedList.id);
   const imageAttachments = useMemo(
     () => (modalTask?.attached_files || []).filter((attachment) => (
       attachment?.mimeType?.startsWith('image/') || attachment?.file_type === 'image'
@@ -378,6 +392,12 @@ export function CardDetailModal({ open, onClose, task, allTasks, onSave, onDelet
     event.preventDefault();
     event.stopPropagation();
     action();
+  };
+
+  const handleMoveToList = (list) => {
+    if (!modalTask?.id || !list || !onMoveToList) return;
+    onMoveToList(modalTask, list);
+    setCurrentTask((prev) => (prev ? { ...prev, list_id: list.id } : prev));
   };
 
   const handleUploadCoverClick = (event) => {
@@ -584,8 +604,8 @@ export function CardDetailModal({ open, onClose, task, allTasks, onSave, onDelet
           className="hidden"
           onChange={handleCoverUploadChange}
         />
-        <div className="flex items-center gap-3 border-b border-border/50 px-4 pb-3 pt-5 sm:px-6">
-          <div className="ml-auto flex items-center gap-2">
+        <div className="flex items-center justify-end gap-3 border-b border-border/50 px-4 pb-3 pt-5 sm:px-6">
+          <div className="flex min-h-8 items-center gap-2">
             {isExisting && saveStatus === 'saving' && (
               <span className="text-[10px] text-muted-foreground flex items-center gap-1">
                 <Loader2 className="w-3 h-3 animate-spin" /> Saving...
@@ -597,7 +617,43 @@ export function CardDetailModal({ open, onClose, task, allTasks, onSave, onDelet
               </span>
             )}
             {modalTask?.id && (
-              <Button type="button" variant="ghost" size="sm" onClick={() => onDelete(modalTask.id)} className="h-8 text-red-400 hover:text-red-300 hover:bg-red-500/10">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => handleMoveToList(backlogList)}
+                disabled={!backlogList || isInBacklog}
+                aria-label="Put card in backlog"
+                title="Put card in backlog"
+                className="h-8 w-8 p-0 text-muted-foreground hover:bg-secondary/60 hover:text-foreground disabled:opacity-35"
+              >
+                <Inbox className="w-4 h-4" />
+              </Button>
+            )}
+            {modalTask?.id && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => handleMoveToList(archivedList)}
+                disabled={!archivedList || isArchived}
+                aria-label="Archive card"
+                title="Archive card"
+                className="h-8 w-8 p-0 text-muted-foreground hover:bg-secondary/60 hover:text-foreground disabled:opacity-35"
+              >
+                <Archive className="w-4 h-4" />
+              </Button>
+            )}
+            {modalTask?.id && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => onDelete(modalTask.id)}
+                aria-label="Delete card"
+                title="Delete card"
+                className="h-8 w-8 p-0 text-red-400 hover:text-red-300 hover:bg-red-500/10"
+              >
                 <Trash2 className="w-4 h-4" />
               </Button>
             )}

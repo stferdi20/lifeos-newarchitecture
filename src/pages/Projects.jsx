@@ -57,14 +57,40 @@ function isArchivedList(list) {
   return normalizeListName(list?.name) === 'archived';
 }
 
+function isBacklogList(list) {
+  return normalizeListName(list?.name) === 'backlog';
+}
+
+function isTodoList(list) {
+  const name = normalizeListName(list?.name);
+  return name === 'to do' || name === 'todo';
+}
+
+function isDoingList(list) {
+  const name = normalizeListName(list?.name);
+  return name === 'in progress' || name === 'doing';
+}
+
 function isDoneList(list) {
   const name = normalizeListName(list?.name);
   return name === 'done' || name === 'completed';
 }
 
+function listSortRank(list) {
+  if (isBacklogList(list)) return 0;
+  if (isTodoList(list)) return 1;
+  if (isDoingList(list)) return 2;
+  if (isDoneList(list)) return 3;
+  if (isArchivedList(list)) return 4;
+  return 10;
+}
+
 function inferStatusFromListId(listId, orderedLists) {
   const list = orderedLists.find((entry) => entry.id === listId);
   if (!list) return 'todo';
+  if (isBacklogList(list)) return 'backlog';
+  if (isTodoList(list)) return 'todo';
+  if (isDoingList(list)) return 'doing';
   if (isArchivedList(list)) return 'archived';
   if (isDoneList(list)) return 'done';
 
@@ -107,7 +133,7 @@ export default function Projects() {
 
   const selectedWorkspaceId = activeWorkspaceId || visibleWorkspaces[0]?.id || '';
 
-  const { data: workspaceLists = [], isLoading: listsLoading } = useQuery({
+  const { data: workspaceLists = [], isLoading: listsLoading, isFetched: listsFetched } = useQuery({
     queryKey: ['workspace-lists', selectedWorkspaceId],
     queryFn: () => listBoardLists(selectedWorkspaceId),
     enabled: Boolean(selectedWorkspaceId),
@@ -136,9 +162,43 @@ export default function Projects() {
   const orderedLists = useMemo(
     () => [...workspaceLists]
       .filter((list) => !list.is_archived)
-      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0)),
+      .sort((a, b) => {
+        const rankDelta = listSortRank(a) - listSortRank(b);
+        if (rankDelta !== 0) return rankDelta;
+        return (a.position ?? 0) - (b.position ?? 0);
+      }),
     [workspaceLists],
   );
+
+  useEffect(() => {
+    if (!selectedWorkspaceId || listsLoading || !listsFetched) return;
+
+    const canonicalLists = [
+      { name: 'Backlog', position: 0 },
+      { name: 'To Do', position: 10 },
+      { name: 'In Progress', position: 20 },
+      { name: 'Done', position: 30 },
+      { name: 'Archived', position: 40 },
+    ];
+    const existingNames = new Set(workspaceLists.map((list) => normalizeListName(list.name)));
+    const missingLists = canonicalLists.filter((list) => !existingNames.has(normalizeListName(list.name)));
+
+    if (!missingLists.length) return;
+
+    Promise.all(
+      missingLists.map((list) => createBoardList({
+        workspace_id: selectedWorkspaceId,
+        name: list.name,
+        position: list.position,
+      })),
+    )
+      .then(() => {
+        queryClient.invalidateQueries({ queryKey: ['workspace-lists', selectedWorkspaceId] });
+      })
+      .catch((error) => {
+        toast.error(error?.message || 'Failed to add default project sections.');
+      });
+  }, [listsFetched, listsLoading, queryClient, selectedWorkspaceId, workspaceLists]);
 
   const cardsByListId = useMemo(() => {
     const grouped = Object.fromEntries(orderedLists.map((list) => [list.id, []]));
@@ -310,6 +370,22 @@ export default function Projects() {
     },
     onError: (error) => {
       toast.error(error?.message || 'Failed to create list.');
+    },
+  });
+
+  const moveCardToListMutation = useMutation({
+    mutationFn: ({ card, list }) => updateBoardCard(card.id, {
+      list_id: list.id,
+      status: inferStatusFromListId(list.id, orderedLists),
+    }),
+    onSuccess: (card) => {
+      queryClient.invalidateQueries({ queryKey: ['cards', selectedWorkspaceId] });
+      setEditingCard(card);
+      const nextList = orderedLists.find((list) => list.id === card.list_id);
+      toast.success(nextList ? `Moved to ${nextList.name}.` : 'Card moved.');
+    },
+    onError: (error) => {
+      toast.error(error?.message || 'Failed to move card.');
     },
   });
 
@@ -660,8 +736,10 @@ export default function Projects() {
         task={editingCard}
         projects={visibleWorkspaces}
         allTasks={cards}
+        lists={orderedLists}
         onSave={(form) => saveCardMutation.mutate(form)}
         onDelete={(cardId) => deleteCardMutation.mutate(cardId)}
+        onMoveToList={(card, list) => moveCardToListMutation.mutate({ card, list })}
       />
 
       <ResponsiveModal
@@ -678,7 +756,7 @@ export default function Projects() {
           <ResponsiveModalHeader>
             <ResponsiveModalTitle>Create Workspace</ResponsiveModalTitle>
             <ResponsiveModalDescription>
-              Create a new workspace with default lists: To Do, In Progress, and Done.
+              Create a new workspace with default lists: Backlog, To Do, In Progress, Done, and Archived.
             </ResponsiveModalDescription>
           </ResponsiveModalHeader>
           <div className="space-y-2">
