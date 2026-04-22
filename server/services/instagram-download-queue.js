@@ -1230,6 +1230,52 @@ export async function retryInstagramDownloadForResource(userId, resourceId) {
   return { resource: updated, job: newJob, queued: true };
 }
 
+function chooseDriveBackedInstagramThumbnail(resource = {}) {
+  const driveFiles = Array.isArray(resource.drive_files) ? resource.drive_files : [];
+  for (const file of driveFiles) {
+    const previewUrl = buildDriveImagePreviewUrl(file);
+    if (previewUrl) return previewUrl;
+  }
+
+  const mediaItems = Array.isArray(resource.instagram_media_items) ? resource.instagram_media_items : [];
+  for (const item of mediaItems) {
+    const thumbnail = normalizeUrlString(item?.thumbnail_url);
+    if (thumbnail && /drive\.google|googleusercontent/i.test(thumbnail)) return thumbnail;
+    const sourceUrl = normalizeUrlString(item?.source_url);
+    if (sourceUrl && /drive\.google|googleusercontent/i.test(sourceUrl)) return sourceUrl;
+  }
+
+  return '';
+}
+
+export async function repairInstagramThumbnailForResource(userId, resourceId) {
+  const resource = await getCompatEntity(userId, 'Resource', resourceId);
+  const resourceType = resource?.resource_type || '';
+  if (!['instagram_reel', 'instagram_carousel', 'instagram_post'].includes(resourceType)) {
+    throw new HttpError(400, 'This resource is not an Instagram download.');
+  }
+
+  const driveThumbnail = chooseDriveBackedInstagramThumbnail(resource);
+  if (driveThumbnail && normalizeUrlString(resource.thumbnail) !== driveThumbnail) {
+    const updated = await updateCompatEntity(userId, 'Resource', resourceId, mergeInstagramResourceState(resource, {
+      thumbnail: driveThumbnail,
+      downloader_updated_at: new Date().toISOString(),
+    }));
+    return { resource: updated, queued: false, repaired: true };
+  }
+
+  if (driveThumbnail) {
+    return { resource, queued: false, repaired: false };
+  }
+
+  const retried = await retryInstagramDownloadForResource(userId, resourceId);
+  return {
+    ...retried,
+    repaired: false,
+    repair_reason: 'queued_worker_thumbnail_generation',
+  };
+}
+
 export async function retryInstagramEnrichmentForResource(userId, resourceId) {
   const resource = await getCompatEntity(userId, 'Resource', resourceId);
   const resourceType = resource?.resource_type || '';

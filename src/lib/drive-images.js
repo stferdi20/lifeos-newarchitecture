@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { runtimeConfig } from '@/lib/runtime-config';
+import { apiPost } from '@/lib/api-client';
 import { getSupabaseAccessToken } from '@/lib/supabase-browser';
 
 const ACCESS_TOKEN_CACHE_MS = 60 * 1000;
 const DRIVE_IMAGE_CACHE_NAME = 'lifeos-drive-images-v1';
+const INSTAGRAM_THUMBNAIL_REPAIR_PREFIX = 'lifeos.instagram-thumbnail-repair';
+const INSTAGRAM_THUMBNAIL_REPAIR_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const pendingInstagramThumbnailRepairs = new Set();
 
 function normalizeUrl(value = '') {
   return String(value || '').trim();
@@ -69,6 +73,14 @@ function isSupabaseStorageUrl(value = '') {
 function isRawInstagramMediaUrl(value = '') {
   const url = normalizeUrl(value);
   return /(cdninstagram|fbcdn|scontent|instagram\.com)/i.test(url);
+}
+
+function isInstagramResourceType(value = '') {
+  return ['instagram_reel', 'instagram_carousel', 'instagram_post'].includes(normalizeText(value));
+}
+
+function isStableImageCandidate(value = '') {
+  return isDriveCandidate(value) || isSupabaseStorageUrl(value);
 }
 
 function isImageFileLike(file = {}) {
@@ -205,6 +217,52 @@ function getRawResourceImageCandidates(resource = {}) {
   ]);
 }
 
+function getInstagramThumbnailRepairKey(resourceId = '') {
+  return `${INSTAGRAM_THUMBNAIL_REPAIR_PREFIX}.${resourceId}`;
+}
+
+function hasRecentInstagramThumbnailRepairRequest(resourceId = '') {
+  if (!resourceId || typeof window === 'undefined') return true;
+  try {
+    const requestedAt = Number(window.localStorage.getItem(getInstagramThumbnailRepairKey(resourceId)) || 0);
+    return requestedAt > 0 && Date.now() - requestedAt < INSTAGRAM_THUMBNAIL_REPAIR_INTERVAL_MS;
+  } catch {
+    return true;
+  }
+}
+
+function markInstagramThumbnailRepairRequested(resourceId = '') {
+  if (!resourceId || typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(getInstagramThumbnailRepairKey(resourceId), String(Date.now()));
+  } catch {
+    // Ignore storage failures; the backend still protects duplicate queue rows.
+  }
+}
+
+function shouldRequestInstagramThumbnailRepair(resource = {}, rawCandidates = []) {
+  if (!resource?.id || !isInstagramResourceType(resource.resource_type)) return false;
+  if (rawCandidates.some(isStableImageCandidate)) return false;
+  if (hasRecentInstagramThumbnailRepairRequest(resource.id)) return false;
+
+  const status = normalizeText(resource.download_status);
+  if (['queued', 'processing', 'downloading', 'uploading'].includes(status)) return false;
+  return true;
+}
+
+function requestInstagramThumbnailRepair(resource = {}) {
+  const resourceId = String(resource?.id || '').trim();
+  if (!resourceId || pendingInstagramThumbnailRepairs.has(resourceId)) return;
+
+  pendingInstagramThumbnailRepairs.add(resourceId);
+  markInstagramThumbnailRepairRequested(resourceId);
+  apiPost(`/instagram-downloader/resources/${encodeURIComponent(resourceId)}/repair-thumbnail`, {})
+    .catch(() => null)
+    .finally(() => {
+      pendingInstagramThumbnailRepairs.delete(resourceId);
+    });
+}
+
 export function useResourceImage(resource = {}) {
   const rawCandidates = useMemo(() => getRawResourceImageCandidates(resource), [
     resource?.id,
@@ -222,6 +280,11 @@ export function useResourceImage(resource = {}) {
   useEffect(() => {
     retriedDriveTokenRef.current = false;
   }, [rawCandidates]);
+
+  useEffect(() => {
+    if (!shouldRequestInstagramThumbnailRepair(resource, rawCandidates)) return;
+    requestInstagramThumbnailRepair(resource);
+  }, [rawCandidates, resource]);
 
   useEffect(() => {
     let cancelled = false;
@@ -315,8 +378,13 @@ export function useResourceImage(resource = {}) {
           throw new Error('Drive image response was not an image.');
         }
 
-        await cache.put(cacheRequest, response.clone());
         const blob = await response.blob();
+        await cache.put(cacheRequest, new Response(blob, {
+          headers: {
+            'Content-Type': contentType || blob.type || 'application/octet-stream',
+            'Cache-Control': 'max-age=31536000',
+          },
+        }));
         objectUrl = URL.createObjectURL(blob);
         if (!cancelled) {
           setCachedDriveImage({ sourceUrl: candidateImageUrl, objectUrl, loading: false });
@@ -324,16 +392,6 @@ export function useResourceImage(resource = {}) {
       } catch {
         if (cancelled) return;
         setCachedDriveImage({ sourceUrl: candidateImageUrl, objectUrl: '', loading: false });
-        if (isDriveProxyUrl(candidateImageUrl) && !retriedDriveTokenRef.current) {
-          retriedDriveTokenRef.current = true;
-          setTokenRefreshVersion((current) => current + 1);
-          return;
-        }
-        setCandidateIndex((current) => (
-          current + 1 < resolvedCandidates.length
-            ? current + 1
-            : resolvedCandidates.length
-        ));
       }
     }
 
@@ -347,8 +405,7 @@ export function useResourceImage(resource = {}) {
     };
   }, [candidateImageUrl, resolvedCandidates.length]);
 
-  const imageUrl = cachedDriveImage.objectUrl
-    || (cachedDriveImage.loading && cachedDriveImage.sourceUrl === candidateImageUrl ? '' : candidateImageUrl);
+  const imageUrl = cachedDriveImage.objectUrl || candidateImageUrl;
 
   const onError = () => {
     if (isDriveProxyUrl(candidateImageUrl) && !retriedDriveTokenRef.current) {

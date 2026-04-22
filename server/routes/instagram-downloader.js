@@ -18,6 +18,7 @@ import {
   requeueAllFailedInstagramJobs,
   requeueAllGoogleDriveBlockedInstagramJobs,
   requeueFailedInstagramJobs,
+  repairInstagramThumbnailForResource,
   retryInstagramDownloadForResource,
   retryInstagramEnrichmentForResource,
   updateInstagramResourceUploading,
@@ -193,6 +194,12 @@ instagramDownloaderRoutes.post('/resources/:resourceId/retry', async (c) => {
   const auth = await requireUser(c);
   const result = await retryInstagramDownloadForResource(auth.user.id, c.req.param('resourceId'));
   return c.json({ success: true, ...result });
+});
+
+instagramDownloaderRoutes.post('/resources/:resourceId/repair-thumbnail', async (c) => {
+  const auth = await requireUser(c);
+  const result = await repairInstagramThumbnailForResource(auth.user.id, c.req.param('resourceId'));
+  return c.json({ success: true, ...result }, result.queued ? 202 : 200);
 });
 
 instagramDownloaderRoutes.post('/resources/:resourceId/retry-enrichment', async (c) => {
