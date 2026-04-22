@@ -11,6 +11,7 @@ import RouteErrorBoundary from '@/components/layout/RouteErrorBoundary';
 import PageTransition from '@/components/ui/PageTransition';
 import LocalQueryCacheProvider from '@/components/cache/LocalQueryCacheProvider';
 import Media from './pages/Media';
+import { PageLoader } from '@/components/ui/page-loader';
 
 const PageNotFound = lazy(() => import('./lib/PageNotFound'));
 const UserNotRegisteredError = lazy(() => import('@/components/UserNotRegisteredError'));
@@ -37,11 +38,7 @@ const Settings = lazy(() => import('./pages/Settings'));
 const Capture = lazy(() => import('./pages/Capture'));
 
 function RouteFallback() {
-  return (
-    <div className="fixed inset-0 flex items-center justify-center">
-      <div className="w-8 h-8 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin" />
-    </div>
-  );
+  return <PageLoader label="Loading LifeOS..." className="fixed inset-0 h-screen" />;
 }
 
 function RouteElement({ children }) {

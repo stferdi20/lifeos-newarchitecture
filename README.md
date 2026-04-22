@@ -286,6 +286,15 @@ If any answer is yes, update the relevant docs in the same task. If all answers 
 
 Completed tasks should normally be committed and pushed to `main` after validation unless the user explicitly asks not to push yet.
 
+## Browser Cache And Warm Starts
+
+The web app keeps warm-start data in two browser-side layers:
+
+- React Query snapshots are persisted in IndexedDB by `src/lib/local-query-cache.js` and restored by `src/components/cache/LocalQueryCacheProvider.jsx`.
+- Resource thumbnail/image requests are cached by the app-owned service worker in `public/sw.js`, registered from `src/lib/service-worker.js`. Tokenized Drive proxy images stay on the existing `src/lib/drive-images.js` cache path.
+
+When Dashboard mounts, `src/lib/app-prefetch.js` preloads major route chunks and prefetches the next likely section data, including Resources, Projects, Tasks, Calendar, Habits, News, Investments, and Snippets. Resources also prewarms a bounded set of thumbnail URLs through `src/lib/resource-image-cache.js`.
+
 ## Current Migration Slice
 
 Implemented now:

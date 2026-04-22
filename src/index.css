@@ -86,3 +86,23 @@
     @apply bg-background text-foreground;
   }
 }
+
+@keyframes lifeos-scan {
+  0%, 100% {
+    transform: translateX(-120%);
+  }
+  50% {
+    transform: translateX(320%);
+  }
+}
+
+@keyframes lifeos-equalize {
+  0%, 100% {
+    transform: scaleY(0.35);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}

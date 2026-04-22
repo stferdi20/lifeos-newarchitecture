@@ -5,6 +5,7 @@ import {
   restoreLocalQueryCache,
   startLocalQueryCachePersistence,
 } from '@/lib/local-query-cache';
+import { PageLoader } from '@/components/ui/page-loader';
 
 export default function LocalQueryCacheProvider({ children }) {
   const queryClient = useQueryClient();
@@ -39,11 +40,7 @@ export default function LocalQueryCacheProvider({ children }) {
   }, [hydratedUserId, queryClient, userId]);
 
   if (!isLoadingAuth && userId && hydratedUserId !== userId) {
-    return (
-      <div className="fixed inset-0 flex items-center justify-center">
-        <div className="h-8 w-8 rounded-full border-4 border-slate-200 border-t-slate-800 animate-spin" />
-      </div>
-    );
+    return <PageLoader label="Restoring local cache..." className="fixed inset-0 h-screen" />;
   }
 
   return children;

@@ -29,6 +29,7 @@ import {
   summarizeResourceProfile,
 } from '@/lib/resource-profile';
 import { isGenericCaptureActive } from '@/lib/resource-capture';
+import { prewarmResourceImageCache } from '@/lib/resource-image-cache';
 import ResourceFilters from '../components/resources/ResourceFilters';
 import ResourceCard from '../components/resources/ResourceCard';
 import QuickPasteButton from '../components/resources/QuickPasteButton';
@@ -279,6 +280,8 @@ export default function Resources() {
 
   const { data: resources = [], isLoading: resourcesLoading } = useQuery({
     queryKey: ['resources'],
+    initialData: () => queryClient.getQueryData(['resources']),
+    initialDataUpdatedAt: () => queryClient.getQueryState(['resources'])?.dataUpdatedAt,
     queryFn: async () => {
       const finish = startResourceProfileSpan('resources:query');
       try {
@@ -304,6 +307,11 @@ export default function Resources() {
       return hasPendingBackgroundWork ? 3000 : false;
     },
   });
+
+  useEffect(() => {
+    if (!resources.length) return undefined;
+    return prewarmResourceImageCache(resources, { limit: 120, concurrency: 4 });
+  }, [resources]);
 
   const hasInstagramResources = useMemo(
     () => resources.some((resource) => ['instagram_reel', 'instagram_carousel', 'instagram_post'].includes(resource?.resource_type)),
@@ -899,7 +907,7 @@ export default function Resources() {
     />
   );
 
-  if (resourcesLoading) {
+  if (resourcesLoading && resources.length === 0) {
     return <PageLoader label="Loading resources..." />;
   }
 

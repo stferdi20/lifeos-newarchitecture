@@ -1,5 +1,5 @@
-import React from 'react';
-import { useQuery } from '@tanstack/react-query';
+import React, { useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Habit, HabitLog } from '@/lib/habits-api';
 import { StaggerContainer, StaggerItem } from '@/components/ui/StaggerContainer';
 import GreetingWidget from '../components/dashboard/GreetingWidget';
@@ -12,9 +12,13 @@ import NewsWidget from '../components/dashboard/NewsWidget';
 import InvestmentWidget from '../components/dashboard/InvestmentWidget';
 import TodaySchedule from '../components/dashboard/TodaySchedule';
 import { useStandaloneTasks } from '@/hooks/useStandaloneTasks';
+import { prefetchAppSections } from '@/lib/app-prefetch';
 
 export default function Dashboard() {
+  const queryClient = useQueryClient();
   const { tasks, isLoading: tasksLoading, isError: tasksError } = useStandaloneTasks();
+
+  useEffect(() => prefetchAppSections(queryClient), [queryClient]);
 
   const { data: habits } = useQuery({
     queryKey: ['habits'],
