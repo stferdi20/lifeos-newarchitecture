@@ -158,6 +158,7 @@ export default function Projects() {
     if (typeof window === 'undefined') return false;
     return window.localStorage.getItem(SHOW_ARCHIVED_STORAGE_KEY) === 'true';
   });
+  const [optimisticCards, setOptimisticCards] = useState(null);
   
   // Mobile list view rendering state
   const [mobileListLimits, setMobileListLimits] = useState({});
@@ -192,6 +193,10 @@ export default function Projects() {
     enabled: Boolean(selectedWorkspaceId),
     staleTime: PROJECTS_CACHE_MS,
   });
+
+  useEffect(() => {
+    setOptimisticCards(null);
+  }, [cardsQueryKey]);
 
   useEffect(() => {
     if (!visibleWorkspaces.length) {
@@ -254,9 +259,11 @@ export default function Projects() {
     [allOrderedLists],
   );
 
+  const boardCards = optimisticCards ?? cards;
+
   const visibleCards = useMemo(
-    () => cards.filter((card) => showArchived || !archivedListIds.has(card.list_id)),
-    [archivedListIds, cards, showArchived],
+    () => boardCards.filter((card) => showArchived || !archivedListIds.has(card.list_id)),
+    [archivedListIds, boardCards, showArchived],
   );
 
   const cardsByListId = useMemo(() => {
@@ -323,34 +330,26 @@ export default function Projects() {
   });
 
   const reorderCardsMutation = useMutation({
-    mutationFn: (updates) => reorderBoardCards(updates),
-    onMutate: async (updates) => {
-      await queryClient.cancelQueries({ queryKey: cardsQueryKey });
-      const previousCards = queryClient.getQueryData(cardsQueryKey) || [];
-      const updatesById = new Map(updates.map((entry) => [entry.id, entry]));
-
-      queryClient.setQueryData(
-        cardsQueryKey,
-        previousCards.map((card) => {
-          const update = updatesById.get(card.id);
-          if (!update) return card;
-          return {
-            ...card,
-            list_id: update.list_id,
-            position: update.position,
-            status: update.status,
-          };
-        }),
-      );
+    mutationFn: ({ updates }) => reorderBoardCards(updates),
+    onMutate: ({ nextCards, previousCards }) => {
+      void queryClient.cancelQueries({ queryKey: cardsQueryKey });
+      if (nextCards) {
+        queryClient.setQueryData(cardsQueryKey, nextCards);
+      }
 
       return { previousCards };
     },
     onError: (_error, _updates, context) => {
       queryClient.setQueryData(cardsQueryKey, context?.previousCards || []);
+      setOptimisticCards(null);
       toast.error('Failed to move card. Restoring the previous order.');
     },
+    onSuccess: (updatedCards, { nextCards }) => {
+      queryClient.setQueryData(cardsQueryKey, (current = nextCards || []) => applyCardUpdates(current, updatedCards));
+    },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['cards', selectedWorkspaceId] });
+      queryClient.invalidateQueries({ queryKey: ['cards', selectedWorkspaceId], refetchType: 'inactive' });
+      setOptimisticCards(null);
     },
   });
 
@@ -433,14 +432,29 @@ export default function Projects() {
   });
 
   const moveCardToListMutation = useMutation({
-    mutationFn: ({ card, list }) => updateBoardCard(card.id, {
+    mutationFn: ({ card, list, position }) => updateBoardCard(card.id, {
       list_id: list.id,
       status: inferStatusFromListId(list.id, allOrderedLists),
+      position,
     }),
+    onMutate: ({ card, list, position }) => {
+      void queryClient.cancelQueries({ queryKey: cardsQueryKey });
+      const previousCards = optimisticCards ?? queryClient.getQueryData(cardsQueryKey) ?? cards;
+      const nextCards = applyCardUpdates(previousCards, [{
+        id: card.id,
+        list_id: list.id,
+        position,
+        status: inferStatusFromListId(list.id, allOrderedLists),
+      }]);
+
+      flushSync(() => setOptimisticCards(nextCards));
+      queryClient.setQueryData(cardsQueryKey, nextCards);
+
+      return { previousCards };
+    },
     onSuccess: (card) => {
-      queryClient.invalidateQueries({ queryKey: ['cards', selectedWorkspaceId] });
+      queryClient.setQueryData(cardsQueryKey, (current = []) => applyCardUpdates(current, [card]));
       setEditingCard(card);
-      queryClient.invalidateQueries({ queryKey: ['cards', selectedWorkspaceId, 'with-archived'] });
       const nextList = allOrderedLists.find((list) => list.id === card.list_id);
       if (nextList && isArchivedList(nextList) && !showArchived) {
         toast.success('Card archived.', {
@@ -453,8 +467,14 @@ export default function Projects() {
       }
       toast.success(nextList ? `Moved to ${nextList.name}.` : 'Card moved.');
     },
-    onError: (error) => {
+    onError: (error, _variables, context) => {
+      queryClient.setQueryData(cardsQueryKey, context?.previousCards || []);
+      setOptimisticCards(null);
       toast.error(error?.message || 'Failed to move card.');
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['cards', selectedWorkspaceId], refetchType: 'inactive' });
+      setOptimisticCards(null);
     },
   });
 
@@ -475,7 +495,12 @@ export default function Projects() {
       };
     });
 
-    reorderCardsMutation.mutate(payload);
+    const previousCards = optimisticCards ?? queryClient.getQueryData(cardsQueryKey) ?? cards;
+    const nextCards = applyCardUpdates(previousCards, payload);
+
+    flushSync(() => setOptimisticCards(nextCards));
+    queryClient.setQueryData(cardsQueryKey, nextCards);
+    reorderCardsMutation.mutate({ updates: payload, previousCards, nextCards });
   };
 
   const handleDragEnd = ({ destination, source, draggableId }) => {
@@ -831,11 +856,15 @@ export default function Projects() {
             }}
             task={editingCard}
             projects={visibleWorkspaces}
-            allTasks={cards}
+            allTasks={boardCards}
             lists={allOrderedLists}
             onSave={(form) => saveCardMutation.mutate(form)}
             onDelete={(cardId) => deleteCardMutation.mutate(cardId)}
-            onMoveToList={(card, list) => moveCardToListMutation.mutate({ card, list })}
+            onMoveToList={(card, list) => moveCardToListMutation.mutate({
+              card,
+              list,
+              position: nextPositionForList(boardCards, list.id, card.id),
+            })}
           />
         </Suspense>
       )}

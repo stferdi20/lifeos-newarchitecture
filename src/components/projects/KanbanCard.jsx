@@ -34,8 +34,8 @@ export default function KanbanCard({ task, projects, onEdit, index }) {
   const [aiSummary, setAiSummary] = useState(null);
   const [loadingAI, setLoadingAI] = useState(false);
 
-  const currentListId = task.list_id || task.status;
-  const isOverdue = task.due_date && currentListId !== 'done' && new Date(task.due_date) < new Date();
+  const isTerminalStatus = task.status === 'done' || task.status === 'archived';
+  const isOverdue = task.due_date && !isTerminalStatus && new Date(task.due_date) < new Date();
 
   const generateAISummary = async (e) => {
     e.stopPropagation();
