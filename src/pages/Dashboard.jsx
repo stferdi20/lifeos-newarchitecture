@@ -23,19 +23,17 @@ export default function Dashboard() {
 
   useEffect(() => prefetchAppSections(queryClient), [queryClient]);
 
-  const { data: habits } = useQuery({
+  const { data: habits = [] } = useQuery({
     queryKey: ['habits'],
     queryFn: () => Habit.list(),
-    initialData: [],
     staleTime: HABIT_CACHE_MS,
     gcTime: 30 * 60 * 1000,
     refetchOnMount: false,
   });
 
-  const { data: habitLogs } = useQuery({
+  const { data: habitLogs = [] } = useQuery({
     queryKey: ['habitLogs'],
     queryFn: () => HabitLog.list('-date', HABIT_LOG_HISTORY_LIMIT),
-    initialData: [],
     staleTime: HABIT_CACHE_MS,
     gcTime: 30 * 60 * 1000,
     refetchOnMount: false,

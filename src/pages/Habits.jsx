@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus } from 'lucide-react';
+import { Loader2, Plus } from 'lucide-react';
 import { Habit, HabitLog } from '@/lib/habits-api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,23 +19,26 @@ export default function Habits() {
   const [icon, setIcon] = useState('📖');
   const queryClient = useQueryClient();
 
-  const { data: habits } = useQuery({
+  const habitsQuery = useQuery({
     queryKey: ['habits'],
     queryFn: () => Habit.list(),
-    initialData: [],
     staleTime: HABIT_CACHE_MS,
     gcTime: 30 * 60 * 1000,
     refetchOnMount: false,
   });
 
-  const { data: habitLogs } = useQuery({
+  const habitLogsQuery = useQuery({
     queryKey: ['habitLogs'],
     queryFn: () => HabitLog.list('-date', HABIT_LOG_HISTORY_LIMIT),
-    initialData: [],
     staleTime: HABIT_CACHE_MS,
     gcTime: 30 * 60 * 1000,
     refetchOnMount: false,
   });
+
+  const habits = habitsQuery.data || [];
+  const habitLogs = habitLogsQuery.data || [];
+  const isInitialHabitsLoad = habitsQuery.isPending && habits.length === 0;
+  const hasHabitsError = habitsQuery.isError;
 
   const habitLogsByHabitId = useMemo(() => {
     const grouped = new Map();
@@ -89,13 +92,27 @@ export default function Habits() {
         className="mb-6"
       />
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {habits.map(habit => (
-          <HabitCard key={habit.id} habit={habit} habitLogs={habitLogsByHabitId.get(habit.id) || []} onEdit={openEdit} />
-        ))}
-      </div>
+      {isInitialHabitsLoad ? (
+        <div className="flex min-h-[240px] items-center justify-center text-muted-foreground">
+          <div className="flex items-center gap-2 text-sm">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading habits...
+          </div>
+        </div>
+      ) : hasHabitsError ? (
+        <div className="text-center py-20">
+          <p className="text-sm font-medium text-red-400">Could not load habits.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Refresh the page or try again in a moment.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {habits.map(habit => (
+            <HabitCard key={habit.id} habit={habit} habitLogs={habitLogsByHabitId.get(habit.id) || []} onEdit={openEdit} />
+          ))}
+        </div>
+      )}
 
-      {habits.length === 0 && (
+      {!isInitialHabitsLoad && !hasHabitsError && habits.length === 0 && (
         <div className="text-center py-20">
           <p className="text-muted-foreground">No habits yet. Start building your routine.</p>
         </div>
