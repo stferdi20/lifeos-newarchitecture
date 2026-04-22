@@ -372,15 +372,20 @@ export async function deleteListForWorkspace(userId, listId) {
   return { id: listId };
 }
 
-export async function listCardsForWorkspace(userId, workspaceId) {
+export async function listCardsForWorkspace(userId, workspaceId, options = {}) {
   await ensureWorkspaceAccess(userId, workspaceId);
   const admin = getServiceRoleClient();
-  const result = await admin
+  let query = admin
     .from('cards')
     .select('*')
     .eq('workspace_id', workspaceId)
     .order('position', { ascending: true });
 
+  if (!options.includeArchived) {
+    query = query.eq('is_archived', false).neq('status', 'archived');
+  }
+
+  const result = await query;
   if (result.error) throw new HttpError(500, result.error.message);
   return (result.data || []).map(mapCard);
 }

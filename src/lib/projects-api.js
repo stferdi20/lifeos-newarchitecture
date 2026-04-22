@@ -32,8 +32,13 @@ export function deleteBoardList(listId) {
   return apiDelete(`/lists/${listId}`).then((res) => res.list);
 }
 
-export function listBoardCards(workspaceId) {
-  return apiGet(`/cards?workspace_id=${encodeURIComponent(workspaceId)}`).then((res) => res.cards || []);
+export function listBoardCards(workspaceId, options = {}) {
+  const includeArchived = options.includeArchived === false
+    ? '&include_archived=false'
+    : options.includeArchived === true
+      ? '&include_archived=true'
+      : '';
+  return apiGet(`/cards?workspace_id=${encodeURIComponent(workspaceId)}${includeArchived}`).then((res) => res.cards || []);
 }
 
 export function createBoardCard(payload) {

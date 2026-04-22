@@ -112,7 +112,9 @@ cardRoutes.get('/', async (c) => {
   const auth = await requireUser(c);
   const workspaceId = c.req.query('workspace_id');
   if (!workspaceId) return c.json({ cards: [] });
-  const cards = await listCardsForWorkspace(auth.user.id, workspaceId);
+  const cards = await listCardsForWorkspace(auth.user.id, workspaceId, {
+    includeArchived: c.req.query('include_archived') !== 'false',
+  });
   return c.json({ cards });
 });
 

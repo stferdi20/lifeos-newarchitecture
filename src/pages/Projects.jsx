@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DragDropContext } from '@hello-pangea/dnd';
 import {
@@ -45,11 +45,12 @@ import {
   updateBoardWorkspace,
 } from '@/lib/projects-api';
 import KanbanColumn from '@/components/projects/KanbanColumn';
-import TaskDetailModal from '@/components/projects/TaskDetailModal';
-import GanttChart from '@/components/projects/GanttChart';
 import { PageLoader } from '@/components/ui/page-loader';
 
 const SHOW_ARCHIVED_STORAGE_KEY = 'lifeos.projects.showArchived';
+const PROJECTS_CACHE_MS = 2 * 60 * 1000;
+const TaskDetailModal = lazy(() => import('@/components/projects/TaskDetailModal'));
+const GanttChart = lazy(() => import('@/components/projects/GanttChart'));
 
 function normalizeListName(value) {
   return String(value || '').trim().toLowerCase();
@@ -129,7 +130,7 @@ export default function Projects() {
   const { data: workspaces = [], isLoading: workspacesLoading } = useQuery({
     queryKey: ['workspaces'],
     queryFn: listBoardWorkspaces,
-    initialData: [],
+    staleTime: PROJECTS_CACHE_MS,
   });
 
   const visibleWorkspaces = useMemo(
@@ -143,14 +144,14 @@ export default function Projects() {
     queryKey: ['workspace-lists', selectedWorkspaceId],
     queryFn: () => listBoardLists(selectedWorkspaceId),
     enabled: Boolean(selectedWorkspaceId),
-    initialData: [],
+    staleTime: PROJECTS_CACHE_MS,
   });
 
   const { data: cards = [], isLoading: cardsLoading } = useQuery({
-    queryKey: ['cards', selectedWorkspaceId],
-    queryFn: () => listBoardCards(selectedWorkspaceId),
+    queryKey: ['cards', selectedWorkspaceId, showArchived ? 'with-archived' : 'active'],
+    queryFn: () => listBoardCards(selectedWorkspaceId, { includeArchived: showArchived }),
     enabled: Boolean(selectedWorkspaceId),
-    initialData: [],
+    staleTime: PROJECTS_CACHE_MS,
   });
 
   useEffect(() => {
@@ -194,11 +195,6 @@ export default function Projects() {
   const visibleCards = useMemo(
     () => cards.filter((card) => showArchived || !archivedListIds.has(card.list_id)),
     [archivedListIds, cards, showArchived],
-  );
-
-  const archivedCardCount = useMemo(
-    () => cards.filter((card) => archivedListIds.has(card.list_id)).length,
-    [archivedListIds, cards],
   );
 
   const cardsByListId = useMemo(() => {
@@ -382,6 +378,7 @@ export default function Projects() {
     onSuccess: (card) => {
       queryClient.invalidateQueries({ queryKey: ['cards', selectedWorkspaceId] });
       setEditingCard(card);
+      queryClient.invalidateQueries({ queryKey: ['cards', selectedWorkspaceId, 'with-archived'] });
       const nextList = allOrderedLists.find((list) => list.id === card.list_id);
       if (nextList && isArchivedList(nextList) && !showArchived) {
         toast.success('Card archived.', {
@@ -401,7 +398,7 @@ export default function Projects() {
 
   const selectedWorkspace = visibleWorkspaces.find((workspace) => workspace.id === selectedWorkspaceId) || null;
   const effectiveViewMode = isMobile ? 'mobile-board' : viewMode;
-  const isBoardLoading = workspacesLoading || listsLoading || cardsLoading;
+  const isBoardLoading = listsLoading || cardsLoading;
 
   const applyPositionUpdates = (updatedCards) => {
     const nextPositionByList = {};
@@ -476,7 +473,7 @@ export default function Projects() {
     createListMutation.mutate(trimmed);
   };
 
-  if (workspacesLoading || listsLoading || cardsLoading) {
+  if (workspacesLoading) {
     return <PageLoader label="Loading workspace..." />;
   }
 
@@ -520,8 +517,8 @@ export default function Projects() {
               onClick={() => setShowArchived((current) => !current)}
               disabled={!selectedWorkspaceId}
               aria-pressed={showArchived}
-              aria-label={showArchived ? `Hide archived cards (${archivedCardCount})` : `Show archived cards (${archivedCardCount})`}
-              title={showArchived ? `Hide archived cards (${archivedCardCount})` : `Show archived cards (${archivedCardCount})`}
+              aria-label={showArchived ? 'Hide archived cards' : 'Show archived cards'}
+              title={showArchived ? 'Hide archived cards' : 'Show archived cards'}
               className={cn(
                 'h-9 w-9 border-border p-0 text-muted-foreground hover:bg-secondary hover:text-foreground',
                 showArchived && 'border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/15 hover:text-amber-200',
@@ -539,11 +536,6 @@ export default function Projects() {
           </PageActionRow>
         )}
       />
-
-      <div className="mb-4 rounded-2xl border border-border/50 bg-card/60 px-4 py-3 text-sm text-muted-foreground">
-        Phase 2 is now running locally on your own backend for workspaces, lists, cards, comments, reminders, attachments, and AI card helpers.
-        Drive folder orchestration stays intentionally deferred to phase 3 so the core board stays stable while we finish the cutover.
-      </div>
 
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
         <div className="flex w-full gap-2 sm:w-auto sm:max-w-xs">
@@ -630,19 +622,25 @@ export default function Projects() {
       )}
 
       <div className="flex-1 overflow-y-auto">
-        {effectiveViewMode === 'gantt' ? (
-          <GanttChart
-            cards={visibleCards}
-            projects={visibleWorkspaces}
-            lists={orderedLists}
-            workspaces={visibleWorkspaces}
-            activeWorkspaceId={selectedWorkspaceId}
-            onEditCard={(card) => {
-              setEditingCard(card);
-              setShowTaskModal(true);
-            }}
-            onQuickSetDate={(card, field) => quickSetDateMutation.mutate({ cardId: card.id, field })}
-          />
+        {isBoardLoading ? (
+          <div className="rounded-xl border border-border/50 bg-card/50 px-4 py-8 text-center text-sm text-muted-foreground">
+            Loading project cards...
+          </div>
+        ) : effectiveViewMode === 'gantt' ? (
+          <Suspense fallback={<div className="p-4 text-sm text-muted-foreground">Loading timeline...</div>}>
+            <GanttChart
+              cards={visibleCards}
+              projects={visibleWorkspaces}
+              lists={orderedLists}
+              workspaces={visibleWorkspaces}
+              activeWorkspaceId={selectedWorkspaceId}
+              onEditCard={(card) => {
+                setEditingCard(card);
+                setShowTaskModal(true);
+              }}
+              onQuickSetDate={(card, field) => quickSetDateMutation.mutate({ cardId: card.id, field })}
+            />
+          </Suspense>
         ) : effectiveViewMode === 'mobile-board' ? (
           <div className="space-y-4 pb-4">
             {orderedLists.map((list) => {
@@ -761,20 +759,24 @@ export default function Projects() {
         )}
       </div>
 
-      <TaskDetailModal
-        open={showTaskModal}
-        onClose={() => {
-          setShowTaskModal(false);
-          setEditingCard(null);
-        }}
-        task={editingCard}
-        projects={visibleWorkspaces}
-        allTasks={cards}
-        lists={allOrderedLists}
-        onSave={(form) => saveCardMutation.mutate(form)}
-        onDelete={(cardId) => deleteCardMutation.mutate(cardId)}
-        onMoveToList={(card, list) => moveCardToListMutation.mutate({ card, list })}
-      />
+      {showTaskModal && (
+        <Suspense fallback={null}>
+          <TaskDetailModal
+            open={showTaskModal}
+            onClose={() => {
+              setShowTaskModal(false);
+              setEditingCard(null);
+            }}
+            task={editingCard}
+            projects={visibleWorkspaces}
+            allTasks={cards}
+            lists={allOrderedLists}
+            onSave={(form) => saveCardMutation.mutate(form)}
+            onDelete={(cardId) => deleteCardMutation.mutate(cardId)}
+            onMoveToList={(card, list) => moveCardToListMutation.mutate({ card, list })}
+          />
+        </Suspense>
+      )}
 
       <ResponsiveModal
         open={showCreateWorkspaceDialog}
