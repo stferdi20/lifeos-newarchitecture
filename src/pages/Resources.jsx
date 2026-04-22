@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BookOpen, Search, FileText, Sparkles, CheckSquare } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -31,16 +31,17 @@ import {
 import { isGenericCaptureActive } from '@/lib/resource-capture';
 import ResourceFilters from '../components/resources/ResourceFilters';
 import ResourceCard from '../components/resources/ResourceCard';
-import ResourceDetailModal from '../components/resources/ResourceDetailModal';
-import AddResourceModal from '../components/resources/AddResourceModal';
 import QuickPasteButton from '../components/resources/QuickPasteButton';
-import ManualNoteModal from '../components/resources/ManualNoteModal';
-import BulkAddModal from '../components/resources/BulkAddModal';
 import BulkResourceActionBar from '../components/resources/BulkResourceActionBar';
 import { PageHeader, PageActionRow } from '@/components/layout/page-header';
 import { MobileActionOverflow } from '@/components/layout/MobileActionOverflow';
 import { MobileFilterDrawer } from '@/components/layout/MobileFilterDrawer';
 import { PageLoader } from '@/components/ui/page-loader';
+
+const AddResourceModal = lazy(() => import('../components/resources/AddResourceModal'));
+const BulkAddModal = lazy(() => import('../components/resources/BulkAddModal'));
+const ManualNoteModal = lazy(() => import('../components/resources/ManualNoteModal'));
+const ResourceDetailModal = lazy(() => import('../components/resources/ResourceDetailModal'));
 
 const RESOURCE_LAYOUT_STORAGE_KEY = 'lifeos.resources.layout-mode';
 const RESOURCE_GRID_DENSITY_STORAGE_KEY = 'lifeos.resources.grid-density';
@@ -1118,33 +1119,35 @@ export default function Resources() {
         </div>
       )}
 
-      <AddResourceModal
-        open={showAddUrl}
-        onClose={() => setShowAddUrl(false)}
-        onCreated={handleResourceCreated}
-        projectId={projectFilter}
-      />
-
-      <ManualNoteModal
-        open={showManualNote}
-        onClose={() => setShowManualNote(false)}
-        onSave={handleManualSave}
-      />
-
-      <BulkAddModal
-        open={showBulkAdd}
-        onClose={() => setShowBulkAdd(false)}
-        onCreated={() => queryClient.invalidateQueries({ queryKey: ['resources'] })}
-        projectId={projectFilter}
-      />
-
-      {selectedResource && (
-        <ResourceDetailModal
-          open={!!activeSelectedResource}
-          onClose={() => setSelectedResource(null)}
-          resource={activeSelectedResource}
+      <Suspense fallback={null}>
+        <AddResourceModal
+          open={showAddUrl}
+          onClose={() => setShowAddUrl(false)}
+          onCreated={handleResourceCreated}
+          projectId={projectFilter}
         />
-      )}
+
+        <ManualNoteModal
+          open={showManualNote}
+          onClose={() => setShowManualNote(false)}
+          onSave={handleManualSave}
+        />
+
+        <BulkAddModal
+          open={showBulkAdd}
+          onClose={() => setShowBulkAdd(false)}
+          onCreated={() => queryClient.invalidateQueries({ queryKey: ['resources'] })}
+          projectId={projectFilter}
+        />
+
+        {selectedResource && (
+          <ResourceDetailModal
+            open={!!activeSelectedResource}
+            onClose={() => setSelectedResource(null)}
+            resource={activeSelectedResource}
+          />
+        )}
+      </Suspense>
 
       {selectMode && selectedIds.size > 0 && (
         <BulkResourceActionBar
