@@ -11,9 +11,14 @@ function isDriveLikeUrl(value = '') {
   return url.startsWith('drive-file:') || /drive\.google\.com|googleusercontent\.com/i.test(url);
 }
 
+function isUnstableInstagramUrl(value = '') {
+  const url = normalizeUrl(value);
+  return /(cdninstagram|fbcdn|scontent|instagram\.com)/i.test(url);
+}
+
 function isCacheableImageUrl(value = '') {
   const url = normalizeUrl(value);
-  if (!url || isDriveLikeUrl(url)) return false;
+  if (!url || isDriveLikeUrl(url) || isUnstableInstagramUrl(url)) return false;
 
   try {
     const parsed = new URL(url, typeof window !== 'undefined' ? window.location.origin : undefined);

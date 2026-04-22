@@ -1,6 +1,7 @@
-const IMAGE_CACHE_NAME = 'lifeos-resource-images-v1';
+const IMAGE_CACHE_NAME = 'lifeos-resource-images-v2';
 const IMAGE_CACHE_MAX_ENTRIES = 180;
 const CACHEABLE_IMAGE_EXTENSIONS = /\.(?:avif|gif|jpe?g|png|webp)(?:\?|$)/i;
+const UNSTABLE_IMAGE_HOSTS = /(cdninstagram|fbcdn|scontent|instagram\.com)/i;
 
 function isCacheableImageRequest(request) {
   if (request.method !== 'GET') return false;
@@ -8,6 +9,7 @@ function isCacheableImageRequest(request) {
 
   const url = new URL(request.url);
   if (!/^https?:$/.test(url.protocol)) return false;
+  if (UNSTABLE_IMAGE_HOSTS.test(url.hostname)) return false;
   if (url.pathname.includes('/google/drive-files/') && url.pathname.endsWith('/content')) return false;
   return true;
 }
