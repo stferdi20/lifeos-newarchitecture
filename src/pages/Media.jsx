@@ -4,6 +4,7 @@ import { Plus, LayoutGrid, Calendar, Film, Tv, Sword, BookOpen, Gamepad2, BookMa
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { getLocalQueryCacheOptions } from '@/lib/local-query-cache';
 import { MediaEntry, bulkUpdateMediaEntries } from '@/lib/media-api';
 import MediaCard from '../components/media/MediaCard';
 import { PageHeader, PageActionRow } from '@/components/layout/page-header';
@@ -114,7 +115,6 @@ const MEDIA_ENTRY_FIELDS = [
 
 const currentYear = new Date().getFullYear();
 const YEARS = Array.from({ length: 8 }, (_, index) => currentYear - index);
-const MEDIA_CACHE_TIME_MS = 30 * 24 * 60 * 60 * 1000;
 
 function MediaModalFallback() {
   return null;
@@ -165,8 +165,7 @@ export default function Media() {
       await MediaEntry.list('-created_date', 5000, 0, MEDIA_DUPLICATE_FIELDS),
     ),
     initialData: [],
-    staleTime: MEDIA_CACHE_TIME_MS,
-    gcTime: MEDIA_CACHE_TIME_MS,
+    ...getLocalQueryCacheOptions(['mediaSummary']),
   });
 
   const browseQuery = useInfiniteQuery({
@@ -181,8 +180,7 @@ export default function Media() {
       lastPage.length === MEDIA_PAGE_SIZE ? allPages.length * MEDIA_PAGE_SIZE : undefined
     ),
     enabled: view === 'library' && !normalizedSearchQuery,
-    staleTime: MEDIA_CACHE_TIME_MS,
-    gcTime: MEDIA_CACHE_TIME_MS,
+    ...getLocalQueryCacheOptions(['mediaLibrary']),
     refetchOnWindowFocus: false,
     retry: 1,
   });
@@ -214,8 +212,7 @@ export default function Media() {
     },
     enabled: view === 'library' && !!normalizedSearchQuery,
     initialData: [],
-    staleTime: MEDIA_CACHE_TIME_MS,
-    gcTime: MEDIA_CACHE_TIME_MS,
+    ...getLocalQueryCacheOptions(['mediaLibrary']),
     refetchOnWindowFocus: false,
     retry: 1,
   });
@@ -227,15 +224,13 @@ export default function Media() {
     ),
     enabled: view === 'yearly',
     initialData: [],
-    staleTime: MEDIA_CACHE_TIME_MS,
-    gcTime: MEDIA_CACHE_TIME_MS,
+    ...getLocalQueryCacheOptions(['mediaYearly']),
   });
 
   const mediaHealthQuery = useQuery({
     queryKey: ['mediaHealth'],
     queryFn: fetchMediaHealth,
-    staleTime: 1000 * 30,
-    gcTime: 1000 * 60 * 5,
+    ...getLocalQueryCacheOptions(['mediaHealth']),
     retry: 1,
   });
 

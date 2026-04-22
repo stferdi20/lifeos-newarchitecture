@@ -6,10 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ResponsiveModal, ResponsiveModalContent, ResponsiveModalHeader, ResponsiveModalTitle } from '@/components/ui/responsive-modal';
 import { PageHeader } from '@/components/layout/page-header';
+import { getLocalQueryCacheOptions } from '@/lib/local-query-cache';
 import HabitCard from '../components/habits/HabitCard';
 
 const EMOJI_OPTIONS = ['📖', '🏋️', '🧘', '📚', '🎨', '💻', '🏃', '💊', '🧠', '✍️', '🎵', '🌱'];
-const HABIT_CACHE_MS = 5 * 60 * 1000;
 const HABIT_LOG_HISTORY_LIMIT = 500;
 
 export default function Habits() {
@@ -22,16 +22,14 @@ export default function Habits() {
   const habitsQuery = useQuery({
     queryKey: ['habits'],
     queryFn: () => Habit.list(),
-    staleTime: HABIT_CACHE_MS,
-    gcTime: 30 * 60 * 1000,
+    ...getLocalQueryCacheOptions(['habits']),
     refetchOnMount: false,
   });
 
   const habitLogsQuery = useQuery({
     queryKey: ['habitLogs'],
     queryFn: () => HabitLog.list('-date', HABIT_LOG_HISTORY_LIMIT),
-    staleTime: HABIT_CACHE_MS,
-    gcTime: 30 * 60 * 1000,
+    ...getLocalQueryCacheOptions(['habitLogs']),
     refetchOnMount: false,
   });
 

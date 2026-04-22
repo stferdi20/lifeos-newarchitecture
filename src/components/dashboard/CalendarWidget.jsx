@@ -6,6 +6,7 @@ import EventCard from '../calendar/EventCard';
 import EventFormModal from '../calendar/EventFormModal';
 import { Link } from 'react-router-dom';
 import { fetchCalendarEvents } from '@/lib/calendar-api';
+import { getLocalQueryCacheOptions } from '@/lib/local-query-cache';
 
 async function fetchWidgetEvents() {
   const now = new Date();
@@ -24,7 +25,7 @@ export default function CalendarWidget() {
   const { data: events = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['calendarEventsWidget'],
     queryFn: fetchWidgetEvents,
-    staleTime: 120_000,
+    ...getLocalQueryCacheOptions(['calendarEventsWidget']),
   });
 
   const todayStr = format(new Date(), 'yyyy-MM-dd');

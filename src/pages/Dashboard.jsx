@@ -13,8 +13,8 @@ import InvestmentWidget from '../components/dashboard/InvestmentWidget';
 import TodaySchedule from '../components/dashboard/TodaySchedule';
 import { useStandaloneTasks } from '@/hooks/useStandaloneTasks';
 import { prefetchAppSections } from '@/lib/app-prefetch';
+import { getLocalQueryCacheOptions } from '@/lib/local-query-cache';
 
-const HABIT_CACHE_MS = 5 * 60 * 1000;
 const HABIT_LOG_HISTORY_LIMIT = 500;
 
 export default function Dashboard() {
@@ -26,16 +26,14 @@ export default function Dashboard() {
   const { data: habits = [] } = useQuery({
     queryKey: ['habits'],
     queryFn: () => Habit.list(),
-    staleTime: HABIT_CACHE_MS,
-    gcTime: 30 * 60 * 1000,
+    ...getLocalQueryCacheOptions(['habits']),
     refetchOnMount: false,
   });
 
   const { data: habitLogs = [] } = useQuery({
     queryKey: ['habitLogs'],
     queryFn: () => HabitLog.list('-date', HABIT_LOG_HISTORY_LIMIT),
-    staleTime: HABIT_CACHE_MS,
-    gcTime: 30 * 60 * 1000,
+    ...getLocalQueryCacheOptions(['habitLogs']),
     refetchOnMount: false,
   });
 

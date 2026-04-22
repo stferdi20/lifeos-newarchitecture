@@ -32,7 +32,7 @@ import { MobileActionOverflow } from '@/components/layout/MobileActionOverflow';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { getLocalQueryCachePolicy } from '@/lib/local-query-cache';
+import { getLocalQueryCacheOptions } from '@/lib/local-query-cache';
 import {
   createBoardCard,
   createBoardList,
@@ -50,7 +50,6 @@ import KanbanColumn from '@/components/projects/KanbanColumn';
 import { PageLoader } from '@/components/ui/page-loader';
 
 const SHOW_ARCHIVED_STORAGE_KEY = 'lifeos.projects.showArchived';
-const PROJECTS_CACHE_MS = 2 * 60 * 1000;
 const PROJECT_PREFETCH_LIMIT = 4;
 const TaskDetailModal = lazy(() => import('@/components/projects/TaskDetailModal'));
 const GanttChart = lazy(() => import('@/components/projects/GanttChart'));
@@ -167,8 +166,7 @@ export default function Projects() {
   const { data: workspaces = [], isLoading: workspacesLoading } = useQuery({
     queryKey: ['workspaces'],
     queryFn: listBoardWorkspaces,
-    staleTime: getLocalQueryCachePolicy(['workspaces'])?.staleTime || PROJECTS_CACHE_MS,
-    gcTime: getLocalQueryCachePolicy(['workspaces'])?.gcTime,
+    ...getLocalQueryCacheOptions(['workspaces']),
   });
 
   const visibleWorkspaces = useMemo(
@@ -186,16 +184,14 @@ export default function Projects() {
     queryKey: ['workspace-lists', selectedWorkspaceId],
     queryFn: () => listBoardLists(selectedWorkspaceId),
     enabled: Boolean(selectedWorkspaceId),
-    staleTime: getLocalQueryCachePolicy(['workspace-lists'])?.staleTime || PROJECTS_CACHE_MS,
-    gcTime: getLocalQueryCachePolicy(['workspace-lists'])?.gcTime,
+    ...getLocalQueryCacheOptions(['workspace-lists']),
   });
 
   const { data: cards = [], isLoading: cardsLoading } = useQuery({
     queryKey: cardsQueryKey,
     queryFn: () => listBoardCards(selectedWorkspaceId, { includeArchived: showArchived }),
     enabled: Boolean(selectedWorkspaceId),
-    staleTime: getLocalQueryCachePolicy(['cards'])?.staleTime || PROJECTS_CACHE_MS,
-    gcTime: getLocalQueryCachePolicy(['cards'])?.gcTime,
+    ...getLocalQueryCacheOptions(['cards']),
   });
 
   useEffect(() => {
@@ -231,12 +227,12 @@ export default function Projects() {
         queryClient.prefetchQuery({
           queryKey: ['workspace-lists', workspace.id],
           queryFn: () => listBoardLists(workspace.id),
-          staleTime: PROJECTS_CACHE_MS,
+          ...getLocalQueryCacheOptions(['workspace-lists']),
         });
         queryClient.prefetchQuery({
           queryKey: ['cards', workspace.id, 'active'],
           queryFn: () => listBoardCards(workspace.id, { includeArchived: false }),
-          staleTime: PROJECTS_CACHE_MS,
+          ...getLocalQueryCacheOptions(['cards']),
         });
       }
     });

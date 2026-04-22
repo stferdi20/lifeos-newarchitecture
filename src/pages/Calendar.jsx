@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { PageHeader, PageActionRow } from '@/components/layout/page-header';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { getLocalQueryCacheOptions } from '@/lib/local-query-cache';
 
 import { deleteCalendarEvent, fetchCalendarEvents } from '@/lib/calendar-api';
 
@@ -62,7 +63,7 @@ export default function Calendar() {
   const { data: events = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['calendarEvents', weeksAhead],
     queryFn: () => fetchEvents(weeksAhead),
-    staleTime: 60_000,
+    ...getLocalQueryCacheOptions(['calendarEvents']),
   });
 
   const resetModalState = useCallback(() => {

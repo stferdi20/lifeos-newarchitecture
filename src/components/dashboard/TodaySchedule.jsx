@@ -5,6 +5,7 @@ import { format, parseISO, differenceInMinutes, isAfter } from 'date-fns';
 import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { fetchCalendarEvents } from '@/lib/calendar-api';
+import { getLocalQueryCacheOptions } from '@/lib/local-query-cache';
 
 const CATEGORY_BARS = {
   personal: 'bg-purple-500',
@@ -106,7 +107,7 @@ export default function TodaySchedule() {
   const { data: events = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['todaySchedule'],
     queryFn: fetchTodayEvents,
-    staleTime: 60_000,
+    ...getLocalQueryCacheOptions(['todaySchedule']),
     refetchInterval: 120_000,
   });
 

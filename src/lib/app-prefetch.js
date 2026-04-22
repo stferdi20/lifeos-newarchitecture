@@ -1,4 +1,4 @@
-import { getLocalQueryCachePolicy } from '@/lib/local-query-cache';
+import { getLocalQueryCacheOptions } from '@/lib/local-query-cache';
 
 const PREFETCH_STALE_TIME = 5 * 60 * 1000;
 const PREFETCH_GC_TIME = 30 * 60 * 1000;
@@ -18,12 +18,14 @@ function scheduleIdle(callback, timeout = 2500) {
 }
 
 function safePrefetch(queryClient, options) {
-  const policy = getLocalQueryCachePolicy(options.queryKey) || {};
-  return queryClient.prefetchQuery({
+  const cacheOptions = getLocalQueryCacheOptions(options.queryKey, {
     staleTime: PREFETCH_STALE_TIME,
     gcTime: PREFETCH_GC_TIME,
+  });
+
+  return queryClient.prefetchQuery({
     ...options,
-    ...policy,
+    ...cacheOptions,
   }).catch(() => null);
 }
 
@@ -72,9 +74,10 @@ async function prefetchResources(queryClient) {
   const resources = await queryClient.fetchQuery({
     queryKey: ['resources'],
     queryFn: () => listResourceCards(200),
-    staleTime: PREFETCH_STALE_TIME,
-    gcTime: PREFETCH_GC_TIME,
-    ...getLocalQueryCachePolicy(['resources']),
+    ...getLocalQueryCacheOptions(['resources'], {
+      staleTime: PREFETCH_STALE_TIME,
+      gcTime: PREFETCH_GC_TIME,
+    }),
   }).catch(() => []);
 
   prewarmResourceImageCache(resources, { limit: 120, concurrency: 4 });
@@ -85,9 +88,10 @@ async function prefetchProjects(queryClient) {
   const workspaces = await queryClient.fetchQuery({
     queryKey: ['workspaces'],
     queryFn: listBoardWorkspaces,
-    staleTime: PREFETCH_STALE_TIME,
-    gcTime: PREFETCH_GC_TIME,
-    ...getLocalQueryCachePolicy(['workspaces']),
+    ...getLocalQueryCacheOptions(['workspaces'], {
+      staleTime: PREFETCH_STALE_TIME,
+      gcTime: PREFETCH_GC_TIME,
+    }),
   }).catch(() => []);
 
   (workspaces || [])

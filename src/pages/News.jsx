@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { formatDistanceToNow } from 'date-fns';
 import { Newspaper, RefreshCw, Cpu, Rocket, Bitcoin, Globe, Microscope } from 'lucide-react';
 import { fetchNews as fetchNewsApi } from '@/lib/news-api';
+import { getLocalQueryCacheOptions } from '@/lib/local-query-cache';
 import { cn, formatUiLabel } from '@/lib/utils';
 import { PageHeader } from '@/components/layout/page-header';
 
@@ -53,8 +54,7 @@ export default function News() {
       query: activeConfig.query,
       limit: 8,
     }),
-    staleTime: 5 * 60 * 1000,
-    gcTime: 30 * 60 * 1000,
+    ...getLocalQueryCacheOptions(['news']),
     retry: 1,
   });
 

@@ -4,6 +4,7 @@ import { Clock, MapPin, Video, ChevronRight } from 'lucide-react';
 import { format, parseISO, differenceInMinutes } from 'date-fns';
 import { Link } from 'react-router-dom';
 import { fetchCalendarEvents } from '@/lib/calendar-api';
+import { getLocalQueryCacheOptions } from '@/lib/local-query-cache';
 
 async function fetchNextEvent() {
   const now = new Date();
@@ -25,7 +26,7 @@ export default function NextUpEvent() {
   const { data: event, isLoading } = useQuery({
     queryKey: ['nextUpEvent'],
     queryFn: fetchNextEvent,
-    staleTime: 60_000,
+    ...getLocalQueryCacheOptions(['nextUpEvent']),
     refetchInterval: 60_000,
   });
 

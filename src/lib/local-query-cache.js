@@ -100,6 +100,13 @@ export function getLocalQueryCachePolicy(queryKeyOrPrefix) {
   };
 }
 
+export function getLocalQueryCacheOptions(queryKeyOrPrefix, fallback = {}) {
+  return {
+    ...fallback,
+    ...(getLocalQueryCachePolicy(queryKeyOrPrefix) || {}),
+  };
+}
+
 function canUseIndexedDb() {
   return typeof window !== 'undefined' && typeof window.indexedDB !== 'undefined';
 }

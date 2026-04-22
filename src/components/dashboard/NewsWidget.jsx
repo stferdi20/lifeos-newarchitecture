@@ -4,6 +4,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { ArrowUpRight, Newspaper, RefreshCw, Sparkles } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { fetchNewsDigest as fetchNewsDigestApi } from '@/lib/news-api';
+import { getLocalQueryCacheOptions } from '@/lib/local-query-cache';
 import { cn, formatUiLabel } from '@/lib/utils';
 
 const DIGEST_CATEGORIES = [
@@ -117,8 +118,7 @@ export default function NewsWidget() {
     queryKey: ['news-digest-widget', digestDate, selectedCategory],
     queryFn: () => fetchNewsDigestApi({ date: digestDate, category: selectedCategory }),
     placeholderData: (previousData) => previousData,
-    staleTime: 30 * 60 * 1000,
-    gcTime: 6 * 60 * 60 * 1000,
+    ...getLocalQueryCacheOptions(['news-digest-widget']),
     retry: 1,
   });
 
@@ -134,7 +134,7 @@ export default function NewsWidget() {
       queryClient.prefetchQuery({
         queryKey: ['news-digest-widget', digestDate, category.key],
         queryFn: () => fetchNewsDigestApi({ date: digestDate, category: category.key }),
-        staleTime: 30 * 60 * 1000,
+        ...getLocalQueryCacheOptions(['news-digest-widget']),
       });
     });
   }, [digestDate, queryClient, selectedCategory]);
