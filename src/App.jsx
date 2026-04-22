@@ -9,6 +9,7 @@ import { getKanbanV2MigrationState } from '@/lib/kanbanMigration';
 import { shouldUseSupabaseAuth } from '@/lib/runtime-config';
 import RouteErrorBoundary from '@/components/layout/RouteErrorBoundary';
 import PageTransition from '@/components/ui/PageTransition';
+import LocalQueryCacheProvider from '@/components/cache/LocalQueryCacheProvider';
 import Media from './pages/Media';
 
 const PageNotFound = lazy(() => import('./lib/PageNotFound'));
@@ -150,9 +151,11 @@ function App() {
   return (
     <AuthProvider>
       <QueryClientProvider client={queryClientInstance}>
-        <Router>
-          <AuthenticatedApp />
-        </Router>
+        <LocalQueryCacheProvider>
+          <Router>
+            <AuthenticatedApp />
+          </Router>
+        </LocalQueryCacheProvider>
         <Toaster />
       </QueryClientProvider>
     </AuthProvider>

@@ -139,6 +139,10 @@ export default function Projects() {
   );
 
   const selectedWorkspaceId = activeWorkspaceId || visibleWorkspaces[0]?.id || '';
+  const cardsQueryKey = useMemo(
+    () => ['cards', selectedWorkspaceId, showArchived ? 'with-archived' : 'active'],
+    [selectedWorkspaceId, showArchived],
+  );
 
   const { data: workspaceLists = [], isLoading: listsLoading } = useQuery({
     queryKey: ['workspace-lists', selectedWorkspaceId],
@@ -148,7 +152,7 @@ export default function Projects() {
   });
 
   const { data: cards = [], isLoading: cardsLoading } = useQuery({
-    queryKey: ['cards', selectedWorkspaceId, showArchived ? 'with-archived' : 'active'],
+    queryKey: cardsQueryKey,
     queryFn: () => listBoardCards(selectedWorkspaceId, { includeArchived: showArchived }),
     enabled: Boolean(selectedWorkspaceId),
     staleTime: PROJECTS_CACHE_MS,
@@ -263,12 +267,12 @@ export default function Projects() {
   const reorderCardsMutation = useMutation({
     mutationFn: (updates) => reorderBoardCards(updates),
     onMutate: async (updates) => {
-      await queryClient.cancelQueries({ queryKey: ['cards', selectedWorkspaceId] });
-      const previousCards = queryClient.getQueryData(['cards', selectedWorkspaceId]) || [];
+      await queryClient.cancelQueries({ queryKey: cardsQueryKey });
+      const previousCards = queryClient.getQueryData(cardsQueryKey) || [];
       const updatesById = new Map(updates.map((entry) => [entry.id, entry]));
 
       queryClient.setQueryData(
-        ['cards', selectedWorkspaceId],
+        cardsQueryKey,
         previousCards.map((card) => {
           const update = updatesById.get(card.id);
           if (!update) return card;
@@ -284,7 +288,7 @@ export default function Projects() {
       return { previousCards };
     },
     onError: (_error, _updates, context) => {
-      queryClient.setQueryData(['cards', selectedWorkspaceId], context?.previousCards || []);
+      queryClient.setQueryData(cardsQueryKey, context?.previousCards || []);
       toast.error('Failed to move card. Restoring the previous order.');
     },
     onSettled: () => {

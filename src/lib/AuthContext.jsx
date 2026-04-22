@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { hasSupabaseBrowserConfig } from '@/lib/runtime-config';
 import { getSupabaseBrowserClient } from '@/lib/supabase-browser';
+import { clearLocalQueryCache } from '@/lib/local-query-cache';
 
 const AuthContext = createContext();
 const PASSWORD_RECOVERY_STORAGE_KEY = 'lifeos.password-recovery';
@@ -129,10 +130,12 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = (shouldRedirect = true) => {
+    const currentUserId = user?.id || '';
     setUser(null);
     setIsAuthenticated(false);
     clearPasswordRecoveryFlag();
     setAuthStateEvent(null);
+    if (currentUserId) clearLocalQueryCache(currentUserId).catch(() => null);
     const client = getSupabaseBrowserClient();
     client?.auth.signOut().finally(() => {
       if (shouldRedirect) window.location.assign('/Login');
