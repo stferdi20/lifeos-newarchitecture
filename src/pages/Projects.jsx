@@ -1,4 +1,5 @@
 import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DragDropContext } from '@hello-pangea/dnd';
 import {
@@ -49,6 +50,7 @@ import { PageLoader } from '@/components/ui/page-loader';
 
 const SHOW_ARCHIVED_STORAGE_KEY = 'lifeos.projects.showArchived';
 const PROJECTS_CACHE_MS = 2 * 60 * 1000;
+const PROJECT_PREFETCH_LIMIT = 4;
 const TaskDetailModal = lazy(() => import('@/components/projects/TaskDetailModal'));
 const GanttChart = lazy(() => import('@/components/projects/GanttChart'));
 
@@ -100,6 +102,39 @@ function inferStatusFromListId(listId, orderedLists) {
   const index = orderedLists.findIndex((entry) => entry.id === listId);
   if (index <= 0) return 'todo';
   return 'doing';
+}
+
+function applyCardUpdates(cards, updates) {
+  const updatesById = new Map((updates || []).map((entry) => [entry.id, entry]));
+  return (cards || []).map((card) => {
+    const update = updatesById.get(card.id);
+    if (!update) return card;
+
+    return {
+      ...card,
+      ...(update.list_id !== undefined ? { list_id: update.list_id } : {}),
+      ...(update.position !== undefined ? { position: update.position } : {}),
+      ...(update.status !== undefined ? { status: update.status } : {}),
+    };
+  });
+}
+
+function nextPositionForList(cards, listId, movingCardId) {
+  const positions = (cards || [])
+    .filter((card) => card.list_id === listId && card.id !== movingCardId)
+    .map((card) => Number(card.position ?? 0));
+
+  return positions.length ? Math.max(...positions) + 10 : 0;
+}
+
+function runWhenIdle(callback) {
+  if (typeof window === 'undefined') return () => {};
+  if ('requestIdleCallback' in window) {
+    const id = window.requestIdleCallback(callback, { timeout: 3000 });
+    return () => window.cancelIdleCallback?.(id);
+  }
+  const id = window.setTimeout(callback, 750);
+  return () => window.clearTimeout(id);
 }
 
 export default function Projects() {
@@ -174,6 +209,29 @@ export default function Projects() {
     if (typeof window === 'undefined') return;
     window.localStorage.setItem(SHOW_ARCHIVED_STORAGE_KEY, showArchived ? 'true' : 'false');
   }, [showArchived]);
+
+  useEffect(() => {
+    if (!selectedWorkspaceId || !visibleWorkspaces.length) return undefined;
+
+    return runWhenIdle(() => {
+      const otherWorkspaces = visibleWorkspaces
+        .filter((workspace) => workspace.id !== selectedWorkspaceId)
+        .slice(0, PROJECT_PREFETCH_LIMIT);
+
+      for (const workspace of otherWorkspaces) {
+        queryClient.prefetchQuery({
+          queryKey: ['workspace-lists', workspace.id],
+          queryFn: () => listBoardLists(workspace.id),
+          staleTime: PROJECTS_CACHE_MS,
+        });
+        queryClient.prefetchQuery({
+          queryKey: ['cards', workspace.id, 'active'],
+          queryFn: () => listBoardCards(workspace.id, { includeArchived: false }),
+          staleTime: PROJECTS_CACHE_MS,
+        });
+      }
+    });
+  }, [queryClient, selectedWorkspaceId, visibleWorkspaces]);
 
   const allOrderedLists = useMemo(
     () => [...workspaceLists]

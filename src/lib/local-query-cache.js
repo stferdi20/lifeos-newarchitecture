@@ -7,6 +7,41 @@ const CACHE_SCHEMA_VERSION = 1;
 const MAX_CACHE_BYTES = 200 * 1024 * 1024;
 const MAX_SNAPSHOT_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const PERSIST_THROTTLE_MS = 1500;
+const MINUTE_MS = 60 * 1000;
+const HOUR_MS = 60 * MINUTE_MS;
+const DAY_MS = 24 * HOUR_MS;
+
+const QUERY_TTLS = {
+  calendarEvents: 6 * HOUR_MS,
+  calendarEventsWidget: 30 * MINUTE_MS,
+  cards: 24 * HOUR_MS,
+  'context-picker': 6 * HOUR_MS,
+  creatorInspo: 12 * HOUR_MS,
+  habits: 24 * HOUR_MS,
+  habitLogs: 24 * HOUR_MS,
+  investments: 30 * MINUTE_MS,
+  lifeAreas: 7 * DAY_MS,
+  mediaLibrary: 24 * HOUR_MS,
+  mediaSummary: 24 * HOUR_MS,
+  mediaYearly: 7 * DAY_MS,
+  news: 30 * MINUTE_MS,
+  'news-digest-widget': 6 * HOUR_MS,
+  nextUpEvent: 15 * MINUTE_MS,
+  notes: 24 * HOUR_MS,
+  projectResources: 24 * HOUR_MS,
+  projects: 24 * HOUR_MS,
+  promptTemplates: 7 * DAY_MS,
+  resources: 6 * HOUR_MS,
+  'snippet-workspaces': 24 * HOUR_MS,
+  snippets: 24 * HOUR_MS,
+  'standalone-tasks': 12 * HOUR_MS,
+  'task-cards': 24 * HOUR_MS,
+  'task-workspaces': 24 * HOUR_MS,
+  todaySchedule: 15 * MINUTE_MS,
+  'workspace-cards': 24 * HOUR_MS,
+  'workspace-lists': 7 * DAY_MS,
+  workspaces: 7 * DAY_MS,
+};
 
 const PERSISTED_QUERY_PREFIXES = new Set([
   'calendarEvents',
@@ -90,6 +125,23 @@ function queryPrefix(query) {
   return Array.isArray(key) ? String(key[0] || '') : '';
 }
 
+function queryTtl(query) {
+  return QUERY_TTLS[queryPrefix(query)] || MAX_SNAPSHOT_AGE_MS;
+}
+
+function pruneExpiredQueries(clientState, now = Date.now()) {
+  const queries = (clientState?.queries || []).filter((query) => {
+    const updatedAt = query?.state?.dataUpdatedAt || 0;
+    if (!updatedAt) return false;
+    return now - updatedAt <= queryTtl(query);
+  });
+
+  return {
+    ...clientState,
+    queries,
+  };
+}
+
 function shouldPersistQuery(query) {
   if (!query?.state?.dataUpdatedAt || query.state.status !== 'success') return false;
   if (!PERSISTED_QUERY_PREFIXES.has(queryPrefix(query))) return false;
@@ -129,7 +181,7 @@ export async function restoreLocalQueryCache(queryClient, userId) {
   if (Date.now() - snapshot.updatedAt > MAX_SNAPSHOT_AGE_MS) return;
   if (!snapshot.clientState) return;
 
-  hydrate(queryClient, snapshot.clientState);
+  hydrate(queryClient, pruneExpiredQueries(snapshot.clientState));
 }
 
 export function startLocalQueryCachePersistence(queryClient, userId) {
