@@ -252,11 +252,11 @@ function shouldRequestInstagramThumbnailRepair(resource = {}, rawCandidates = []
 
 function requestInstagramThumbnailRepair(resource = {}) {
   const resourceId = String(resource?.id || '').trim();
-  if (!resourceId || pendingInstagramThumbnailRepairs.has(resourceId)) return;
+  if (!resourceId || pendingInstagramThumbnailRepairs.has(resourceId)) return null;
 
   pendingInstagramThumbnailRepairs.add(resourceId);
   markInstagramThumbnailRepairRequested(resourceId);
-  apiPost(`/instagram-downloader/resources/${encodeURIComponent(resourceId)}/repair-thumbnail`, {})
+  return apiPost(`/instagram-downloader/resources/${encodeURIComponent(resourceId)}/repair-thumbnail`, {})
     .catch(() => null)
     .finally(() => {
       pendingInstagramThumbnailRepairs.delete(resourceId);
@@ -264,12 +264,14 @@ function requestInstagramThumbnailRepair(resource = {}) {
 }
 
 export function useResourceImage(resource = {}) {
-  const rawCandidates = useMemo(() => getRawResourceImageCandidates(resource), [
+  const [repairedResource, setRepairedResource] = useState(null);
+  const imageResource = repairedResource?.id === resource?.id ? repairedResource : resource;
+  const rawCandidates = useMemo(() => getRawResourceImageCandidates(imageResource), [
     resource?.id,
-    resource?.resource_type,
-    resource?.thumbnail,
-    JSON.stringify(resource?.drive_files || []),
-    JSON.stringify(resource?.instagram_media_items || []),
+    imageResource?.resource_type,
+    imageResource?.thumbnail,
+    JSON.stringify(imageResource?.drive_files || []),
+    JSON.stringify(imageResource?.instagram_media_items || []),
   ]);
   const [resolvedCandidates, setResolvedCandidates] = useState([]);
   const [candidateIndex, setCandidateIndex] = useState(0);
@@ -282,9 +284,17 @@ export function useResourceImage(resource = {}) {
   }, [rawCandidates]);
 
   useEffect(() => {
-    if (!shouldRequestInstagramThumbnailRepair(resource, rawCandidates)) return;
-    requestInstagramThumbnailRepair(resource);
-  }, [rawCandidates, resource]);
+    setRepairedResource(null);
+  }, [resource?.id]);
+
+  useEffect(() => {
+    if (!shouldRequestInstagramThumbnailRepair(imageResource, rawCandidates)) return;
+    requestInstagramThumbnailRepair(imageResource)?.then((result) => {
+      if (result?.resource?.id === resource?.id) {
+        setRepairedResource(result.resource);
+      }
+    });
+  }, [rawCandidates, imageResource, resource?.id]);
 
   useEffect(() => {
     let cancelled = false;
