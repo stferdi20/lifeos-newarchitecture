@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { runtimeConfig } from '@/lib/runtime-config';
 import { getSupabaseAccessToken } from '@/lib/supabase-browser';
+
+const ACCESS_TOKEN_CACHE_MS = 60 * 1000;
 
 function normalizeUrl(value = '') {
   return String(value || '').trim();
@@ -13,6 +15,34 @@ function normalizeText(value = '') {
 function isDriveBackedUrl(value = '') {
   const url = normalizeUrl(value);
   return /drive\.google\.com|googleusercontent\.com/i.test(url);
+}
+
+function isDriveFileCandidate(value = '') {
+  return normalizeUrl(value).startsWith('drive-file:');
+}
+
+function isDriveCandidate(value = '') {
+  return isDriveFileCandidate(value) || isDriveBackedUrl(value);
+}
+
+function isDriveProxyUrl(value = '') {
+  const url = normalizeUrl(value);
+  return /\/google\/drive-files\/[^/]+\/content(?:\?|$)/i.test(url);
+}
+
+function isResourceThumbnailStorageUrl(value = '') {
+  const url = normalizeUrl(value);
+  return /\/storage\/v1\/object\/public\/resource-thumbnails\//i.test(url);
+}
+
+function isSupabaseStorageUrl(value = '') {
+  const url = normalizeUrl(value);
+  return /\/storage\/v1\/object\/public\//i.test(url);
+}
+
+function isRawInstagramMediaUrl(value = '') {
+  const url = normalizeUrl(value);
+  return /(cdninstagram|fbcdn|scontent|instagram\.com)/i.test(url);
 }
 
 function isImageFileLike(file = {}) {
@@ -40,16 +70,39 @@ function extractDriveFileId(value = '') {
   return '';
 }
 
-let accessTokenPromise = null;
+let accessTokenCache = {
+  token: '',
+  expiresAt: 0,
+  promise: null,
+};
 
-async function getCachedAccessToken() {
-  if (!accessTokenPromise) {
-    accessTokenPromise = getSupabaseAccessToken().catch((error) => {
-      accessTokenPromise = null;
-      throw error;
-    });
+async function getCachedAccessToken({ forceRefresh = false } = {}) {
+  const now = Date.now();
+  if (!forceRefresh && accessTokenCache.token && accessTokenCache.expiresAt > now) {
+    return accessTokenCache.token;
   }
-  return accessTokenPromise;
+
+  if (!accessTokenCache.promise || forceRefresh) {
+    accessTokenCache.promise = getSupabaseAccessToken()
+      .then((token) => {
+        accessTokenCache = {
+          token: token || '',
+          expiresAt: Date.now() + ACCESS_TOKEN_CACHE_MS,
+          promise: null,
+        };
+        return accessTokenCache.token;
+      })
+      .catch((error) => {
+        accessTokenCache = {
+          token: '',
+          expiresAt: 0,
+          promise: null,
+        };
+        throw error;
+      });
+  }
+
+  return accessTokenCache.promise;
 }
 
 function buildDriveProxyUrl(fileId, accessToken) {
@@ -85,13 +138,36 @@ function getRawResourceImageCandidates(resource = {}) {
   const resourceType = normalizeText(resource.resource_type);
   const firstImage = getFirstInstagramImageCandidate(resource);
   const driveImages = getDriveImageCandidates(resource);
+  const mediaItems = Array.isArray(resource.instagram_media_items) ? resource.instagram_media_items : [];
+  const itemImages = mediaItems.map((item) => item?.thumbnail_url || item?.source_url);
 
-  if (['instagram_carousel', 'instagram_post'].includes(resourceType)) {
-    return dedupe([
+  if (['instagram_reel', 'instagram_carousel', 'instagram_post'].includes(resourceType)) {
+    const candidates = dedupe([
+      resource.thumbnail,
       ...driveImages,
       firstImage,
-      resource.thumbnail,
-      ...(Array.isArray(resource.instagram_media_items) ? resource.instagram_media_items.map((item) => item?.thumbnail_url || item?.source_url) : []),
+      ...itemImages,
+    ]);
+    const durableStorage = candidates.filter(isResourceThumbnailStorageUrl);
+    const otherStorage = candidates.filter((candidate) => !isResourceThumbnailStorageUrl(candidate) && isSupabaseStorageUrl(candidate));
+    const driveBacked = candidates.filter((candidate) => !isSupabaseStorageUrl(candidate) && isDriveCandidate(candidate));
+    const externalNonInstagram = candidates.filter((candidate) => (
+      !isSupabaseStorageUrl(candidate)
+      && !isDriveCandidate(candidate)
+      && !isRawInstagramMediaUrl(candidate)
+    ));
+    const rawInstagram = candidates.filter((candidate) => (
+      !isSupabaseStorageUrl(candidate)
+      && !isDriveCandidate(candidate)
+      && isRawInstagramMediaUrl(candidate)
+    ));
+
+    return dedupe([
+      ...durableStorage,
+      ...otherStorage,
+      ...driveBacked,
+      ...externalNonInstagram,
+      ...rawInstagram,
     ]);
   }
 
@@ -99,7 +175,7 @@ function getRawResourceImageCandidates(resource = {}) {
     resource.thumbnail,
     ...driveImages,
     firstImage,
-    ...(Array.isArray(resource.instagram_media_items) ? resource.instagram_media_items.map((item) => item?.thumbnail_url || item?.source_url) : []),
+    ...itemImages,
   ]);
 }
 
@@ -113,13 +189,19 @@ export function useResourceImage(resource = {}) {
   ]);
   const [resolvedCandidates, setResolvedCandidates] = useState([]);
   const [candidateIndex, setCandidateIndex] = useState(0);
+  const [tokenRefreshVersion, setTokenRefreshVersion] = useState(0);
+  const retriedDriveTokenRef = useRef(false);
+
+  useEffect(() => {
+    retriedDriveTokenRef.current = false;
+  }, [rawCandidates]);
 
   useEffect(() => {
     let cancelled = false;
     setCandidateIndex(0);
 
     const driveFileIds = rawCandidates
-      .filter((candidate) => candidate.startsWith('drive-file:'))
+      .filter(isDriveFileCandidate)
       .map((candidate) => candidate.slice('drive-file:'.length))
       .filter(Boolean);
 
@@ -130,11 +212,11 @@ export function useResourceImage(resource = {}) {
       };
     }
 
-    getCachedAccessToken()
+    getCachedAccessToken({ forceRefresh: tokenRefreshVersion > 0 && retriedDriveTokenRef.current })
       .then((accessToken) => {
         if (cancelled) return;
         const next = rawCandidates.map((candidate) => {
-          if (candidate.startsWith('drive-file:')) {
+          if (isDriveFileCandidate(candidate)) {
             return buildDriveProxyUrl(candidate.slice('drive-file:'.length), accessToken);
           }
           if (isDriveBackedUrl(candidate)) {
@@ -146,18 +228,28 @@ export function useResourceImage(resource = {}) {
       })
       .catch(() => {
         if (cancelled) return;
-        const next = rawCandidates.filter((candidate) => !candidate.startsWith('drive-file:'));
+        const next = rawCandidates.filter((candidate) => !isDriveFileCandidate(candidate));
         setResolvedCandidates(dedupe(next));
       });
 
     return () => {
       cancelled = true;
     };
-  }, [rawCandidates]);
+  }, [rawCandidates, tokenRefreshVersion]);
 
   const imageUrl = resolvedCandidates[candidateIndex] || '';
   const onError = () => {
-    setCandidateIndex((current) => (current + 1 < resolvedCandidates.length ? current + 1 : current));
+    if (isDriveProxyUrl(imageUrl) && !retriedDriveTokenRef.current) {
+      retriedDriveTokenRef.current = true;
+      setTokenRefreshVersion((current) => current + 1);
+      return;
+    }
+
+    setCandidateIndex((current) => (
+      current + 1 < resolvedCandidates.length
+        ? current + 1
+        : resolvedCandidates.length
+    ));
   };
 
   return {
