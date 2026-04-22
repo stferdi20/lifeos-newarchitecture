@@ -4,7 +4,7 @@ const DB_NAME = 'lifeos-local-query-cache';
 const DB_VERSION = 1;
 const STORE_NAME = 'snapshots';
 const CACHE_SCHEMA_VERSION = 1;
-const MAX_CACHE_BYTES = 25 * 1024 * 1024;
+const MAX_CACHE_BYTES = 200 * 1024 * 1024;
 const MAX_SNAPSHOT_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const PERSIST_THROTTLE_MS = 1500;
 
@@ -117,6 +117,10 @@ async function saveSnapshot(snapshot) {
   return runStore('readwrite', (store) => store.put(snapshot));
 }
 
+function isQuotaError(error) {
+  return error?.name === 'QuotaExceededError' || error?.name === 'NS_ERROR_DOM_QUOTA_REACHED';
+}
+
 export async function restoreLocalQueryCache(queryClient, userId) {
   if (!userId) return;
 
@@ -146,7 +150,10 @@ export function startLocalQueryCachePersistence(queryClient, userId) {
       clientState,
     });
 
-    saveSnapshot(snapshot).catch(() => null);
+    saveSnapshot(snapshot).catch((error) => {
+      if (!isQuotaError(error)) return null;
+      return saveSnapshot(trimSnapshot(snapshot, Math.floor(MAX_CACHE_BYTES / 2))).catch(() => null);
+    });
   };
 
   const schedulePersist = () => {
