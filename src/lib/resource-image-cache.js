@@ -11,14 +11,9 @@ function isDriveLikeUrl(value = '') {
   return url.startsWith('drive-file:') || /drive\.google\.com|googleusercontent\.com/i.test(url);
 }
 
-function isUnstableInstagramUrl(value = '') {
-  const url = normalizeUrl(value);
-  return /(cdninstagram|fbcdn|scontent|instagram\.com)/i.test(url);
-}
-
 function isCacheableImageUrl(value = '') {
   const url = normalizeUrl(value);
-  if (!url || isDriveLikeUrl(url) || isUnstableInstagramUrl(url)) return false;
+  if (!url || isDriveLikeUrl(url)) return false;
 
   try {
     const parsed = new URL(url, typeof window !== 'undefined' ? window.location.origin : undefined);
@@ -40,6 +35,39 @@ export function getResourceImageCacheCandidates(resources = [], limit = 120) {
   return dedupe((resources || []).flatMap(imageCandidatesForResource)).slice(0, limit);
 }
 
+function buildImageMetaKey(url = '') {
+  if (!url || typeof window === 'undefined') return null;
+  return new Request(`${window.location.origin}/__lifeos_image_cache_meta__?url=${encodeURIComponent(url)}`);
+}
+
+function purgeCachedImage(url = '') {
+  if (!url || typeof window === 'undefined') return;
+
+  if ('caches' in window) {
+    Promise.all([
+      window.caches.open('lifeos-resource-images-v3')
+        .then((cache) => cache.delete(url, { ignoreVary: true }))
+        .catch(() => null),
+      window.caches.open('lifeos-resource-images-v2')
+        .then((cache) => cache.delete(url, { ignoreVary: true }))
+        .catch(() => null),
+      window.caches.open('lifeos-resource-image-meta-v3')
+        .then((cache) => {
+          const key = buildImageMetaKey(url);
+          return key ? cache.delete(key, { ignoreVary: true }) : false;
+        })
+        .catch(() => null),
+    ]).catch(() => null);
+  }
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.controller?.postMessage({
+      type: 'lifeos:delete-image-cache',
+      url,
+    });
+  }
+}
+
 export function prewarmResourceImageCache(resources = [], options = {}) {
   if (typeof window === 'undefined' || typeof Image === 'undefined') return () => {};
 
@@ -59,7 +87,12 @@ export function prewarmResourceImageCache(resources = [], options = {}) {
       const image = new Image();
       image.decoding = 'async';
       image.loading = 'eager';
-      image.onload = image.onerror = () => {
+      image.onload = () => {
+        active -= 1;
+        loadNext();
+      };
+      image.onerror = () => {
+        purgeCachedImage(url);
         active -= 1;
         loadNext();
       };

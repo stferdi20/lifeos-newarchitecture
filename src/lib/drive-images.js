@@ -3,6 +3,8 @@ import { runtimeConfig } from '@/lib/runtime-config';
 import { getSupabaseAccessToken } from '@/lib/supabase-browser';
 
 const ACCESS_TOKEN_CACHE_MS = 60 * 1000;
+const IMAGE_CACHE_NAMES = ['lifeos-resource-images-v3', 'lifeos-resource-images-v2'];
+const IMAGE_META_CACHE_NAME = 'lifeos-resource-image-meta-v3';
 
 function normalizeUrl(value = '') {
   return String(value || '').trim();
@@ -104,6 +106,57 @@ function buildDriveProxyUrl(fileId, accessToken) {
   if (!fileId || !accessToken) return '';
   const token = encodeURIComponent(accessToken);
   return `${runtimeConfig.apiBaseUrl}/google/drive-files/${encodeURIComponent(fileId)}/content?token=${token}`;
+}
+
+function buildImageMetaKey(url = '') {
+  if (!url || typeof window === 'undefined') return null;
+  return new Request(`${window.location.origin}/__lifeos_image_cache_meta__?url=${encodeURIComponent(url)}`);
+}
+
+function buildImageCacheKeys(value = '') {
+  const url = normalizeUrl(value);
+  if (!url || typeof window === 'undefined') return [];
+
+  const keys = [url];
+  try {
+    const parsed = new URL(url, window.location.origin);
+    if (parsed.pathname.includes('/google/drive-files/') && parsed.pathname.endsWith('/content')) {
+      parsed.search = '';
+      keys.push(parsed.href);
+    }
+  } catch {
+    return keys;
+  }
+
+  return [...new Set(keys)];
+}
+
+function purgeCachedImage(value = '') {
+  if (typeof window === 'undefined' || !('caches' in window)) return;
+  const cacheKeys = buildImageCacheKeys(value);
+  if (!cacheKeys.length) return;
+
+  const purge = async () => {
+    await Promise.all(IMAGE_CACHE_NAMES.map(async (cacheName) => {
+      const cache = await window.caches.open(cacheName);
+      await Promise.all(cacheKeys.map((key) => cache.delete(key, { ignoreVary: true })));
+    }));
+
+    const metaCache = await window.caches.open(IMAGE_META_CACHE_NAME);
+    await Promise.all(cacheKeys.map((key) => {
+      const metaKey = buildImageMetaKey(key);
+      return metaKey ? metaCache.delete(metaKey, { ignoreVary: true }) : Promise.resolve(false);
+    }));
+  };
+
+  purge().catch(() => null);
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.controller?.postMessage({
+      type: 'lifeos:delete-image-cache',
+      url: value,
+    });
+  }
 }
 
 function dedupe(values = []) {
@@ -235,6 +288,8 @@ export function useResourceImage(resource = {}) {
   const imageUrl = resolvedCandidates[candidateIndex] || '';
 
   const onError = () => {
+    purgeCachedImage(imageUrl);
+
     if (imageUrl.includes('/google/drive-files/') && !retriedDriveTokenRef.current) {
       retriedDriveTokenRef.current = true;
       setTokenRefreshVersion((current) => current + 1);
