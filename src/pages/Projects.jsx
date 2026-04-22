@@ -49,6 +49,8 @@ import TaskDetailModal from '@/components/projects/TaskDetailModal';
 import GanttChart from '@/components/projects/GanttChart';
 import { PageLoader } from '@/components/ui/page-loader';
 
+const SHOW_ARCHIVED_STORAGE_KEY = 'lifeos.projects.showArchived';
+
 function normalizeListName(value) {
   return String(value || '').trim().toLowerCase();
 }
@@ -116,6 +118,10 @@ export default function Projects() {
   const [deleteConfirmName, setDeleteConfirmName] = useState('');
   const [showCreateListDialog, setShowCreateListDialog] = useState(false);
   const [newListName, setNewListName] = useState('');
+  const [showArchived, setShowArchived] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem(SHOW_ARCHIVED_STORAGE_KEY) === 'true';
+  });
   
   // Mobile list view rendering state
   const [mobileListLimits, setMobileListLimits] = useState({});
@@ -159,7 +165,12 @@ export default function Projects() {
     }
   }, [activeWorkspaceId, selectedWorkspaceId, visibleWorkspaces]);
 
-  const orderedLists = useMemo(
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(SHOW_ARCHIVED_STORAGE_KEY, showArchived ? 'true' : 'false');
+  }, [showArchived]);
+
+  const allOrderedLists = useMemo(
     () => [...workspaceLists]
       .filter((list) => !list.is_archived)
       .sort((a, b) => {
@@ -170,9 +181,29 @@ export default function Projects() {
     [workspaceLists],
   );
 
+  const orderedLists = useMemo(
+    () => allOrderedLists.filter((list) => showArchived || !isArchivedList(list)),
+    [allOrderedLists, showArchived],
+  );
+
+  const archivedListIds = useMemo(
+    () => new Set(allOrderedLists.filter(isArchivedList).map((list) => list.id)),
+    [allOrderedLists],
+  );
+
+  const visibleCards = useMemo(
+    () => cards.filter((card) => showArchived || !archivedListIds.has(card.list_id)),
+    [archivedListIds, cards, showArchived],
+  );
+
+  const archivedCardCount = useMemo(
+    () => cards.filter((card) => archivedListIds.has(card.list_id)).length,
+    [archivedListIds, cards],
+  );
+
   const cardsByListId = useMemo(() => {
     const grouped = Object.fromEntries(orderedLists.map((list) => [list.id, []]));
-    for (const card of cards) {
+    for (const card of visibleCards) {
       if (!card?.list_id) continue;
       if (!grouped[card.list_id]) grouped[card.list_id] = [];
       grouped[card.list_id].push(card);
@@ -183,11 +214,11 @@ export default function Projects() {
     }
 
     return grouped;
-  }, [cards, orderedLists]);
+  }, [orderedLists, visibleCards]);
 
   const saveCardMutation = useMutation({
     mutationFn: async (form) => {
-      const resolvedListId = form.list_id || editingCard?.list_id || orderedLists[0]?.id || '';
+      const resolvedListId = form.list_id || editingCard?.list_id || orderedLists[0]?.id || allOrderedLists[0]?.id || '';
       if (!resolvedListId) {
         throw new Error('Create a list in this workspace before adding cards.');
       }
@@ -196,7 +227,7 @@ export default function Projects() {
         ...form,
         workspace_id: selectedWorkspaceId,
         list_id: resolvedListId,
-        status: form.status || inferStatusFromListId(resolvedListId, orderedLists),
+        status: form.status || inferStatusFromListId(resolvedListId, allOrderedLists),
         start_date: editingCard?.id ? form.start_date || '' : (form.start_date || new Date().toISOString().slice(0, 10)),
       };
 
@@ -330,7 +361,7 @@ export default function Projects() {
     mutationFn: (name) => createBoardList({
       workspace_id: selectedWorkspaceId,
       name,
-      position: ((orderedLists.at(-1)?.position ?? -10) + 10),
+      position: ((allOrderedLists.at(-1)?.position ?? -10) + 10),
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workspace-lists', selectedWorkspaceId] });
@@ -346,12 +377,21 @@ export default function Projects() {
   const moveCardToListMutation = useMutation({
     mutationFn: ({ card, list }) => updateBoardCard(card.id, {
       list_id: list.id,
-      status: inferStatusFromListId(list.id, orderedLists),
+      status: inferStatusFromListId(list.id, allOrderedLists),
     }),
     onSuccess: (card) => {
       queryClient.invalidateQueries({ queryKey: ['cards', selectedWorkspaceId] });
       setEditingCard(card);
-      const nextList = orderedLists.find((list) => list.id === card.list_id);
+      const nextList = allOrderedLists.find((list) => list.id === card.list_id);
+      if (nextList && isArchivedList(nextList) && !showArchived) {
+        toast.success('Card archived.', {
+          action: {
+            label: 'Show archived',
+            onClick: () => setShowArchived(true),
+          },
+        });
+        return;
+      }
       toast.success(nextList ? `Moved to ${nextList.name}.` : 'Card moved.');
     },
     onError: (error) => {
@@ -372,7 +412,7 @@ export default function Projects() {
         id: card.id,
         list_id: card.list_id,
         position: nextPosition,
-        status: inferStatusFromListId(card.list_id, orderedLists),
+        status: inferStatusFromListId(card.list_id, allOrderedLists),
       };
     });
 
@@ -473,6 +513,24 @@ export default function Projects() {
               </div>
             )}
 
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setShowArchived((current) => !current)}
+              disabled={!selectedWorkspaceId}
+              aria-pressed={showArchived}
+              aria-label={showArchived ? `Hide archived cards (${archivedCardCount})` : `Show archived cards (${archivedCardCount})`}
+              title={showArchived ? `Hide archived cards (${archivedCardCount})` : `Show archived cards (${archivedCardCount})`}
+              className={cn(
+                'h-9 w-9 border-border p-0 text-muted-foreground hover:bg-secondary hover:text-foreground',
+                showArchived && 'border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/15 hover:text-amber-200',
+              )}
+            >
+              <Archive className="h-4 w-4" />
+              <span className="sr-only">{showArchived ? 'Hide archived cards' : 'Show archived cards'}</span>
+            </Button>
+
             <Link to={createPageUrl('Resources')} className="w-full sm:w-auto">
               <Button variant="outline" size="sm" className="w-full border-border text-sm hover:bg-secondary sm:w-auto">
                 <Library className="mr-2 h-4 w-4" /> Resources
@@ -505,6 +563,12 @@ export default function Projects() {
           <MobileActionOverflow 
             className="flex-none"
             actions={[
+              {
+                label: showArchived ? 'Hide Archived' : 'Show Archived',
+                icon: Archive,
+                disabled: !selectedWorkspaceId,
+                onClick: () => setShowArchived((current) => !current),
+              },
               { label: 'Create List', icon: Plus, disabled: !selectedWorkspaceId, onClick: () => setShowCreateListDialog(true) },
               { label: 'Create Workspace', icon: Plus, onClick: () => setShowCreateWorkspaceDialog(true) },
               { label: 'Rename Workspace', icon: Pencil, disabled: !selectedWorkspaceId, onClick: () => {
@@ -568,7 +632,7 @@ export default function Projects() {
       <div className="flex-1 overflow-y-auto">
         {effectiveViewMode === 'gantt' ? (
           <GanttChart
-            cards={cards}
+            cards={visibleCards}
             projects={visibleWorkspaces}
             lists={orderedLists}
             workspaces={visibleWorkspaces}
@@ -706,7 +770,7 @@ export default function Projects() {
         task={editingCard}
         projects={visibleWorkspaces}
         allTasks={cards}
-        lists={orderedLists}
+        lists={allOrderedLists}
         onSave={(form) => saveCardMutation.mutate(form)}
         onDelete={(cardId) => deleteCardMutation.mutate(cardId)}
         onMoveToList={(card, list) => moveCardToListMutation.mutate({ card, list })}
