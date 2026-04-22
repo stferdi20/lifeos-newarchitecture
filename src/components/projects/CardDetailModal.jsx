@@ -397,6 +397,16 @@ export function CardDetailModal({ open, onClose, task, allTasks, lists = [], onS
   const handleMoveToList = (list) => {
     if (!modalTask?.id || !list || !onMoveToList) return;
     onMoveToList(modalTask, list);
+    const nextStatus = normalizeListName(list.name) === 'backlog'
+      ? 'backlog'
+      : normalizeListName(list.name) === 'archived'
+        ? 'archived'
+        : form.status;
+    setForm((prev) => ({
+      ...prev,
+      list_id: list.id,
+      status: nextStatus,
+    }));
     setCurrentTask((prev) => (prev ? { ...prev, list_id: list.id } : prev));
   };
 

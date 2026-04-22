@@ -9,6 +9,10 @@ const DEFAULT_LISTS = [
   { name: 'Archived', position: 40 },
 ];
 
+function normalizeListName(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
 function normalizeArray(value) {
   return Array.isArray(value) ? value : [];
 }
@@ -179,6 +183,48 @@ async function ensureWorkspaceAccess(userId, workspaceId) {
   }
 }
 
+async function ensureDefaultListsForWorkspace(admin, workspaceId, lists = []) {
+  const listsByName = new Map(lists.map((list) => [normalizeListName(list.name), list]));
+  const inserts = [];
+  const updates = [];
+
+  for (const defaultList of DEFAULT_LISTS) {
+    const existing = listsByName.get(normalizeListName(defaultList.name));
+    if (!existing) {
+      inserts.push({
+        workspace_id: workspaceId,
+        name: defaultList.name,
+        position: defaultList.position,
+        is_archived: false,
+      });
+      continue;
+    }
+
+    if (existing.is_archived || existing.position !== defaultList.position) {
+      updates.push(
+        admin
+          .from('lists')
+          .update({
+            position: defaultList.position,
+            is_archived: false,
+          })
+          .eq('id', existing.id),
+      );
+    }
+  }
+
+  if (inserts.length) {
+    const insertResult = await admin.from('lists').insert(inserts);
+    if (insertResult.error) throw new HttpError(500, insertResult.error.message);
+  }
+
+  const updateResults = await Promise.all(updates);
+  const updateError = updateResults.find((result) => result.error)?.error;
+  if (updateError) throw new HttpError(500, updateError.message);
+
+  return inserts.length > 0 || updates.length > 0;
+}
+
 export async function listBoardWorkspacesForUser(userId) {
   const admin = getServiceRoleClient();
   const workspaceIds = await getAccessibleWorkspaceIds(userId);
@@ -261,14 +307,21 @@ export async function deleteBoardWorkspaceForUser(userId, workspaceId) {
 export async function listListsForWorkspace(userId, workspaceId) {
   await ensureWorkspaceAccess(userId, workspaceId);
   const admin = getServiceRoleClient();
-  const result = await admin
+  const fetchLists = () => admin
     .from('lists')
     .select('*')
     .eq('workspace_id', workspaceId)
     .order('position', { ascending: true });
 
+  const result = await fetchLists();
   if (result.error) throw new HttpError(500, result.error.message);
-  return (result.data || []).map(mapList);
+
+  const didRepairDefaults = await ensureDefaultListsForWorkspace(admin, workspaceId, result.data || []);
+  if (!didRepairDefaults) return (result.data || []).map(mapList);
+
+  const repairedResult = await fetchLists();
+  if (repairedResult.error) throw new HttpError(500, repairedResult.error.message);
+  return (repairedResult.data || []).map(mapList);
 }
 
 export async function createListForWorkspace(userId, payload) {

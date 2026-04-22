@@ -133,7 +133,7 @@ export default function Projects() {
 
   const selectedWorkspaceId = activeWorkspaceId || visibleWorkspaces[0]?.id || '';
 
-  const { data: workspaceLists = [], isLoading: listsLoading, isFetched: listsFetched } = useQuery({
+  const { data: workspaceLists = [], isLoading: listsLoading } = useQuery({
     queryKey: ['workspace-lists', selectedWorkspaceId],
     queryFn: () => listBoardLists(selectedWorkspaceId),
     enabled: Boolean(selectedWorkspaceId),
@@ -169,36 +169,6 @@ export default function Projects() {
       }),
     [workspaceLists],
   );
-
-  useEffect(() => {
-    if (!selectedWorkspaceId || listsLoading || !listsFetched) return;
-
-    const canonicalLists = [
-      { name: 'Backlog', position: 0 },
-      { name: 'To Do', position: 10 },
-      { name: 'In Progress', position: 20 },
-      { name: 'Done', position: 30 },
-      { name: 'Archived', position: 40 },
-    ];
-    const existingNames = new Set(workspaceLists.map((list) => normalizeListName(list.name)));
-    const missingLists = canonicalLists.filter((list) => !existingNames.has(normalizeListName(list.name)));
-
-    if (!missingLists.length) return;
-
-    Promise.all(
-      missingLists.map((list) => createBoardList({
-        workspace_id: selectedWorkspaceId,
-        name: list.name,
-        position: list.position,
-      })),
-    )
-      .then(() => {
-        queryClient.invalidateQueries({ queryKey: ['workspace-lists', selectedWorkspaceId] });
-      })
-      .catch((error) => {
-        toast.error(error?.message || 'Failed to add default project sections.');
-      });
-  }, [listsFetched, listsLoading, queryClient, selectedWorkspaceId, workspaceLists]);
 
   const cardsByListId = useMemo(() => {
     const grouped = Object.fromEntries(orderedLists.map((list) => [list.id, []]));
