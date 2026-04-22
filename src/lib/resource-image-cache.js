@@ -26,6 +26,7 @@ function isCacheableImageUrl(value = '') {
 function imageCandidatesForResource(resource = {}) {
   const mediaItems = Array.isArray(resource.instagram_media_items) ? resource.instagram_media_items : [];
   return dedupe([
+    resource.poster_url,
     resource.thumbnail,
     ...mediaItems.map((item) => item?.thumbnail_url || item?.source_url),
   ]).filter(isCacheableImageUrl);

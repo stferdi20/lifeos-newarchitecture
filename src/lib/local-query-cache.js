@@ -10,6 +10,7 @@ const PERSIST_THROTTLE_MS = 1500;
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
+const MONTH_MS = 30 * DAY_MS;
 
 const QUERY_TTLS = {
   calendarEvents: 6 * HOUR_MS,
@@ -21,10 +22,10 @@ const QUERY_TTLS = {
   habitLogs: 24 * HOUR_MS,
   investments: 30 * MINUTE_MS,
   lifeAreas: 7 * DAY_MS,
-  mediaLibrary: 24 * HOUR_MS,
+  mediaLibrary: MONTH_MS,
   mediaHealth: 5 * MINUTE_MS,
-  mediaSummary: 24 * HOUR_MS,
-  mediaYearly: 7 * DAY_MS,
+  mediaSummary: MONTH_MS,
+  mediaYearly: MONTH_MS,
   news: 30 * MINUTE_MS,
   'news-digest-widget': 6 * HOUR_MS,
   nextUpEvent: 15 * MINUTE_MS,

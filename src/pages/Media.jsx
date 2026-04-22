@@ -23,6 +23,7 @@ import {
   removeMediaFromQueryData,
 } from '../components/media/mediaUtils';
 import { fetchMediaHealth, getMediaBackendState } from '../components/media/searchMedia';
+import { prewarmResourceImageCache } from '@/lib/resource-image-cache';
 
 const MediaSearchModal = lazy(() => import('../components/media/MediaSearchModal'));
 const MediaDetailModal = lazy(() => import('../components/media/MediaDetailModal'));
@@ -113,6 +114,7 @@ const MEDIA_ENTRY_FIELDS = [
 
 const currentYear = new Date().getFullYear();
 const YEARS = Array.from({ length: 8 }, (_, index) => currentYear - index);
+const MEDIA_CACHE_TIME_MS = 30 * 24 * 60 * 60 * 1000;
 
 function MediaModalFallback() {
   return null;
@@ -163,8 +165,8 @@ export default function Media() {
       await MediaEntry.list('-created_date', 5000, 0, MEDIA_DUPLICATE_FIELDS),
     ),
     initialData: [],
-    staleTime: 1000 * 60 * 10,
-    gcTime: 1000 * 60 * 30,
+    staleTime: MEDIA_CACHE_TIME_MS,
+    gcTime: MEDIA_CACHE_TIME_MS,
   });
 
   const browseQuery = useInfiniteQuery({
@@ -179,8 +181,8 @@ export default function Media() {
       lastPage.length === MEDIA_PAGE_SIZE ? allPages.length * MEDIA_PAGE_SIZE : undefined
     ),
     enabled: view === 'library' && !normalizedSearchQuery,
-    staleTime: 1000 * 60 * 5,
-    gcTime: 1000 * 60 * 30,
+    staleTime: MEDIA_CACHE_TIME_MS,
+    gcTime: MEDIA_CACHE_TIME_MS,
     refetchOnWindowFocus: false,
     retry: 1,
   });
@@ -212,8 +214,8 @@ export default function Media() {
     },
     enabled: view === 'library' && !!normalizedSearchQuery,
     initialData: [],
-    staleTime: 1000 * 30,
-    gcTime: 1000 * 60 * 5,
+    staleTime: MEDIA_CACHE_TIME_MS,
+    gcTime: MEDIA_CACHE_TIME_MS,
     refetchOnWindowFocus: false,
     retry: 1,
   });
@@ -225,8 +227,8 @@ export default function Media() {
     ),
     enabled: view === 'yearly',
     initialData: [],
-    staleTime: 1000 * 60 * 5,
-    gcTime: 1000 * 60 * 30,
+    staleTime: MEDIA_CACHE_TIME_MS,
+    gcTime: MEDIA_CACHE_TIME_MS,
   });
 
   const mediaHealthQuery = useQuery({
@@ -363,6 +365,11 @@ export default function Media() {
     () => libraryEntries.slice(visibleRange.startIndex, visibleRange.endIndex),
     [libraryEntries, visibleRange.endIndex, visibleRange.startIndex],
   );
+
+  useEffect(() => {
+    const entriesToPrewarm = view === 'yearly' ? yearlyEntries : libraryEntries;
+    return prewarmResourceImageCache(entriesToPrewarm, { limit: 300, concurrency: 4 });
+  }, [libraryEntries, view, yearlyEntries]);
 
   useEffect(() => {
     if (view !== 'library' || typeof window === 'undefined') return undefined;
