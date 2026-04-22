@@ -2,7 +2,7 @@ import React, { memo } from 'react';
 import { cn } from '@/lib/utils';
 import { Star, Trash2 } from 'lucide-react';
 import { TYPE_CONFIG, STATUS_COLORS, getStatusLabel } from './mediaConfig';
-import { getMediaCardHighlightTagsFromNormalized, isProviderBackedMedia } from './mediaUtils';
+import { getMediaCardHighlightTagsFromNormalized, getMediaReleaseYearLabel, isProviderBackedMedia } from './mediaUtils';
 
 const TAG_TONE_CLASSES = {
   genre: 'bg-white/15 text-white/90',
@@ -22,6 +22,7 @@ function MediaCard({ entry, onClick, className, onDelete }) {
   const showChapters = normalizedEntry?.media_type === 'manga' && normalizedEntry?.chapters;
   const isProviderBacked = isProviderBackedMedia(normalizedEntry);
   const highlightTags = getMediaCardHighlightTagsFromNormalized(normalizedEntry);
+  const releaseYearLabel = getMediaReleaseYearLabel(normalizedEntry);
 
   if (!normalizedEntry) return null;
 
@@ -68,6 +69,12 @@ function MediaCard({ entry, onClick, className, onDelete }) {
           <Icon className="w-2.5 h-2.5" />
           {cfg.label}
         </div>
+
+        {releaseYearLabel && (
+          <div className="absolute left-2 top-9 z-20 rounded-full border border-white/10 bg-black/65 px-2 py-0.5 text-[10px] font-semibold leading-none tabular-nums text-white/85 shadow-sm transition-transform duration-300">
+            {releaseYearLabel}
+          </div>
+        )}
         
         {!isProviderBacked && (
           <div className="absolute bottom-2 right-2 z-20 rounded-full bg-black/70 px-2 py-0.5 text-[10px] font-medium text-amber-200 transition-all duration-300 group-hover:opacity-0 group-hover:translate-y-2">

@@ -20,6 +20,7 @@ const MEDIA_NUMERIC_FIELDS = [
   'rating',
   'year_consumed',
   'year_released',
+  'year_ended',
   'seasons_total',
   'episodes',
   'issues_total',
@@ -49,6 +50,9 @@ const PROVIDER_MANAGED_MEDIA_FIELDS = [
   'genres',
   'themes',
   'platforms',
+  'year_released',
+  'year_ended',
+  'release_status',
   'seasons_total',
   'episodes',
   'issues_total',
@@ -220,6 +224,56 @@ export function mergeDefinedMediaFields(target, source) {
   });
 
   return next;
+}
+
+const ONGOING_RELEASE_STATUSES = [
+  'airing',
+  'currently airing',
+  'currently publishing',
+  'continuing',
+  'hiatus',
+  'in production',
+  'not yet released',
+  'ongoing',
+  'planned',
+  'releasing',
+  'returning series',
+  'running',
+];
+
+const RANGE_MEDIA_TYPES = new Set(['series', 'anime', 'manga', 'comic']);
+
+function getYearValue(value) {
+  const year = normalizeOptionalNumber(value);
+  return year && year >= 1800 && year <= 2200 ? Math.trunc(year) : null;
+}
+
+function isOngoingReleaseStatus(value) {
+  const normalized = String(value || '').trim().toLowerCase().replace(/[_-]+/g, ' ');
+  if (!normalized) return false;
+  return ONGOING_RELEASE_STATUSES.some((status) => normalized === status || normalized.includes(status));
+}
+
+export function getMediaReleaseYearLabel(entry) {
+  if (!entry) return '';
+
+  const startYear = getYearValue(entry.year_released);
+  if (!startYear) return '';
+
+  if (!RANGE_MEDIA_TYPES.has(entry.media_type)) {
+    return String(startYear);
+  }
+
+  if (isOngoingReleaseStatus(entry.release_status)) {
+    return `${startYear}-ongoing`;
+  }
+
+  const endYear = getYearValue(entry.year_ended);
+  if (endYear && endYear > startYear) {
+    return `${startYear}-${endYear}`;
+  }
+
+  return String(startYear);
 }
 
 export function normalizeMediaEntries(entries) {

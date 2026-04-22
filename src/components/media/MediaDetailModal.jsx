@@ -9,6 +9,7 @@ import AutoEnrichBadge from './AutoEnrichBadge';
 import { enrichMediaEntry } from './enrichMedia';
 import { TYPE_CONFIG, getStatusOptions } from './mediaConfig';
 import {
+  getMediaReleaseYearLabel,
   getMediaProviderLabel,
   isProviderBackedMedia,
   mergeProviderMediaFields,
@@ -222,6 +223,7 @@ export default function MediaDetailModal({ open, onClose, entry, onSave, onDelet
   const isGame = form.media_type === 'game';
   const isProviderBacked = isProviderBackedMedia(form);
   const sourceLabel = getMediaProviderLabel(form);
+  const releaseYearLabel = getMediaReleaseYearLabel(form);
   const primaryCredit = getPrimaryCredit(form);
   const peopleSection = getPeopleSection(form);
   const secondarySections = getSecondarySections(form);
@@ -278,6 +280,11 @@ export default function MediaDetailModal({ open, onClose, entry, onSave, onDelet
               <div className="flex items-center gap-2 mb-1">
                 <Icon className={cn('w-4 h-4', cfg.color)} />
                 <span className={cn('text-xs font-medium', cfg.color)}>{cfg.label}</span>
+                {releaseYearLabel && (
+                  <span className="rounded-full border border-border/50 bg-secondary/40 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-foreground/80">
+                    {releaseYearLabel}
+                  </span>
+                )}
                 <span
                   className={cn(
                     'rounded-full px-2 py-0.5 text-[10px] font-medium',

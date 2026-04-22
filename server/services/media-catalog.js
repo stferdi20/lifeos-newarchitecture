@@ -11,7 +11,7 @@ const SEARCH_TTL_MS = 1000 * 60 * 10;
 const ENRICH_TTL_MS = 1000 * 60 * 30;
 const FALLBACK_RESULT_LIMIT = 8;
 
-export const MEDIA_BACKEND_VERSION = 'media-backend-2026-03-20-v3';
+export const MEDIA_BACKEND_VERSION = 'media-backend-2026-04-22-v4';
 export const MEDIA_ENRICHMENT_VERSION = MEDIA_BACKEND_VERSION;
 
 const mediaCatalogCache = (() => {
@@ -190,6 +190,8 @@ function mergeEnrichment(primary = {}, fallback = {}, mediaType = '') {
   merged.poster_url = primary.poster_url || fallback.poster_url || '';
   merged.imdb_rating = primary.imdb_rating || fallback.imdb_rating || '';
   merged.year_released = mergeNumeric(primary.year_released, fallback.year_released);
+  merged.year_ended = mergeNumeric(primary.year_ended, fallback.year_ended);
+  merged.release_status = primary.release_status || fallback.release_status || '';
   merged.seasons_total = mergeNumeric(primary.seasons_total, fallback.seasons_total);
   merged.episodes = mergeNumeric(primary.episodes, fallback.episodes);
   merged.chapters = mergeNumeric(primary.chapters, fallback.chapters);
@@ -332,6 +334,11 @@ function normalizeTmdbYear(item, resourceType) {
   return extractYear(resourceType === 'movie' ? item.release_date : item.first_air_date);
 }
 
+function normalizeTmdbEndYear(item, resourceType) {
+  if (resourceType !== 'tv') return null;
+  return extractYear(item.last_air_date);
+}
+
 function normalizeTmdbStudio(item, resourceType) {
   if (resourceType === 'movie') {
     const directors = normalizeStringList(
@@ -366,6 +373,7 @@ async function searchTMDb(query, type) {
     external_id: buildTmdbExternalId(resourceType, item.id),
     title: normalizeTmdbTitle(item, resourceType),
     year_released: normalizeTmdbYear(item, resourceType),
+    year_ended: normalizeTmdbEndYear(item, resourceType),
     poster_url: buildTmdbPosterUrl(item.poster_path),
     source_url: `https://www.themoviedb.org/${resourceType === 'movie' ? 'movie' : 'tv'}/${item.id}`,
     media_type: type,
@@ -404,6 +412,8 @@ async function enrichTMDb(externalId, mediaType) {
     creator_names: creatorNames,
     network: parsed.resourceType === 'tv' ? networkNames[0] || '' : '',
     year_released: normalizeTmdbYear(item, parsed.resourceType),
+    year_ended: normalizeTmdbEndYear(item, parsed.resourceType),
+    release_status: parsed.resourceType === 'tv' ? String(item.status || '').trim() : '',
     poster_url: buildTmdbPosterUrl(item.poster_path),
     source_url: `https://www.themoviedb.org/${parsed.resourceType === 'movie' ? 'movie' : 'tv'}/${parsed.id}`,
     plot: String(item.overview || '').trim(),
@@ -475,6 +485,8 @@ const ANILIST_SEARCH_QUERY = `
         idMal
         title { romaji english native userPreferred }
         startDate { year }
+        endDate { year }
+        status
         coverImage { large medium }
         siteUrl
         genres
@@ -495,6 +507,8 @@ const ANILIST_DETAIL_QUERY = `
       idMal
       title { romaji english native userPreferred }
       startDate { year }
+      endDate { year }
+      status
       coverImage { extraLarge large medium }
       siteUrl
       genres
@@ -520,6 +534,8 @@ async function searchAniList(query, type) {
     external_id: buildAniListExternalId(type, item.id),
     title: normalizeAniListTitle(item.title),
     year_released: item.startDate?.year || null,
+    year_ended: item.endDate?.year || null,
+    release_status: item.status || '',
     poster_url: item.coverImage?.large || item.coverImage?.medium || null,
     source_url: item.siteUrl || null,
     media_type: type,
@@ -557,6 +573,8 @@ async function enrichAniList(externalId, mediaType) {
     creator_names: creatorNames,
     author_names: mediaType === 'manga' ? creatorNames : [],
     year_released: item.startDate?.year || null,
+    year_ended: item.endDate?.year || null,
+    release_status: item.status || '',
     poster_url: item.coverImage?.extraLarge || item.coverImage?.large || item.coverImage?.medium || null,
     plot: stripHtml(item.description),
     source_url: item.siteUrl || '',
@@ -608,7 +626,9 @@ async function searchJikan(query, type, prefixed = false) {
   return (data.data || []).map((item) => ({
     external_id: prefixed ? buildJikanExternalId(type, item.mal_id) : String(item.mal_id),
     title: item.title,
-    year_released: item.year || null,
+    year_released: item.year || extractYear(item.aired?.from || item.published?.from),
+    year_ended: extractYear(item.aired?.to || item.published?.to),
+    release_status: item.status || '',
     poster_url: item.images?.jpg?.image_url || null,
     source_url: item.url,
     media_type: type,
@@ -769,7 +789,9 @@ async function enrichJikan(externalId, mediaType) {
     studio_author: creatorNames.join(', '),
     creator_names: creatorNames,
     author_names: mediaType === 'manga' ? creatorNames : [],
-    year_released: item.year || (item.aired?.from ? new Date(item.aired.from).getFullYear() : null),
+    year_released: item.year || extractYear(item.aired?.from || item.published?.from),
+    year_ended: extractYear(item.aired?.to || item.published?.to),
+    release_status: item.status || '',
     poster_url: item.images?.jpg?.large_image_url || item.images?.jpg?.image_url || null,
     plot: item.synopsis || '',
     source_url: item.url || '',

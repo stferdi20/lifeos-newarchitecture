@@ -63,6 +63,8 @@ const mediaSearchFallbackSchema = z.object({
     poster_url: z.string().default(''),
     studio_author: z.string().default(''),
     year_released: z.number().nullable().default(null),
+    year_ended: z.number().nullable().default(null),
+    release_status: z.string().default(''),
     genres: z.array(z.string()).default([]),
     plot: z.string().default(''),
     source_url: z.string().default(''),
@@ -88,6 +90,9 @@ const mediaEnrichFallbackSchema = z.object({
   episodes: z.number().nullable().default(null),
   chapters: z.number().nullable().default(null),
   volumes: z.number().nullable().default(null),
+  year_released: z.number().nullable().default(null),
+  year_ended: z.number().nullable().default(null),
+  release_status: z.string().default(''),
 });
 
 const mediaSearchSchema = z.object({
@@ -97,6 +102,8 @@ const mediaSearchSchema = z.object({
     poster_url: z.string().default(''),
     studio_author: z.string().default(''),
     year_released: z.number().nullable().default(null),
+    year_ended: z.number().nullable().default(null),
+    release_status: z.string().default(''),
     genres: z.array(z.string()).default([]),
     plot: z.string().default(''),
     source_url: z.string().default(''),
@@ -128,6 +135,9 @@ const mediaEnrichSchema = z.object({
   episodes: z.number().nullable().default(null),
   chapters: z.number().nullable().default(null),
   volumes: z.number().nullable().default(null),
+  year_released: z.number().nullable().default(null),
+  year_ended: z.number().nullable().default(null),
+  release_status: z.string().default(''),
 });
 
 const creatorSchema = z.object({
@@ -681,6 +691,8 @@ async function searchSeriesTitles(query) {
       poster_url: show.image?.original || show.image?.medium || '',
       studio_author: show.network?.name || show.webChannel?.name || '',
       year_released: normalizeYear(show.premiered),
+      year_ended: normalizeYear(show.ended),
+      release_status: show.status || '',
       genres: toArray(show.genres),
       plot: String(show.summary || '').replace(/<[^>]+>/g, '').trim(),
       source_url: show.officialSite || show.url || '',
@@ -704,6 +716,8 @@ async function searchJikanTitles(query, type) {
       ? toArray(entry.studios).map((studio) => studio?.name).filter(Boolean).join(', ')
       : toArray(entry.authors).map((author) => author?.name).filter(Boolean).join(', '),
     year_released: normalizeYear(entry.year || entry.published?.from || entry.aired?.from),
+    year_ended: normalizeYear(entry.published?.to || entry.aired?.to),
+    release_status: entry.status || '',
     genres: toArray(entry.genres).map((genre) => genre?.name).filter(Boolean),
     plot: entry.synopsis || '',
     source_url: entry.url || '',
@@ -845,6 +859,8 @@ async function enrichTvMaze(seriesId) {
     seasons_total: Number.isFinite(Number(data._embedded?.seasons?.length)) ? Number(data._embedded.seasons.length) : null,
     source_url: data.officialSite || data.url || '',
     year_released: normalizeYear(data.premiered),
+    year_ended: normalizeYear(data.ended),
+    release_status: data.status || '',
   };
 }
 
@@ -876,6 +892,8 @@ async function enrichJikanDetail(id, mediaType) {
     volumes: mediaType === 'manga' ? item.volumes || null : null,
     source_url: item.url || '',
     year_released: normalizeYear(item.year || item.aired?.from || item.published?.from),
+    year_ended: normalizeYear(item.aired?.to || item.published?.to),
+    release_status: item.status || '',
   };
 }
 
