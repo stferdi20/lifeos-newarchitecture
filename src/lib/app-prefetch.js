@@ -3,6 +3,7 @@ import { getLocalQueryCachePolicy } from '@/lib/local-query-cache';
 const PREFETCH_STALE_TIME = 5 * 60 * 1000;
 const PREFETCH_GC_TIME = 30 * 60 * 1000;
 const PREFETCH_WORKSPACE_LIMIT = 3;
+const HABIT_LOG_HISTORY_LIMIT = 500;
 
 let prefetchStarted = false;
 
@@ -148,7 +149,7 @@ async function prefetchLightSections(queryClient) {
   ]);
 
   safePrefetch(queryClient, { queryKey: ['habits'], queryFn: () => Habit.list() });
-  safePrefetch(queryClient, { queryKey: ['habitLogs'], queryFn: () => HabitLog.list('-date', 200) });
+  safePrefetch(queryClient, { queryKey: ['habitLogs'], queryFn: () => HabitLog.list('-date', HABIT_LOG_HISTORY_LIMIT) });
   safePrefetch(queryClient, { queryKey: ['investments'], queryFn: () => Investment.list() });
   safePrefetch(queryClient, { queryKey: ['snippets'], queryFn: () => Snippet.list('-updated_date', 200) });
   safePrefetch(queryClient, {

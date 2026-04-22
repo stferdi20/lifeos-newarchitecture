@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { Habit, HabitLog } from '@/lib/habits-api';
@@ -9,6 +9,8 @@ import { PageHeader } from '@/components/layout/page-header';
 import HabitCard from '../components/habits/HabitCard';
 
 const EMOJI_OPTIONS = ['📖', '🏋️', '🧘', '📚', '🎨', '💻', '🏃', '💊', '🧠', '✍️', '🎵', '🌱'];
+const HABIT_CACHE_MS = 5 * 60 * 1000;
+const HABIT_LOG_HISTORY_LIMIT = 500;
 
 export default function Habits() {
   const [showForm, setShowForm] = useState(false);
@@ -21,13 +23,30 @@ export default function Habits() {
     queryKey: ['habits'],
     queryFn: () => Habit.list(),
     initialData: [],
+    staleTime: HABIT_CACHE_MS,
+    gcTime: 30 * 60 * 1000,
+    refetchOnMount: false,
   });
 
   const { data: habitLogs } = useQuery({
     queryKey: ['habitLogs'],
-    queryFn: () => HabitLog.list('-date', 500),
+    queryFn: () => HabitLog.list('-date', HABIT_LOG_HISTORY_LIMIT),
     initialData: [],
+    staleTime: HABIT_CACHE_MS,
+    gcTime: 30 * 60 * 1000,
+    refetchOnMount: false,
   });
+
+  const habitLogsByHabitId = useMemo(() => {
+    const grouped = new Map();
+    for (const log of habitLogs || []) {
+      if (!log?.habit_id) continue;
+      const existing = grouped.get(log.habit_id) || [];
+      existing.push(log);
+      grouped.set(log.habit_id, existing);
+    }
+    return grouped;
+  }, [habitLogs]);
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -72,7 +91,7 @@ export default function Habits() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {habits.map(habit => (
-          <HabitCard key={habit.id} habit={habit} habitLogs={habitLogs} onEdit={openEdit} />
+          <HabitCard key={habit.id} habit={habit} habitLogs={habitLogsByHabitId.get(habit.id) || []} onEdit={openEdit} />
         ))}
       </div>
 

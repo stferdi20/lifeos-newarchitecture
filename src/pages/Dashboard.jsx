@@ -14,6 +14,9 @@ import TodaySchedule from '../components/dashboard/TodaySchedule';
 import { useStandaloneTasks } from '@/hooks/useStandaloneTasks';
 import { prefetchAppSections } from '@/lib/app-prefetch';
 
+const HABIT_CACHE_MS = 5 * 60 * 1000;
+const HABIT_LOG_HISTORY_LIMIT = 500;
+
 export default function Dashboard() {
   const queryClient = useQueryClient();
   const { tasks, isLoading: tasksLoading, isError: tasksError } = useStandaloneTasks();
@@ -24,12 +27,18 @@ export default function Dashboard() {
     queryKey: ['habits'],
     queryFn: () => Habit.list(),
     initialData: [],
+    staleTime: HABIT_CACHE_MS,
+    gcTime: 30 * 60 * 1000,
+    refetchOnMount: false,
   });
 
   const { data: habitLogs } = useQuery({
     queryKey: ['habitLogs'],
-    queryFn: () => HabitLog.list('-date', 200),
+    queryFn: () => HabitLog.list('-date', HABIT_LOG_HISTORY_LIMIT),
     initialData: [],
+    staleTime: HABIT_CACHE_MS,
+    gcTime: 30 * 60 * 1000,
+    refetchOnMount: false,
   });
 
   return (

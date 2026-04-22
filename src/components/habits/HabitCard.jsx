@@ -9,7 +9,7 @@ export default function HabitCard({ habit, habitLogs, onEdit }) {
   const queryClient = useQueryClient();
   const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
 
-  const myLogs = useMemo(() => (habitLogs || []).filter(l => l.habit_id === habit.id), [habitLogs, habit.id]);
+  const myLogs = useMemo(() => habitLogs || [], [habitLogs]);
   const todayLog = useMemo(() => myLogs.find(l => l.date === todayStr && l.completed), [myLogs, todayStr]);
   const isDone = !!todayLog;
 

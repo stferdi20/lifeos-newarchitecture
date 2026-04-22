@@ -105,6 +105,51 @@ function sortRecords(records = [], sort = '-created_date') {
   });
 }
 
+function isEmptyFilter(filter = {}) {
+  return !filter || Object.keys(filter).length === 0;
+}
+
+function parseSort(sort = '-created_date') {
+  const token = String(sort || '-created_date');
+  const descending = token.startsWith('-');
+  return {
+    field: descending ? token.slice(1) : token,
+    ascending: !descending,
+  };
+}
+
+function databaseOrderColumn(entityType, field) {
+  if (field === 'created_date' || field === 'created_at') return 'created_at';
+  if (field === 'updated_date' || field === 'updated_at') return 'updated_at';
+  if (entityType === 'Habit' && field === 'name') return 'data->>name';
+  if (entityType === 'HabitLog' && field === 'date') return 'data->>date';
+  return null;
+}
+
+async function fetchDatabaseOrderedSlice(userId, entityType, options = {}) {
+  if (!['Habit', 'HabitLog'].includes(entityType) || !isEmptyFilter(options.filter)) {
+    return null;
+  }
+
+  const { field, ascending } = parseSort(options.sort);
+  const orderColumn = databaseOrderColumn(entityType, field);
+  if (!orderColumn) return null;
+
+  const limit = Math.min(Math.max(Number(options.limit) || 200, 1), 5000);
+  const skip = Math.max(Number(options.skip) || 0, 0);
+  const admin = getServiceRoleClient();
+  const result = await admin
+    .from('legacy_entity_records')
+    .select('record_id,data,created_at,updated_at')
+    .eq('owner_user_id', userId)
+    .eq('entity_type', entityType)
+    .order(orderColumn, { ascending })
+    .range(skip, skip + limit - 1);
+
+  if (result.error) return null;
+  return (result.data || []).map(normalizeStoredRecord);
+}
+
 function projectFields(record, fields) {
   if (!fields?.length) return record;
   const projected = { id: record.id };
@@ -190,6 +235,17 @@ export async function listCompatEntities(userId, entityType, options = {}) {
   const limit = Math.min(Math.max(Number(options.limit) || 200, 1), 5000);
   const skip = Math.max(Number(options.skip) || 0, 0);
   const sort = options.sort || '-created_date';
+
+  const databaseSlice = await fetchDatabaseOrderedSlice(userId, entityType, {
+    filter,
+    sort,
+    limit,
+    skip,
+  });
+
+  if (databaseSlice) {
+    return databaseSlice.map((record) => projectFields(record, fields));
+  }
 
   const records = fetchRows(userId, entityType)
     .then((rows) => rows.filter((row) => matchesFilter(row, filter)));
