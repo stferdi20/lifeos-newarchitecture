@@ -11,6 +11,7 @@ import RouteErrorBoundary from '@/components/layout/RouteErrorBoundary';
 import PageTransition from '@/components/ui/PageTransition';
 import LocalQueryCacheProvider from '@/components/cache/LocalQueryCacheProvider';
 import Media from './pages/Media';
+import Resources from './pages/Resources';
 import { PageLoader } from '@/components/ui/page-loader';
 
 const PageNotFound = lazy(() => import('./lib/PageNotFound'));
@@ -30,7 +31,6 @@ const Calendar = lazy(() => import('./pages/Calendar'));
 const Trends = lazy(() => import('./pages/Trends'));
 const CreatorVault = lazy(() => import('./pages/CreatorVault'));
 const PromptWizard = lazy(() => import('./pages/PromptWizard'));
-const Resources = lazy(() => import('./pages/Resources'));
 const Snippets = lazy(() => import('./pages/Snippets'));
 const Tasks = lazy(() => import('./pages/Tasks'));
 const Login = lazy(() => import('./pages/Login'));
