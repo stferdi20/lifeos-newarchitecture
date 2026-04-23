@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import BulkAddCreatorModal from '../components/creator/BulkAddCreatorModal';
 import { PageHeader } from '@/components/layout/page-header';
 import { MobileFilterDrawer } from '@/components/layout/MobileFilterDrawer';
+import { getLocalQueryCacheOptions } from '@/lib/local-query-cache';
 
 const PLATFORM_CONFIG = {
   x: { label: 'X', icon: '𝕏', color: 'bg-zinc-500/20 text-zinc-300 border-zinc-500/30', urlBase: 'https://x.com/' },
@@ -120,11 +121,14 @@ export default function CreatorVault() {
   const [showBulkAdd, setShowBulkAdd] = useState(false);
   const queryClient = useQueryClient();
 
-  const { data: creators = [], isLoading } = useQuery({
+  const creatorsQuery = useQuery({
     queryKey: ['creatorInspo'],
     queryFn: () => CreatorInspo.list('-created_date', 100),
-    initialData: [],
+    ...getLocalQueryCacheOptions(['creatorInspo']),
+    refetchOnMount: 'always',
   });
+  const creators = creatorsQuery.data || [];
+  const isLoadingCreators = creatorsQuery.isPending || (creatorsQuery.isFetching && creators.length === 0);
 
   const deleteMutation = useMutation({
     mutationFn: (id) => CreatorInspo.delete(id),
@@ -264,11 +268,25 @@ export default function CreatorVault() {
       </div>
 
       {/* Grid */}
-      {isLoading ? (
+      {isLoadingCreators ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {[1, 2, 3, 4].map(i => (
             <div key={i} className="h-28 rounded-xl bg-secondary/20 animate-pulse" />
           ))}
+        </div>
+      ) : creatorsQuery.isError ? (
+        <div className="text-center py-16 text-muted-foreground">
+          <Users className="w-10 h-10 mx-auto mb-3 opacity-30" />
+          <p className="text-sm">Could not load your saved creators.</p>
+          <p className="text-xs text-muted-foreground/50 mt-1">{creatorsQuery.error?.message || 'Please try again in a moment.'}</p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-4"
+            onClick={() => creatorsQuery.refetch()}
+          >
+            Retry
+          </Button>
         </div>
       ) : filtered.length === 0 ? (
         <div className="text-center py-16 text-muted-foreground">
