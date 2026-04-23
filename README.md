@@ -71,6 +71,8 @@ GOOGLE_CLIENT_SECRET=
 GOOGLE_OAUTH_REDIRECT_URI=
 GOOGLE_OAUTH_STATE_SECRET=
 GOOGLE_TOKEN_ENCRYPTION_KEY=
+LIFEOS_SHORTCUT_CAPTURE_TOKEN=
+LIFEOS_SHORTCUT_CAPTURE_USER_ID=
 INSTAGRAM_DOWNLOADER_BASE_URL=
 INSTAGRAM_DOWNLOADER_SHARED_SECRET=
 INSTAGRAM_DOWNLOADER_TIMEOUT_MS=120000
@@ -142,6 +144,7 @@ Direct worker calls through `YOUTUBE_TRANSCRIPT_WORKER_BASE_URL` are supported, 
 Generic URL capture now also supports an async queue-backed flow:
 
 - `POST /api/resources/capture` creates a visible placeholder resource immediately
+- `POST /api/resources/shortcut-capture` lets iOS Shortcuts submit links directly with a private token, without opening the browser/PWA
 - background analysis upgrades that same resource later
 - `/capture?url=...` is the mobile-friendly entrypoint for iPhone Shortcuts and share flows
 - generic capture now drains through the same local worker pattern already used for Instagram and YouTube jobs

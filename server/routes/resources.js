@@ -1,6 +1,9 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
+import { timingSafeEqual } from 'node:crypto';
+import { getServerEnv } from '../config/env.js';
+import { HttpError } from '../lib/http.js';
 import { requireUser } from '../lib/supabase.js';
 import { safeJson } from '../lib/http.js';
 import { invokeCompatFunction } from '../services/compat-functions.js';
@@ -44,6 +47,12 @@ const resourceCaptureSchema = z.object({
   source: z.enum(['manual_modal', 'ios_share_shortcut', 'capture_page', 'quick_paste']).optional().default('manual_modal'),
 });
 
+const shortcutCaptureSchema = z.object({
+  url: z.string().url(),
+  project_id: z.string().optional(),
+  source: z.enum(['ios_share_shortcut', 'capture_page', 'quick_paste']).optional().default('ios_share_shortcut'),
+});
+
 const resourceReenrichSchema = z.object({
   resource_ids: z.array(z.string()).optional().default([]),
   filters: z.object({
@@ -84,6 +93,27 @@ function shouldRepairInstagramResourceState(fields) {
   return normalized.some((field) => INSTAGRAM_RESOURCE_REPAIR_FIELDS.has(field));
 }
 
+function tokensMatch(provided = '', expected = '') {
+  const providedBuffer = Buffer.from(String(provided || ''));
+  const expectedBuffer = Buffer.from(String(expected || ''));
+  if (!providedBuffer.length || providedBuffer.length !== expectedBuffer.length) return false;
+  return timingSafeEqual(providedBuffer, expectedBuffer);
+}
+
+function requireShortcutCaptureUser(c) {
+  const env = getServerEnv();
+  if (!env.LIFEOS_SHORTCUT_CAPTURE_TOKEN || !env.LIFEOS_SHORTCUT_CAPTURE_USER_ID) {
+    throw new HttpError(500, 'Shortcut capture is not configured.');
+  }
+
+  const provided = c.req.header('x-lifeos-shortcut-token') || '';
+  if (!tokensMatch(provided, env.LIFEOS_SHORTCUT_CAPTURE_TOKEN)) {
+    throw new HttpError(401, 'Invalid shortcut capture token.');
+  }
+
+  return env.LIFEOS_SHORTCUT_CAPTURE_USER_ID;
+}
+
 resourceRoutes.post('/analyze', zValidator('json', resourceAnalyzeSchema), async (c) => {
   const auth = await requireUser(c);
   const result = await invokeCompatFunction(auth.user.id, 'analyzeResource', c.req.valid('json'));
@@ -114,6 +144,17 @@ resourceRoutes.post('/capture', zValidator('json', resourceCaptureSchema), async
   const auth = await requireUser(c);
   const body = c.req.valid('json');
   const result = await submitResourceCapture(auth.user.id, {
+    url: body.url,
+    projectId: body.project_id || '',
+    source: body.source,
+  });
+  return c.json(result, 202);
+});
+
+resourceRoutes.post('/shortcut-capture', zValidator('json', shortcutCaptureSchema), async (c) => {
+  const userId = requireShortcutCaptureUser(c);
+  const body = c.req.valid('json');
+  const result = await submitResourceCapture(userId, {
     url: body.url,
     projectId: body.project_id || '',
     source: body.source,

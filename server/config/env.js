@@ -56,6 +56,8 @@ export function getServerEnv() {
     LIFEOS_DEV_USER_ID: normalizeString(process.env.LIFEOS_DEV_USER_ID),
     LIFEOS_DEV_USER_EMAIL: normalizeString(process.env.LIFEOS_DEV_USER_EMAIL),
     LIFEOS_DEV_USER_NAME: normalizeString(process.env.LIFEOS_DEV_USER_NAME),
+    LIFEOS_SHORTCUT_CAPTURE_TOKEN: normalizeString(process.env.LIFEOS_SHORTCUT_CAPTURE_TOKEN),
+    LIFEOS_SHORTCUT_CAPTURE_USER_ID: normalizeString(process.env.LIFEOS_SHORTCUT_CAPTURE_USER_ID),
     LIFEOS_LOG_VERBOSE: normalizeBoolean(process.env.LIFEOS_LOG_VERBOSE, false),
     APP_ORIGIN: normalizeString(process.env.APP_ORIGIN),
     SUPABASE_STORAGE_BUCKET_UPLOADS: normalizeString(process.env.SUPABASE_STORAGE_BUCKET_UPLOADS) || 'uploads',

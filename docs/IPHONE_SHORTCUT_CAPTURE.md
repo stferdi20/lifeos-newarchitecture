@@ -5,6 +5,7 @@ This guide covers the new async resource capture flow for iPhone.
 ## What Changed
 
 - LifeOS now supports `POST /api/resources/capture` for generic URL capture.
+- LifeOS also supports `POST /api/resources/shortcut-capture` for direct iOS Shortcut capture without opening the browser.
 - The web app now has a dedicated `/capture?url=...` entrypoint.
 - Submitting a URL creates a placeholder resource immediately and finishes analysis in the background.
 - The Resources page shows queued, processing, and failed capture states directly on the card.
@@ -16,8 +17,57 @@ This guide covers the new async resource capture flow for iPhone.
 1. Apply the new Supabase migration for `resource_capture_jobs`.
 2. Make sure your existing local Python worker is configured and running when you want queued captures to process.
 3. If the worker is offline, captures still succeed immediately and stay queued until the worker comes back online.
+4. For direct Shortcut capture, configure `LIFEOS_SHORTCUT_CAPTURE_TOKEN` and `LIFEOS_SHORTCUT_CAPTURE_USER_ID` on the backend.
+
+Generate a strong token locally:
+
+```bash
+openssl rand -base64 32
+```
+
+Use your Supabase auth user id for `LIFEOS_SHORTCUT_CAPTURE_USER_ID`. The token only grants permission to queue resource captures for that user.
 
 ## iPhone Shortcut Setup
+
+### Preferred: Direct Background Capture
+
+This version sends the shared URL directly to the API from Shortcuts. It does not need to open the LifeOS browser/PWA capture page.
+
+1. Open the `Shortcuts` app on iPhone.
+2. Tap `+` to create a new shortcut.
+3. Name it `LifeOS Capture`.
+4. Add the `Receive URLs from Share Sheet` action.
+5. Add `Get Text from Shortcut Input`.
+6. Add `Get Contents of URL`.
+7. Set the URL to:
+
+```text
+https://YOUR-LIFEOS-DOMAIN/api/resources/shortcut-capture
+```
+
+8. Expand the request options:
+   - Method: `POST`
+   - Headers:
+     - `Content-Type`: `application/json`
+     - `x-lifeos-shortcut-token`: your `LIFEOS_SHORTCUT_CAPTURE_TOKEN`
+   - Request Body: `JSON`
+   - JSON fields:
+     - `url`: the text from Shortcut Input
+     - `source`: `ios_share_shortcut`
+9. Add `Show Notification` with:
+
+```text
+Saved to LifeOS
+```
+
+10. Optional: add `Open App` actions for source apps such as Instagram, YouTube, GitHub, X, or TikTok.
+11. Open the shortcut settings.
+12. Enable `Show in Share Sheet`.
+13. Set accepted input types to `URLs`.
+
+If the request fails, Shortcuts will show an error. A successful response means the link was durably accepted by LifeOS and queued for background processing.
+
+### Fallback: Browser Capture Page
 
 This version uses the Shortcut itself to send you back to a supported source app after LifeOS confirms the link was queued.
 

@@ -81,7 +81,7 @@ const rootApp = new Hono();
 rootApp.use('*', logger());
 rootApp.use('*', cors({
   origin: '*',
-  allowHeaders: ['Content-Type', 'Authorization', 'x-cron-secret'],
+  allowHeaders: ['Content-Type', 'Authorization', 'x-cron-secret', 'x-lifeos-shortcut-token'],
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
 }));
 
