@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { Check, Flame, Trash2, Edit2, Trophy, Target } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Habit, HabitLog } from '@/lib/habits-api';
+import { Habit, HabitLog, HABIT_LOGS_RECENT_QUERY_KEY } from '@/lib/habits-api';
 import HabitHeatmap from './HabitHeatmap';
 
 export default function HabitCard({ habit, habitLogs, onEdit }) {
@@ -64,9 +64,9 @@ export default function HabitCard({ habit, habitLogs, onEdit }) {
     },
     onMutate: async () => {
       await queryClient.cancelQueries({ queryKey: ['habitLogs'] });
-      const previousLogs = queryClient.getQueryData(['habitLogs']);
+      const previousLogs = queryClient.getQueryData(HABIT_LOGS_RECENT_QUERY_KEY);
       
-      queryClient.setQueryData(['habitLogs'], old => {
+      queryClient.setQueryData(HABIT_LOGS_RECENT_QUERY_KEY, old => {
         const oldLogs = Array.isArray(old) ? old : [];
         return isDone
           ? oldLogs.filter(l => !(l.habit_id === habit.id && l.date === todayStr && l.completed))
@@ -76,7 +76,7 @@ export default function HabitCard({ habit, habitLogs, onEdit }) {
     },
     onError: (err, newLog, context) => {
       if (context?.previousLogs) {
-        queryClient.setQueryData(['habitLogs'], context.previousLogs);
+        queryClient.setQueryData(HABIT_LOGS_RECENT_QUERY_KEY, context.previousLogs);
       }
     },
     onSettled: () => {

@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { HabitLog } from '@/lib/habits-api';
+import { HabitLog, HABIT_LOGS_RECENT_QUERY_KEY } from '@/lib/habits-api';
 
 export default function HabitMiniWidget({ habits, habitLogs }) {
   const queryClient = useQueryClient();
@@ -27,10 +27,10 @@ export default function HabitMiniWidget({ habits, habitLogs }) {
     },
     onMutate: async (habit) => {
       await queryClient.cancelQueries({ queryKey: ['habitLogs'] });
-      const previousLogs = queryClient.getQueryData(['habitLogs']);
+      const previousLogs = queryClient.getQueryData(HABIT_LOGS_RECENT_QUERY_KEY);
       
       const isDone = completedIds.has(habit.id);
-      queryClient.setQueryData(['habitLogs'], old => {
+      queryClient.setQueryData(HABIT_LOGS_RECENT_QUERY_KEY, old => {
         const oldLogs = Array.isArray(old) ? old : [];
         return isDone
           ? oldLogs.filter(l => !(l.habit_id === habit.id && l.date === todayStr && l.completed))
@@ -40,7 +40,7 @@ export default function HabitMiniWidget({ habits, habitLogs }) {
     },
     onError: (err, habit, context) => {
       if (context?.previousLogs) {
-        queryClient.setQueryData(['habitLogs'], context.previousLogs);
+        queryClient.setQueryData(HABIT_LOGS_RECENT_QUERY_KEY, context.previousLogs);
       }
     },
     onSettled: () => {

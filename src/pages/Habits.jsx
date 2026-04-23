@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
-import { Habit, listHabitCards, listRecentHabitLogs } from '@/lib/habits-api';
+import { Habit, HABIT_CARDS_QUERY_KEY, HABIT_LOGS_RECENT_QUERY_KEY, listHabitCards, listRecentHabitLogs } from '@/lib/habits-api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ResponsiveModal, ResponsiveModalContent, ResponsiveModalHeader, ResponsiveModalTitle } from '@/components/ui/responsive-modal';
@@ -50,14 +50,14 @@ export default function Habits() {
   const queryClient = useQueryClient();
 
   const habitsQuery = useQuery({
-    queryKey: ['habits'],
+    queryKey: HABIT_CARDS_QUERY_KEY,
     queryFn: listHabitCards,
     ...getLocalQueryCacheOptions(['habits']),
     refetchOnMount: false,
   });
 
   const habitLogsQuery = useQuery({
-    queryKey: ['habitLogs'],
+    queryKey: HABIT_LOGS_RECENT_QUERY_KEY,
     queryFn: () => listRecentHabitLogs(HABIT_LOG_HISTORY_LIMIT),
     ...getLocalQueryCacheOptions(['habitLogs']),
     refetchOnMount: false,

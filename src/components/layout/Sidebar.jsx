@@ -55,15 +55,15 @@ function prefetchNavTarget(page, queryClient) {
 
   if (page === 'Habits') {
     import('@/lib/habits-api')
-      .then(({ listHabitCards, listRecentHabitLogs }) => {
+      .then(({ HABIT_CARDS_QUERY_KEY, HABIT_LOGS_RECENT_QUERY_KEY, listHabitCards, listRecentHabitLogs }) => {
         queryClient.prefetchQuery({
-          queryKey: ['habits'],
+          queryKey: HABIT_CARDS_QUERY_KEY,
           queryFn: listHabitCards,
           ...getLocalQueryCacheOptions(['habits']),
         }).catch(() => null);
 
         queryClient.prefetchQuery({
-          queryKey: ['habitLogs'],
+          queryKey: HABIT_LOGS_RECENT_QUERY_KEY,
           queryFn: () => listRecentHabitLogs(500),
           ...getLocalQueryCacheOptions(['habitLogs']),
         }).catch(() => null);

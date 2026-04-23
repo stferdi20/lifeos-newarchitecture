@@ -141,7 +141,7 @@ async function prefetchCalendar(queryClient) {
 
 async function prefetchLightSections(queryClient) {
   const [
-    { listHabitCards, listRecentHabitLogs },
+    { HABIT_CARDS_QUERY_KEY, HABIT_LOGS_RECENT_QUERY_KEY, listHabitCards, listRecentHabitLogs },
     { Investment },
     { Snippet },
     { fetchNews },
@@ -152,8 +152,8 @@ async function prefetchLightSections(queryClient) {
     import('@/lib/news-api'),
   ]);
 
-  safePrefetch(queryClient, { queryKey: ['habits'], queryFn: listHabitCards });
-  safePrefetch(queryClient, { queryKey: ['habitLogs'], queryFn: () => listRecentHabitLogs(HABIT_LOG_HISTORY_LIMIT) });
+  safePrefetch(queryClient, { queryKey: HABIT_CARDS_QUERY_KEY, queryFn: listHabitCards });
+  safePrefetch(queryClient, { queryKey: HABIT_LOGS_RECENT_QUERY_KEY, queryFn: () => listRecentHabitLogs(HABIT_LOG_HISTORY_LIMIT) });
   safePrefetch(queryClient, { queryKey: ['investments'], queryFn: () => Investment.list() });
   safePrefetch(queryClient, { queryKey: ['snippets'], queryFn: () => Snippet.list('-updated_date', 200) });
   safePrefetch(queryClient, {
