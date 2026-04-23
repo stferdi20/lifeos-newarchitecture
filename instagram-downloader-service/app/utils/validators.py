@@ -3,7 +3,7 @@ from urllib.parse import urlparse
 
 
 INSTAGRAM_HOSTS = {"instagram.com", "www.instagram.com"}
-INSTAGRAM_PATH_RE = re.compile(r"^/(reel|p|tv)/[A-Za-z0-9._-]+/?$")
+INSTAGRAM_PATH_RE = re.compile(r"^/(?:share/)?(reel|p|tv)/[A-Za-z0-9._-]+/?$")
 
 
 def is_valid_instagram_url(value: str) -> bool:

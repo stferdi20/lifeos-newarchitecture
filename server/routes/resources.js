@@ -48,7 +48,7 @@ const resourceCaptureSchema = z.object({
 });
 
 const shortcutCaptureSchema = z.object({
-  url: z.string().url(),
+  url: z.string().min(1),
   project_id: z.string().optional(),
   source: z.enum(['ios_share_shortcut', 'capture_page', 'quick_paste']).optional().default('ios_share_shortcut'),
 });
@@ -114,6 +114,24 @@ function requireShortcutCaptureUser(c) {
   return env.LIFEOS_SHORTCUT_CAPTURE_USER_ID;
 }
 
+function decodeShortcutUrl(value = '') {
+  let next = String(value || '').trim().replace(/^["']|["']$/g, '');
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const decoded = decodeURIComponent(next);
+      if (decoded === next) break;
+      next = decoded.trim().replace(/^["']|["']$/g, '');
+    } catch {
+      break;
+    }
+  }
+  return next;
+}
+
+function isShortcutInstagramUrl(value = '') {
+  return /(?:https?:\/\/)?(?:www\.)?instagram\.com\/(?:(?:share\/)?(?:reel|p|tv))\//i.test(value);
+}
+
 resourceRoutes.post('/analyze', zValidator('json', resourceAnalyzeSchema), async (c) => {
   const auth = await requireUser(c);
   const result = await invokeCompatFunction(auth.user.id, 'analyzeResource', c.req.valid('json'));
@@ -154,8 +172,18 @@ resourceRoutes.post('/capture', zValidator('json', resourceCaptureSchema), async
 resourceRoutes.post('/shortcut-capture', zValidator('json', shortcutCaptureSchema), async (c) => {
   const userId = requireShortcutCaptureUser(c);
   const body = c.req.valid('json');
+  const url = decodeShortcutUrl(body.url);
+  if (isShortcutInstagramUrl(url)) {
+    const result = await submitInstagramDownload(userId, {
+      url,
+      projectId: body.project_id || '',
+      includeAnalysis: true,
+    });
+    return c.json(result, result.queued ? 202 : 200);
+  }
+
   const result = await submitResourceCapture(userId, {
-    url: body.url,
+    url,
     projectId: body.project_id || '',
     source: body.source,
   });

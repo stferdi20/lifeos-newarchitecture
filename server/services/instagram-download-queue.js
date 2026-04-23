@@ -1175,7 +1175,8 @@ export async function requeueAllGoogleDriveBlockedInstagramJobs() {
 
 export async function retryInstagramDownloadForResource(userId, resourceId) {
   const resource = await getCompatEntity(userId, 'Resource', resourceId);
-  const resourceType = resource?.resource_type || '';
+  const sourceUrl = resource.source_url || resource.url || '';
+  const resourceType = inferResourceType(sourceUrl) || resource?.resource_type || '';
   if (!['instagram_reel', 'instagram_carousel', 'instagram_post'].includes(resourceType)) {
     throw new HttpError(400, 'This resource is not an Instagram download.');
   }
@@ -1221,7 +1222,7 @@ export async function retryInstagramDownloadForResource(userId, resourceId) {
 
   const newJob = await createInstagramDownloadJob(userId, {
     resourceId,
-    url: resource.source_url || resource.url,
+    url: sourceUrl,
     driveFolderId: resource.drive_folder_id || '',
     projectId: '',
     includeAnalysis: true,
