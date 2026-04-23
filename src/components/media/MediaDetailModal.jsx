@@ -264,11 +264,11 @@ export default function MediaDetailModal({ open, onClose, entry, onSave, onDelet
       if (isOpen) return;
       void handleClose();
     }}>
-      <ResponsiveModalContent className="bg-[#161820] border-border max-w-2xl max-h-[90vh] overflow-y-auto p-0" mobileClassName="bg-[#161820] border-border">
+      <ResponsiveModalContent className="bg-[#161820] border-border max-w-2xl max-h-[90vh] overflow-y-auto p-0 duration-300 ease-out" mobileClassName="bg-[#161820] border-border">
         <div className="flex flex-col gap-0 sm:flex-row">
-          <div className="w-full shrink-0 bg-secondary/20 relative sm:w-48">
+          <div className="relative w-full shrink-0 bg-secondary/20 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-left-2 motion-safe:duration-300 sm:w-48">
             {form.poster_url ? (
-              <img src={form.poster_url} alt={form.title} className="w-full h-52 object-cover sm:h-full" />
+              <img src={form.poster_url} alt={form.title} className="h-52 w-full object-cover transition-transform duration-500 ease-out sm:h-full" />
             ) : (
               <div className="flex min-h-[180px] w-full items-center justify-center sm:min-h-[300px]">
                 <Icon className={cn('w-12 h-12', cfg.color)} />
@@ -276,7 +276,7 @@ export default function MediaDetailModal({ open, onClose, entry, onSave, onDelet
             )}
           </div>
 
-          <div className="flex-1 space-y-4 p-4 sm:p-6">
+          <div className="flex-1 space-y-4 p-4 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-300 motion-safe:delay-75 sm:p-6">
             <div>
               <div className="flex items-center gap-2 mb-1">
                 <Icon className={cn('w-4 h-4', cfg.color)} />

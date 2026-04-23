@@ -27,7 +27,8 @@ import { fetchMediaHealth, getMediaBackendState } from '../components/media/sear
 import { prewarmResourceImageCache } from '@/lib/resource-image-cache';
 
 const MediaSearchModal = lazy(() => import('../components/media/MediaSearchModal'));
-const MediaDetailModal = lazy(() => import('../components/media/MediaDetailModal'));
+const loadMediaDetailModal = () => import('../components/media/MediaDetailModal');
+const MediaDetailModal = lazy(loadMediaDetailModal);
 import { PageLoader } from '@/components/ui/page-loader';
 import BulkAddMediaModal from '@/components/media/BulkAddMediaModal';
 const RepairMediaModal = lazy(() => import('../components/media/RepairMediaModal'));
@@ -149,6 +150,7 @@ export default function Media() {
   const queryClient = useQueryClient();
   const gridRef = useRef(null);
   const rafRef = useRef(null);
+  const detailCloseTimerRef = useRef(null);
   const isMobile = useIsMobile();
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const normalizedSearchQuery = normalizeMediaSearch(deferredSearchQuery);
@@ -163,6 +165,31 @@ export default function Media() {
     () => buildMediaExactQuery(typeFilter, statusFilter),
     [typeFilter, statusFilter],
   );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+
+    const preloadDetailModal = () => {
+      void loadMediaDetailModal();
+    };
+    const idleId = window.requestIdleCallback
+      ? window.requestIdleCallback(preloadDetailModal, { timeout: 1200 })
+      : window.setTimeout(preloadDetailModal, 700);
+
+    return () => {
+      if (window.cancelIdleCallback && typeof idleId === 'number') {
+        window.cancelIdleCallback(idleId);
+      } else {
+        window.clearTimeout(idleId);
+      }
+    };
+  }, []);
+
+  useEffect(() => () => {
+    if (detailCloseTimerRef.current) {
+      window.clearTimeout(detailCloseTimerRef.current);
+    }
+  }, []);
 
   const { data: summaryEntries = [], isLoading: summaryLoading } = useQuery({
     queryKey: ['mediaSummary'],
@@ -485,6 +512,10 @@ export default function Media() {
     const normalizedEntry = normalizeMediaEntry(entry);
     if (!normalizedEntry?.id) return;
 
+    if (detailCloseTimerRef.current) {
+      window.clearTimeout(detailCloseTimerRef.current);
+      detailCloseTimerRef.current = null;
+    }
     setShowSearch(false);
     setShowBulkAdd(false);
     setSelectedEntry(normalizedEntry);
@@ -505,9 +536,26 @@ export default function Media() {
       return;
     }
 
+    if (detailCloseTimerRef.current) {
+      window.clearTimeout(detailCloseTimerRef.current);
+      detailCloseTimerRef.current = null;
+    }
     setSelectedEntry(normalizedEntry);
     setShowDetail(true);
   }, [selectMode]);
+
+  const handleCloseDetail = useCallback(() => {
+    setShowDetail(false);
+
+    if (detailCloseTimerRef.current) {
+      window.clearTimeout(detailCloseTimerRef.current);
+    }
+
+    detailCloseTimerRef.current = window.setTimeout(() => {
+      setSelectedEntry(null);
+      detailCloseTimerRef.current = null;
+    }, 260);
+  }, []);
 
   const saveMutation = useMutation({
     mutationFn: async (form) => {
@@ -999,13 +1047,10 @@ export default function Media() {
       </Suspense>
 
       <Suspense fallback={<MediaModalFallback />}>
-        {showDetail && (
+        {selectedEntry && (
           <MediaDetailModal
             open={showDetail}
-            onClose={() => {
-              setShowDetail(false);
-              setSelectedEntry(null);
-            }}
+            onClose={handleCloseDetail}
             entry={selectedEntry}
             onSave={(form) => saveMutation.mutateAsync(form)}
             onDelete={(id) => deleteMutation.mutate(id)}
