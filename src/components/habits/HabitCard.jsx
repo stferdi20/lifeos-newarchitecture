@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Check, Flame, Trash2, Edit2, Trophy, Target } from 'lucide-react';
+import { Check, Flame, Trash2, Edit2, Trophy, Target, CalendarDays } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Habit, HabitLog, HABIT_LOGS_RECENT_QUERY_KEY } from '@/lib/habits-api';
@@ -14,6 +14,7 @@ export default function HabitCard({ habit, habitLogs, onEdit }) {
   const isDone = !!todayLog;
 
   const completedDates = useMemo(() => new Set(myLogs.filter(l => l.completed).map(l => l.date)), [myLogs]);
+  const recentWindowDays = 30 * 7;
 
   const streak = useMemo(() => {
     let s = 0;
@@ -42,6 +43,36 @@ export default function HabitCard({ habit, habitLogs, onEdit }) {
       best = Math.max(best, temp);
     }
     return best;
+  }, [completedDates]);
+
+  const recentCompletion = useMemo(() => {
+    let completed = 0;
+    const d = new Date();
+    for (let i = 0; i < recentWindowDays; i++) {
+      const ds = d.toISOString().split('T')[0];
+      if (completedDates.has(ds)) completed++;
+      d.setDate(d.getDate() - 1);
+    }
+
+    return {
+      completed,
+      rate: Math.round((completed / recentWindowDays) * 100),
+    };
+  }, [completedDates, recentWindowDays]);
+
+  const weekProgress = useMemo(() => {
+    let completed = 0;
+    const d = new Date();
+    const dayIndex = d.getDay();
+    const daysElapsed = dayIndex === 0 ? 7 : dayIndex;
+
+    for (let i = 0; i < daysElapsed; i++) {
+      const ds = d.toISOString().split('T')[0];
+      if (completedDates.has(ds)) completed++;
+      d.setDate(d.getDate() - 1);
+    }
+
+    return { completed, daysElapsed };
   }, [completedDates]);
 
   const last7 = useMemo(() => {
@@ -89,79 +120,139 @@ export default function HabitCard({ habit, habitLogs, onEdit }) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['habits'] }),
   });
 
+  const statItems = [
+    {
+      label: 'streak',
+      value: streak,
+      icon: Flame,
+      className: 'text-orange-400',
+    },
+    {
+      label: 'best',
+      value: bestStreak,
+      icon: Trophy,
+      className: 'text-amber-400',
+    },
+    {
+      label: 'total',
+      value: completedDates.size,
+      icon: Target,
+      className: 'text-muted-foreground',
+    },
+  ];
+
   return (
     <div className={cn(
-      'rounded-2xl bg-card border transition-all',
+      'group rounded-2xl bg-card border transition-all hover:border-primary/20',
       isDone ? 'border-emerald-500/30' : 'border-border/50'
     )}>
-      {/* Header */}
-      <div className="flex items-center justify-between p-4 pb-3">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => toggleMutation.mutate()}
-            className={cn(
-              'w-9 h-9 rounded-xl border-2 flex items-center justify-center transition-all shrink-0',
-              isDone
-                ? 'bg-emerald-500 border-emerald-500 shadow-lg shadow-emerald-500/20'
-                : 'border-border hover:border-emerald-500/50 hover:bg-emerald-500/5'
-            )}
-          >
-            {isDone && <Check className="w-4 h-4 text-white" />}
-          </button>
-          <div>
-            <p className="font-semibold text-sm">{habit.icon} {habit.name}</p>
-            <div className="flex items-center gap-3 mt-0.5">
-              {streak > 0 && (
-                <span className="text-[11px] text-orange-400 flex items-center gap-1">
-                  <Flame className="w-3 h-3" /> {streak} streak
-                </span>
-              )}
-              {bestStreak > 0 && (
-                <span className="text-[11px] text-amber-400 flex items-center gap-1">
-                  <Trophy className="w-3 h-3" /> {bestStreak} best
-                </span>
-              )}
-              <span className="text-[11px] text-muted-foreground flex items-center gap-1">
-                <Target className="w-3 h-3" /> {completedDates.size} total
+      <div className="grid gap-4 p-4 2xl:grid-cols-[minmax(13rem,0.78fr)_minmax(24rem,1.22fr)] 2xl:items-start">
+        <div className="min-w-0">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <button
+                onClick={() => toggleMutation.mutate()}
+                className={cn(
+                  'w-10 h-10 rounded-xl border-2 flex items-center justify-center transition-all shrink-0',
+                  isDone
+                    ? 'bg-emerald-500 border-emerald-500 shadow-lg shadow-emerald-500/20'
+                    : 'border-border hover:border-emerald-500/50 hover:bg-emerald-500/5'
+                )}
+                aria-label={isDone ? `Mark ${habit.name} incomplete today` : `Mark ${habit.name} complete today`}
+              >
+                {isDone && <Check className="w-4 h-4 text-white" />}
+              </button>
+              <div className="min-w-0">
+                <p className="truncate text-base font-semibold tracking-tight">{habit.icon} {habit.name}</p>
+                <p className={cn(
+                  'mt-0.5 text-xs',
+                  isDone ? 'text-emerald-400' : 'text-muted-foreground/60'
+                )}>
+                  {isDone ? 'Done today' : 'Ready for today'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex shrink-0 gap-1">
+              <button
+                onClick={() => onEdit(habit)}
+                className="p-1.5 rounded-lg hover:bg-secondary/50 text-muted-foreground hover:text-foreground transition-colors"
+                aria-label={`Edit ${habit.name}`}
+              >
+                <Edit2 className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => deleteMutation.mutate()}
+                className="p-1.5 rounded-lg hover:bg-red-500/10 text-muted-foreground hover:text-red-400 transition-colors"
+                aria-label={`Delete ${habit.name}`}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-4 grid grid-cols-3 gap-2">
+            {statItems.map(({ label, value, icon: Icon, className }) => (
+              <div key={label} className="rounded-xl border border-border/30 bg-secondary/15 px-2.5 py-2">
+                <div className={cn('flex items-center gap-1 text-[11px] font-medium', className)}>
+                  <Icon className="h-3 w-3" />
+                  <span>{label}</span>
+                </div>
+                <p className="mt-1 text-lg font-semibold leading-none text-foreground">{value}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-4 rounded-xl border border-border/30 bg-secondary/10 p-3">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-muted-foreground/50">
+                <CalendarDays className="h-3 w-3" />
+                Last 7d
               </span>
+              <span className="text-[10px] font-medium text-muted-foreground/60">
+                {weekProgress.completed}/{weekProgress.daysElapsed} this week
+              </span>
+            </div>
+            <div className="grid grid-cols-7 gap-1.5">
+              {last7.map(day => {
+                const isCompleted = completedDates.has(day);
+                const isToday = day === todayStr;
+
+                return (
+                  <div
+                    key={day}
+                    title={day}
+                    className={cn(
+                      'flex h-8 min-w-0 items-center justify-center rounded-lg text-[10px] font-semibold transition-colors',
+                      isCompleted
+                        ? 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/40'
+                        : isToday
+                          ? 'bg-secondary/80 text-muted-foreground ring-1 ring-border'
+                          : 'bg-secondary/30 text-muted-foreground/35'
+                    )}
+                  >
+                    {new Date(day).getDate()}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
-        <div className="flex gap-1">
-          <button onClick={() => onEdit(habit)} className="p-1.5 rounded-lg hover:bg-secondary/50 text-muted-foreground hover:text-foreground transition-colors">
-            <Edit2 className="w-3.5 h-3.5" />
-          </button>
-          <button onClick={() => deleteMutation.mutate()} className="p-1.5 rounded-lg hover:bg-red-500/10 text-muted-foreground hover:text-red-400 transition-colors">
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </div>
 
-      {/* Last 7 days dots */}
-      <div className="px-4 pb-3 flex items-center gap-1.5">
-        <span className="text-[10px] text-muted-foreground/50 mr-1">Last 7d</span>
-        {last7.map(day => (
-          <div
-            key={day}
-            title={day}
-            className={cn(
-              'w-5 h-5 rounded-md text-[9px] flex items-center justify-center font-medium',
-              completedDates.has(day)
-                ? 'bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/40'
-                : day === todayStr
-                  ? 'bg-secondary/80 text-muted-foreground ring-1 ring-border'
-                  : 'bg-secondary/30 text-muted-foreground/30'
-            )}
-          >
-            {new Date(day).getDate()}
+        <div className="min-w-0 border-t border-border/30 pt-3 2xl:border-l 2xl:border-t-0 2xl:pl-4 2xl:pt-0">
+          <div className="mb-3 flex items-end justify-between gap-3">
+            <div>
+              <p className="text-[10px] uppercase tracking-widest text-muted-foreground/50">Activity</p>
+              <p className="mt-1 text-xs text-muted-foreground/60">Last 30 weeks</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xl font-semibold leading-none text-foreground">{recentCompletion.rate}%</p>
+              <p className="mt-1 text-[10px] uppercase tracking-widest text-muted-foreground/50">completion</p>
+            </div>
           </div>
-        ))}
-      </div>
 
-      {/* Heatmap */}
-      <div className="px-4 pb-4 border-t border-border/30 pt-3">
-        <p className="text-[10px] uppercase tracking-widest text-muted-foreground/50 mb-2">Activity</p>
-        <HabitHeatmap habitId={habit.id} habitLogs={habitLogs} />
+          <HabitHeatmap habitId={habit.id} habitLogs={habitLogs} weeksCount={30} cellSize={11} />
+        </div>
       </div>
     </div>
   );

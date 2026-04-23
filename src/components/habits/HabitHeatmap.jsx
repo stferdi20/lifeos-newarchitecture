@@ -5,11 +5,10 @@ import { subDays } from 'date-fns';
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const DAY_LABELS = ['', 'Mon', '', 'Wed', '', 'Fri', ''];
 
-export default function HabitHeatmap({ habitId, habitLogs }) {
-  const { weeks, monthLabels, completedDates } = useMemo(() => {
+export default function HabitHeatmap({ habitId, habitLogs, weeksCount = 30, cellSize = 11 }) {
+  const { weeks, monthLabels } = useMemo(() => {
     const today = new Date();
-    const WEEKS = 18;
-    const TOTAL_DAYS = WEEKS * 7;
+    const TOTAL_DAYS = weeksCount * 7;
     const startDate = subDays(today, TOTAL_DAYS - 1);
 
     const completed = new Set(
@@ -20,7 +19,7 @@ export default function HabitHeatmap({ habitId, habitLogs }) {
 
     const wks = [];
     let current = new Date(startDate);
-    for (let w = 0; w < WEEKS; w++) {
+    for (let w = 0; w < weeksCount; w++) {
       const week = [];
       for (let d = 0; d < 7; d++) {
         const dateStr = current.toISOString().split('T')[0];
@@ -39,18 +38,18 @@ export default function HabitHeatmap({ habitId, habitLogs }) {
       }
     });
 
-    return { weeks: wks, monthLabels: mLabels, completedDates: completed };
-  }, [habitId, habitLogs]);
+    return { weeks: wks, monthLabels: mLabels };
+  }, [habitId, habitLogs, weeksCount]);
 
   return (
-    <div className="overflow-x-auto">
-      <div className="inline-block min-w-full">
+    <div className="overflow-x-auto pb-1">
+      <div className="inline-block min-w-max">
         {/* Month labels */}
-        <div className="flex ml-6 mb-1" style={{ gap: '3px' }}>
+        <div className="flex ml-7 mb-1" style={{ gap: '3px' }}>
           {weeks.map((_, wi) => {
             const lbl = monthLabels.find(m => m.wi === wi);
             return (
-              <div key={wi} style={{ width: 12, minWidth: 12 }}>
+              <div key={wi} style={{ width: cellSize, minWidth: cellSize }}>
                 {lbl ? <span className="text-[9px] text-muted-foreground/60 whitespace-nowrap">{lbl.label}</span> : null}
               </div>
             );
@@ -61,7 +60,7 @@ export default function HabitHeatmap({ habitId, habitLogs }) {
           {/* Day labels */}
           <div className="flex flex-col mr-1" style={{ gap: '3px' }}>
             {DAY_LABELS.map((d, i) => (
-              <div key={i} style={{ height: 12, minHeight: 12 }}>
+              <div key={i} style={{ height: cellSize, minHeight: cellSize }}>
                 <span className="text-[9px] text-muted-foreground/50 leading-none">{d}</span>
               </div>
             ))}
@@ -74,7 +73,7 @@ export default function HabitHeatmap({ habitId, habitLogs }) {
                 <div
                   key={di}
                   title={`${day.date}${day.done ? ' ✓' : ''}`}
-                  style={{ width: 12, height: 12, minWidth: 12, minHeight: 12 }}
+                  style={{ width: cellSize, height: cellSize, minWidth: cellSize, minHeight: cellSize }}
                   className={cn(
                     'rounded-sm transition-colors',
                     day.future
@@ -90,7 +89,7 @@ export default function HabitHeatmap({ habitId, habitLogs }) {
         </div>
 
         {/* Legend */}
-        <div className="flex items-center gap-1.5 mt-2 ml-6">
+        <div className="flex items-center gap-1.5 mt-2 ml-7">
           <span className="text-[9px] text-muted-foreground/50">Less</span>
           {[false, false, false, true, true].map((done, i) => (
             <div
