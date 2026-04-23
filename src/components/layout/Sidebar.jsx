@@ -1,8 +1,10 @@
 import React from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation } from 'react-router-dom';
 import { LayoutDashboard, FolderKanban, CheckSquare, Newspaper, Film, TrendingUp, Network, CalendarDays, ChevronLeft, ChevronRight, Users, Wand2, Library, X, Settings, Scissors } from 'lucide-react';
 import { createPageUrl } from '@/utils';
 import { cn } from '@/lib/utils';
+import { getLocalQueryCacheOptions } from '@/lib/local-query-cache';
 
 const navItems = [
   { page: 'Dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -22,8 +24,67 @@ const navItems = [
   { page: 'Settings', label: 'Settings', icon: Settings },
 ];
 
+const routePreloaders = {
+  Calendar: () => import('@/pages/Calendar'),
+  CreatorVault: () => import('@/pages/CreatorVault'),
+  Dashboard: () => import('@/pages/Dashboard'),
+  Habits: () => import('@/pages/Habits'),
+  Investments: () => import('@/pages/Investments'),
+  KnowledgeGraph: () => import('@/pages/KnowledgeGraph'),
+  Media: () => import('@/pages/Media'),
+  News: () => import('@/pages/News'),
+  Projects: () => import('@/pages/Projects'),
+  PromptWizard: () => import('@/pages/PromptWizard'),
+  Resources: () => import('@/pages/Resources'),
+  Settings: () => import('@/pages/Settings'),
+  Snippets: () => import('@/pages/Snippets'),
+  Tasks: () => import('@/pages/Tasks'),
+};
+
+const preloadedPages = new Set();
+
+function prefetchNavTarget(page, queryClient) {
+  if (!page) return;
+
+  if (!preloadedPages.has(page)) {
+    preloadedPages.add(page);
+    routePreloaders[page]?.().catch(() => {
+      preloadedPages.delete(page);
+    });
+  }
+
+  if (page !== 'Resources' || !queryClient) return;
+
+  import('@/lib/resources-api')
+    .then(({ listLifeAreaFilters, listResourceCards }) => {
+      queryClient.prefetchQuery({
+        queryKey: ['resources'],
+        queryFn: () => listResourceCards(200),
+        ...getLocalQueryCacheOptions(['resources']),
+      }).catch(() => null);
+
+      queryClient.prefetchQuery({
+        queryKey: ['lifeAreas'],
+        queryFn: listLifeAreaFilters,
+        ...getLocalQueryCacheOptions(['lifeAreas']),
+      }).catch(() => null);
+    })
+    .catch(() => null);
+
+  import('@/lib/projects-api')
+    .then(({ listBoardWorkspaces }) => {
+      queryClient.prefetchQuery({
+        queryKey: ['projects'],
+        queryFn: listBoardWorkspaces,
+        ...getLocalQueryCacheOptions(['projects']),
+      }).catch(() => null);
+    })
+    .catch(() => null);
+}
+
 export default function Sidebar({ expanded, onToggle, isMobile = false, mobileOpen = false, onCloseMobile }) {
   const location = useLocation();
+  const queryClient = useQueryClient();
 
   const containerClasses = cn(
     "fixed left-0 top-0 bottom-0 z-50 flex flex-col transition-all duration-300 ease-in-out",
@@ -73,7 +134,12 @@ export default function Sidebar({ expanded, onToggle, isMobile = false, mobileOp
                 <Link
                   key={item.page}
                   to={pageUrl}
-                  onClick={onCloseMobile}
+                  onClick={() => {
+                    prefetchNavTarget(item.page, queryClient);
+                    onCloseMobile?.();
+                  }}
+                  onFocus={() => prefetchNavTarget(item.page, queryClient)}
+                  onPointerEnter={() => prefetchNavTarget(item.page, queryClient)}
                   className={cn(
                     "flex items-center gap-3 h-11 rounded-lg text-[14px] font-medium transition-all duration-150 px-3",
                     isActive
@@ -132,6 +198,9 @@ export default function Sidebar({ expanded, onToggle, isMobile = false, mobileOp
               key={item.page}
               to={pageUrl}
               title={!expanded ? item.label : ''}
+              onFocus={() => prefetchNavTarget(item.page, queryClient)}
+              onPointerEnter={() => prefetchNavTarget(item.page, queryClient)}
+              onClick={() => prefetchNavTarget(item.page, queryClient)}
               className={cn(
                 "flex items-center gap-3 h-10 rounded-lg text-[13px] font-medium transition-all duration-150",
                 expanded ? "px-3" : "px-0 justify-center",

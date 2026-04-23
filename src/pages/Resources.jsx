@@ -38,7 +38,6 @@ import BulkResourceActionBar from '../components/resources/BulkResourceActionBar
 import { PageHeader, PageActionRow } from '@/components/layout/page-header';
 import { MobileActionOverflow } from '@/components/layout/MobileActionOverflow';
 import { MobileFilterDrawer } from '@/components/layout/MobileFilterDrawer';
-import { PageLoader } from '@/components/ui/page-loader';
 
 const AddResourceModal = lazy(() => import('../components/resources/AddResourceModal'));
 const BulkAddModal = lazy(() => import('../components/resources/BulkAddModal'));
@@ -53,6 +52,37 @@ const RESOURCE_QUERY_STALE_TIME = 60_000;
 const RESOURCE_QUERY_GC_TIME = 10 * 60_000;
 const RESOURCE_INITIAL_VISIBLE_COUNT = 24;
 const RESOURCE_VISIBLE_INCREMENT = 24;
+
+function ResourceGridSkeleton({ layoutMode, gridDensity }) {
+  const count = layoutMode === 'grid' ? 12 : 8;
+  return (
+    <>
+      {Array.from({ length: count }).map((_, index) => (
+        <div
+          key={`resource-loading-${index}`}
+          className={cn(
+            'overflow-hidden rounded-2xl border border-border/50 bg-card/70',
+            gridDensity === 'compact' ? 'min-h-[220px]' : 'min-h-[280px]',
+          )}
+        >
+          <div className={cn(
+            'animate-pulse bg-secondary/50',
+            layoutMode === 'grid' ? 'h-36' : 'aspect-[16/10]',
+          )} />
+          <div className="space-y-3 p-4">
+            <div className="h-3 w-24 animate-pulse rounded-full bg-secondary/60" />
+            <div className="h-4 w-4/5 animate-pulse rounded-full bg-secondary/70" />
+            <div className="h-4 w-3/5 animate-pulse rounded-full bg-secondary/50" />
+            <div className="flex gap-2 pt-2">
+              <div className="h-5 w-16 animate-pulse rounded-full bg-secondary/50" />
+              <div className="h-5 w-20 animate-pulse rounded-full bg-secondary/40" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
 
 function normalizeLayoutMode(value) {
   if (value === 'grid' || value === 'gallery' || value === 'magazine') return value;
@@ -916,9 +946,7 @@ export default function Resources() {
     />
   );
 
-  if (resourcesLoading && resources.length === 0) {
-    return <PageLoader label="Loading resources..." />;
-  }
+  const isInitialResourcesLoad = resourcesLoading && resources.length === 0;
 
   return (
     <div className="space-y-6 overflow-x-hidden">
@@ -1017,7 +1045,9 @@ export default function Resources() {
 
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs text-muted-foreground">
-          Showing {visibleResources.length} of {filteredResources.length} resource{filteredResources.length !== 1 ? 's' : ''}
+          {isInitialResourcesLoad
+            ? 'Loading resources...'
+            : `Showing ${visibleResources.length} of ${filteredResources.length} resource${filteredResources.length !== 1 ? 's' : ''}`}
         </p>
         <div className="flex flex-wrap items-center justify-end gap-2">
           {projectFilter && projectResourcesLoading && (
@@ -1109,7 +1139,9 @@ export default function Resources() {
             : 'grid items-start',
         )}
       >
-        {isGridLayout
+        {isInitialResourcesLoad ? (
+          <ResourceGridSkeleton layoutMode={layoutMode} gridDensity={gridDensity} />
+        ) : isGridLayout
           ? visibleResources.map((resource) => renderResourceCard(resource))
           : stableColumnResources.map((columnResources, columnIndex) => (
             <div
@@ -1121,7 +1153,7 @@ export default function Resources() {
           ))}
       </div>
 
-      {hasMoreResourcesToRender && (
+      {!isInitialResourcesLoad && hasMoreResourcesToRender && (
         <div ref={loadMoreRef} className="flex justify-center pt-2">
           <div className="rounded-full border border-border/50 bg-card/60 px-3 py-1.5 text-xs text-muted-foreground">
             Loading more resources…
@@ -1129,7 +1161,7 @@ export default function Resources() {
         </div>
       )}
 
-      {filteredResources.length === 0 && (
+      {!isInitialResourcesLoad && filteredResources.length === 0 && (
         <div className="rounded-2xl border border-dashed border-border bg-card/60 p-12 text-center">
           <BookOpen className="w-8 h-8 text-muted-foreground/30 mx-auto mb-3" />
           <p className="text-sm text-muted-foreground">No resources found. Add your first one!</p>
