@@ -4,6 +4,7 @@ import { Plus, LayoutGrid, Calendar, Film, Tv, Sword, BookOpen, Gamepad2, BookMa
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { StaggerContainer, StaggerItem } from '@/components/ui/StaggerContainer';
 import { getLocalQueryCacheOptions } from '@/lib/local-query-cache';
 import { MediaEntry, bulkUpdateMediaEntries } from '@/lib/media-api';
 import MediaCard from '../components/media/MediaCard';
@@ -695,12 +696,12 @@ export default function Media() {
   }
 
   return (
-    <div>
+    <StaggerContainer className="space-y-6">
+      <StaggerItem>
       <PageHeader
         icon={Film}
         title="Media Tracker"
         description={`${stats.total} completed all time · ${stats.thisYear} in ${currentYear}`}
-        className="mb-6"
         actions={(
           <PageActionRow>
             {/* Desktop Actions */}
@@ -764,10 +765,12 @@ export default function Media() {
           </PageActionRow>
         )}
       />
+      </StaggerItem>
 
       {(isLocalDebug || !mediaBackendState.available || mediaBackendState.versionMismatch) && (
+        <StaggerItem>
         <div className={cn(
-          'mb-4 flex items-start gap-2 rounded-xl border px-4 py-3 text-sm',
+          'flex items-start gap-2 rounded-xl border px-4 py-3 text-sm',
           !mediaBackendState.available || mediaBackendState.versionMismatch
             ? 'border-amber-500/20 bg-amber-500/5 text-amber-100'
             : 'border-emerald-500/20 bg-emerald-500/5 text-emerald-100',
@@ -791,9 +794,11 @@ export default function Media() {
             </p>
           </div>
         </div>
+        </StaggerItem>
       )}
 
       {view === 'yearly' ? (
+        <StaggerItem>
         <div>
           <div className="flex gap-2 mb-6 flex-wrap">
             {YEARS.map((year) => (
@@ -820,9 +825,10 @@ export default function Media() {
             )}
           </Suspense>
         </div>
+        </StaggerItem>
       ) : (
         <>
-          <div className="space-y-3 mb-6">
+          <StaggerItem className="space-y-3">
             <div className="flex gap-2 items-center w-full">
               <div className="relative flex-1 sm:max-w-xs">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
@@ -922,14 +928,16 @@ export default function Media() {
                 ))}
               </div>
             </div>
-          </div>
+          </StaggerItem>
 
           {isLibraryLoading && libraryEntries.length === 0 ? (
+            <StaggerItem>
             <div className="py-16 flex items-center justify-center text-muted-foreground">
               <Loader2 className="w-4 h-4 animate-spin mr-2" /> Loading media...
             </div>
+            </StaggerItem>
           ) : libraryEntries.length > 0 ? (
-            <>
+            <StaggerItem>
               <p className="text-xs text-muted-foreground mb-3">
                 Showing {Math.min(visibleRange.endIndex, libraryEntries.length)} of {libraryEntries.length}
                 {canFetchMore ? ' loaded so far' : ''}
@@ -941,9 +949,9 @@ export default function Media() {
                   paddingBottom: visibleRange.bottomSpacerHeight,
                 }}
               >
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+                <StaggerContainer className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
                   {renderedEntries.map((entry) => (
-                    <div key={entry.id} className="relative">
+                    <StaggerItem key={entry.id} className="relative">
                       {selectMode && (
                         <div
                           className={cn(
@@ -962,9 +970,9 @@ export default function Media() {
                         onDelete={(id) => deleteMutation.mutate(id)}
                         className={selectMode && selectedIds.has(entry.id) ? 'ring-2 ring-primary' : ''}
                       />
-                    </div>
+                    </StaggerItem>
                   ))}
-                </div>
+                </StaggerContainer>
               </div>
 
               <div className="h-12 flex items-center justify-center">
@@ -972,8 +980,9 @@ export default function Media() {
                   <div className="w-5 h-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
                 )}
               </div>
-            </>
+            </StaggerItem>
           ) : (
+            <StaggerItem>
             <div className="text-center py-20">
               <Film className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
               <p className="text-muted-foreground">No media found. Start adding!</p>
@@ -981,6 +990,7 @@ export default function Media() {
                 <Plus className="w-4 h-4 mr-2" /> Add your first title
               </Button>
             </div>
+            </StaggerItem>
           )}
         </>
       )}
@@ -1057,6 +1067,6 @@ export default function Media() {
           />
         )}
       </Suspense>
-    </div>
+    </StaggerContainer>
   );
 }
