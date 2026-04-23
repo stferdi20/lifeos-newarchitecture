@@ -12,6 +12,7 @@ import PageTransition from '@/components/ui/PageTransition';
 import LocalQueryCacheProvider from '@/components/cache/LocalQueryCacheProvider';
 import Media from './pages/Media';
 import Resources from './pages/Resources';
+import Habits from './pages/Habits';
 import { PageLoader } from '@/components/ui/page-loader';
 
 const PageNotFound = lazy(() => import('./lib/PageNotFound'));
@@ -20,7 +21,6 @@ const AppLayout = lazy(() => import('./components/layout/AppLayout'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const ProjectsV2 = lazy(() => import('./pages/ProjectsV2'));
 const ProjectsLegacy = lazy(() => import('./pages/ProjectsLegacy'));
-const Habits = lazy(() => import('./pages/Habits'));
 const Notes = lazy(() => import('./pages/Notes'));
 const News = lazy(() => import('./pages/News'));
 const Ideas = lazy(() => import('./pages/Ideas'));

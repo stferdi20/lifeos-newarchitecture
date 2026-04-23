@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Habit, HabitLog } from '@/lib/habits-api';
+import { listHabitCards, listRecentHabitLogs } from '@/lib/habits-api';
 import { StaggerContainer, StaggerItem } from '@/components/ui/StaggerContainer';
 import GreetingWidget from '../components/dashboard/GreetingWidget';
 import HabitMiniWidget from '../components/dashboard/HabitMiniWidget';
@@ -25,14 +25,14 @@ export default function Dashboard() {
 
   const { data: habits = [] } = useQuery({
     queryKey: ['habits'],
-    queryFn: () => Habit.list(),
+    queryFn: listHabitCards,
     ...getLocalQueryCacheOptions(['habits']),
     refetchOnMount: false,
   });
 
   const { data: habitLogs = [] } = useQuery({
     queryKey: ['habitLogs'],
-    queryFn: () => HabitLog.list('-date', HABIT_LOG_HISTORY_LIMIT),
+    queryFn: () => listRecentHabitLogs(HABIT_LOG_HISTORY_LIMIT),
     ...getLocalQueryCacheOptions(['habitLogs']),
     refetchOnMount: false,
   });

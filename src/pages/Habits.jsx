@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Loader2, Plus } from 'lucide-react';
-import { Habit, HabitLog } from '@/lib/habits-api';
+import { Plus } from 'lucide-react';
+import { Habit, listHabitCards, listRecentHabitLogs } from '@/lib/habits-api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ResponsiveModal, ResponsiveModalContent, ResponsiveModalHeader, ResponsiveModalTitle } from '@/components/ui/responsive-modal';
@@ -12,6 +12,36 @@ import HabitCard from '../components/habits/HabitCard';
 const EMOJI_OPTIONS = ['📖', '🏋️', '🧘', '📚', '🎨', '💻', '🏃', '💊', '🧠', '✍️', '🎵', '🌱'];
 const HABIT_LOG_HISTORY_LIMIT = 500;
 
+function HabitCardSkeleton() {
+  return (
+    <div className="rounded-2xl border border-border/50 bg-card p-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="h-9 w-9 animate-pulse rounded-xl bg-secondary/60" />
+          <div className="space-y-2">
+            <div className="h-4 w-36 animate-pulse rounded-full bg-secondary/70" />
+            <div className="h-3 w-48 animate-pulse rounded-full bg-secondary/50" />
+          </div>
+        </div>
+        <div className="h-7 w-16 animate-pulse rounded-lg bg-secondary/40" />
+      </div>
+      <div className="mt-4 flex gap-1.5">
+        {Array.from({ length: 7 }).map((_, index) => (
+          <div key={index} className="h-5 w-5 animate-pulse rounded-md bg-secondary/40" />
+        ))}
+      </div>
+      <div className="mt-4 border-t border-border/30 pt-3">
+        <div className="mb-2 h-3 w-20 animate-pulse rounded-full bg-secondary/40" />
+        <div className="grid grid-cols-[repeat(18,12px)] gap-[3px]">
+          {Array.from({ length: 126 }).map((_, index) => (
+            <div key={index} className="h-3 w-3 animate-pulse rounded-sm bg-secondary/35" />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Habits() {
   const [showForm, setShowForm] = useState(false);
   const [editingHabit, setEditingHabit] = useState(null);
@@ -21,14 +51,14 @@ export default function Habits() {
 
   const habitsQuery = useQuery({
     queryKey: ['habits'],
-    queryFn: () => Habit.list(),
+    queryFn: listHabitCards,
     ...getLocalQueryCacheOptions(['habits']),
     refetchOnMount: false,
   });
 
   const habitLogsQuery = useQuery({
     queryKey: ['habitLogs'],
-    queryFn: () => HabitLog.list('-date', HABIT_LOG_HISTORY_LIMIT),
+    queryFn: () => listRecentHabitLogs(HABIT_LOG_HISTORY_LIMIT),
     ...getLocalQueryCacheOptions(['habitLogs']),
     refetchOnMount: false,
   });
@@ -91,11 +121,10 @@ export default function Habits() {
       />
 
       {isInitialHabitsLoad ? (
-        <div className="flex min-h-[240px] items-center justify-center text-muted-foreground">
-          <div className="flex items-center gap-2 text-sm">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Loading habits...
-          </div>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <HabitCardSkeleton key={index} />
+          ))}
         </div>
       ) : hasHabitsError ? (
         <div className="text-center py-20">
