@@ -341,11 +341,6 @@ export default function Resources() {
     },
   });
 
-  useEffect(() => {
-    if (!resources.length) return undefined;
-    return prewarmResourceImageCache(resources, { limit: 120, concurrency: 4 });
-  }, [resources]);
-
   const hasInstagramResources = useMemo(
     () => resources.some((resource) => ['instagram_reel', 'instagram_carousel', 'instagram_post'].includes(resource?.resource_type)),
     [resources],
@@ -482,6 +477,11 @@ export default function Resources() {
     () => filteredResources.slice(0, visibleResourceCount),
     [filteredResources, visibleResourceCount],
   );
+
+  useEffect(() => {
+    if (!visibleResources.length) return undefined;
+    return prewarmResourceImageCache(visibleResources, { limit: 24, concurrency: 2 });
+  }, [visibleResources]);
 
   const hasMoreResourcesToRender = visibleResources.length < filteredResources.length;
 

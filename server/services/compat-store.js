@@ -127,7 +127,7 @@ function databaseOrderColumn(entityType, field) {
 }
 
 async function fetchDatabaseOrderedSlice(userId, entityType, options = {}) {
-  if (!['Habit', 'HabitLog'].includes(entityType) || !isEmptyFilter(options.filter)) {
+  if (!isEmptyFilter(options.filter)) {
     return null;
   }
 

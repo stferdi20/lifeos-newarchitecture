@@ -29,8 +29,6 @@ export const RESOURCE_CARD_LIST_FIELDS = [
   'created_date',
   'thumbnail',
   'drive_folder_url',
-  'drive_files',
-  'instagram_media_items',
   'download_status',
   'capture_status',
   'capture_status_message',

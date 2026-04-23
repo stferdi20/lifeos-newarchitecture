@@ -148,7 +148,7 @@ resourceRoutes.get('/', async (c) => {
   const auth = await requireUser(c);
   const query = c.req.query();
   const fields = query.fields ? query.fields.split(',') : null;
-  if (shouldRepairInstagramResourceState(fields)) {
+  if (query.repair === '1' && shouldRepairInstagramResourceState(fields)) {
     await reconcileInstagramResourceStatesForUser(auth.user.id).catch(() => null);
   }
   const resources = await listCompatEntities(auth.user.id, 'Resource', {
@@ -164,7 +164,7 @@ resourceRoutes.get('/', async (c) => {
 resourceRoutes.post('/query', async (c) => {
   const auth = await requireUser(c);
   const body = await safeJson(c.req.raw);
-  if (shouldRepairInstagramResourceState(body?.fields || null)) {
+  if (body?.repair === true && shouldRepairInstagramResourceState(body?.fields || null)) {
     await reconcileInstagramResourceStatesForUser(auth.user.id).catch(() => null);
   }
   const resources = await listCompatEntities(auth.user.id, 'Resource', body);
