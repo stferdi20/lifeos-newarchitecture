@@ -38,14 +38,15 @@ This version sends the shared URL directly to the API from Shortcuts. It does no
 3. Name it `LifeOS Capture`.
 4. Add the `Receive URLs from Share Sheet` action.
 5. Add `Get Text from Shortcut Input`.
-6. Add `Get Contents of URL`.
-7. Set the URL to:
+6. If Shortcuts errors on raw Instagram links, add `URL Encode` after the text action and use that encoded value for the `url` JSON field. The backend safely decodes it before queueing.
+7. Add `Get Contents of URL`.
+8. Set the URL to:
 
 ```text
 https://YOUR-LIFEOS-DOMAIN/api/resources/shortcut-capture
 ```
 
-8. Expand the request options:
+9. Expand the request options:
    - Method: `POST`
    - Headers:
      - `Content-Type`: `application/json`
@@ -54,16 +55,16 @@ https://YOUR-LIFEOS-DOMAIN/api/resources/shortcut-capture
    - JSON fields:
      - `url`: the text from Shortcut Input
      - `source`: `ios_share_shortcut`
-9. Add `Show Notification` with:
+10. Add `Show Notification` with:
 
 ```text
 Saved to LifeOS
 ```
 
-10. Optional: add `Open App` actions for source apps such as Instagram, YouTube, GitHub, X, or TikTok.
-11. Open the shortcut settings.
-12. Enable `Show in Share Sheet`.
-13. Set accepted input types to `URLs`.
+11. Optional: add `Open App` actions for source apps such as Instagram, YouTube, GitHub, X, or TikTok.
+12. Open the shortcut settings.
+13. Enable `Show in Share Sheet`.
+14. Set accepted input types to `URLs`.
 
 If the request fails, Shortcuts will show an error. A successful response means the link was durably accepted by LifeOS and queued for background processing.
 
