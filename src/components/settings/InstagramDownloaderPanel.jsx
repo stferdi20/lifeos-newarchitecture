@@ -10,6 +10,7 @@ import {
   retryFailedInstagramDownloads,
   updateInstagramDownloaderSettings,
 } from '@/lib/instagram-downloader-api';
+import { getLocalQueryCacheOptions } from '@/lib/local-query-cache';
 
 function getWorkerPresentation(state = 'offline') {
   switch (state) {
@@ -60,11 +61,13 @@ export default function InstagramDownloaderPanel() {
   const settingsQuery = useQuery({
     queryKey: ['instagram-downloader-settings'],
     queryFn: getInstagramDownloaderSettings,
+    ...getLocalQueryCacheOptions(['instagram-downloader-settings']),
   });
 
   const statusQuery = useQuery({
     queryKey: ['instagram-downloader-status'],
     queryFn: getInstagramDownloaderStatus,
+    ...getLocalQueryCacheOptions(['instagram-downloader-status']),
     refetchInterval: 15000,
   });
 

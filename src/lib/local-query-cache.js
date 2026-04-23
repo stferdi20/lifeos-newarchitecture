@@ -18,8 +18,11 @@ const QUERY_TTLS = {
   cards: 24 * HOUR_MS,
   'context-picker': 6 * HOUR_MS,
   creatorInspo: 12 * HOUR_MS,
+  'google-connections': 30 * MINUTE_MS,
   habits: 24 * HOUR_MS,
   habitLogs: 24 * HOUR_MS,
+  'instagram-downloader-settings': 30 * MINUTE_MS,
+  'instagram-downloader-status': 30 * 1000,
   investments: 30 * MINUTE_MS,
   lifeAreas: 7 * DAY_MS,
   mediaLibrary: MONTH_MS,
@@ -44,6 +47,8 @@ const QUERY_TTLS = {
   'workspace-cards': 24 * HOUR_MS,
   'workspace-lists': 7 * DAY_MS,
   workspaces: 7 * DAY_MS,
+  'youtube-transcript-settings': 30 * MINUTE_MS,
+  'youtube-transcript-status': 30 * 1000,
 };
 
 const PERSISTED_QUERY_PREFIXES = new Set([
@@ -52,8 +57,11 @@ const PERSISTED_QUERY_PREFIXES = new Set([
   'cards',
   'context-picker',
   'creatorInspo',
+  'google-connections',
   'habits',
   'habitLogs',
+  'instagram-downloader-settings',
+  'instagram-downloader-status',
   'investments',
   'lifeAreas',
   'mediaLibrary',
@@ -78,6 +86,8 @@ const PERSISTED_QUERY_PREFIXES = new Set([
   'workspace-cards',
   'workspace-lists',
   'workspaces',
+  'youtube-transcript-settings',
+  'youtube-transcript-status',
 ]);
 
 let dbPromise = null;

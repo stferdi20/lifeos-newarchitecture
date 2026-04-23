@@ -10,6 +10,7 @@ import {
   retryFailedYouTubeTranscripts,
   updateYouTubeTranscriptSettings,
 } from '@/lib/youtube-transcript-api';
+import { getLocalQueryCacheOptions } from '@/lib/local-query-cache';
 
 function getWorkerPresentation(state = 'offline') {
   switch (state) {
@@ -59,11 +60,13 @@ export default function YouTubeTranscriptPanel() {
   const settingsQuery = useQuery({
     queryKey: ['youtube-transcript-settings'],
     queryFn: getYouTubeTranscriptSettings,
+    ...getLocalQueryCacheOptions(['youtube-transcript-settings']),
   });
 
   const statusQuery = useQuery({
     queryKey: ['youtube-transcript-status'],
     queryFn: getYouTubeTranscriptStatus,
+    ...getLocalQueryCacheOptions(['youtube-transcript-status']),
     refetchInterval: 15000,
   });
 

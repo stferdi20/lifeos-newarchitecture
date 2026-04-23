@@ -13,6 +13,7 @@ import LocalQueryCacheProvider from '@/components/cache/LocalQueryCacheProvider'
 import Media from './pages/Media';
 import Resources from './pages/Resources';
 import Habits from './pages/Habits';
+import Settings from './pages/Settings';
 import { PageLoader } from '@/components/ui/page-loader';
 
 const PageNotFound = lazy(() => import('./lib/PageNotFound'));
@@ -33,7 +34,6 @@ const PromptWizard = lazy(() => import('./pages/PromptWizard'));
 const Snippets = lazy(() => import('./pages/Snippets'));
 const Tasks = lazy(() => import('./pages/Tasks'));
 const Login = lazy(() => import('./pages/Login'));
-const Settings = lazy(() => import('./pages/Settings'));
 const Capture = lazy(() => import('./pages/Capture'));
 
 function RouteFallback() {

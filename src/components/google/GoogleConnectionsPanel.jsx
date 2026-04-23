@@ -4,6 +4,7 @@ import { CheckCircle2, ExternalLink, Loader2, PlugZap, Unplug } from 'lucide-rea
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { connectGoogleService, disconnectGoogleService, listGoogleConnections } from '@/lib/google-api';
+import { getLocalQueryCacheOptions } from '@/lib/local-query-cache';
 
 const SERVICE_META = {
   drive: {
@@ -31,7 +32,7 @@ export default function GoogleConnectionsPanel() {
   const connectionsQuery = useQuery({
     queryKey: ['google-connections'],
     queryFn: listGoogleConnections,
-    staleTime: 30_000,
+    ...getLocalQueryCacheOptions(['google-connections']),
   });
 
   useEffect(() => {

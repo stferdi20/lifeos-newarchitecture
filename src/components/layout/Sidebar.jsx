@@ -71,6 +71,50 @@ function prefetchNavTarget(page, queryClient) {
       .catch(() => null);
   }
 
+  if (page === 'Settings') {
+    Promise.all([
+      import('@/lib/google-api'),
+      import('@/lib/instagram-downloader-api'),
+      import('@/lib/youtube-transcript-api'),
+    ])
+      .then(([
+        { listGoogleConnections },
+        { getInstagramDownloaderSettings, getInstagramDownloaderStatus },
+        { getYouTubeTranscriptSettings, getYouTubeTranscriptStatus },
+      ]) => {
+        queryClient.prefetchQuery({
+          queryKey: ['google-connections'],
+          queryFn: listGoogleConnections,
+          ...getLocalQueryCacheOptions(['google-connections']),
+        }).catch(() => null);
+
+        queryClient.prefetchQuery({
+          queryKey: ['instagram-downloader-settings'],
+          queryFn: getInstagramDownloaderSettings,
+          ...getLocalQueryCacheOptions(['instagram-downloader-settings']),
+        }).catch(() => null);
+
+        queryClient.prefetchQuery({
+          queryKey: ['instagram-downloader-status'],
+          queryFn: getInstagramDownloaderStatus,
+          ...getLocalQueryCacheOptions(['instagram-downloader-status']),
+        }).catch(() => null);
+
+        queryClient.prefetchQuery({
+          queryKey: ['youtube-transcript-settings'],
+          queryFn: getYouTubeTranscriptSettings,
+          ...getLocalQueryCacheOptions(['youtube-transcript-settings']),
+        }).catch(() => null);
+
+        queryClient.prefetchQuery({
+          queryKey: ['youtube-transcript-status'],
+          queryFn: getYouTubeTranscriptStatus,
+          ...getLocalQueryCacheOptions(['youtube-transcript-status']),
+        }).catch(() => null);
+      })
+      .catch(() => null);
+  }
+
   if (page !== 'Resources') return;
 
   import('@/lib/resources-api')
