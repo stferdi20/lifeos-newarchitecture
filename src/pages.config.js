@@ -53,7 +53,6 @@ import Dashboard from './pages/Dashboard';
 import Habits from './pages/Habits';
 import Ideas from './pages/Ideas';
 import Investments from './pages/Investments';
-import KnowledgeGraph from './pages/KnowledgeGraph';
 import Media from './pages/Media';
 import News from './pages/News';
 import Notes from './pages/Notes';
@@ -73,7 +72,6 @@ export const PAGES = {
     "Habits": Habits,
     "Ideas": Ideas,
     "Investments": Investments,
-    "KnowledgeGraph": KnowledgeGraph,
     "Media": Media,
     "News": News,
     "Notes": Notes,

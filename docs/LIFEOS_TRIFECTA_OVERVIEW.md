@@ -176,15 +176,6 @@ It supports:
 
 This is one of the strongest examples of cross-surface behavior because the web app and menubar both rely on the same shared snippet system.
 
-### Knowledge Graph
-
-Knowledge Graph is the relationship and browsing view for connected knowledge items.
-
-It is used for:
-
-- exploring links between stored entities
-- surfacing a more networked view of the system
-
 ### Media
 
 Media is a tracker for media consumption and media-related records.
@@ -315,7 +306,7 @@ The menubar is designed for speed and perceived immediacy, so cached data and ba
 
 1. Snippets store reusable text and media.
 2. Habits track routines.
-3. Media, Investments, News, Trends, Knowledge Graph, and Creator Vault extend LifeOS into adjacent personal knowledge areas.
+3. Media, Investments, News, Trends, and Creator Vault extend LifeOS into adjacent personal knowledge areas.
 4. Settings keeps integrations and automation healthy.
 
 ## Cross-Surface Rules

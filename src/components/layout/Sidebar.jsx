@@ -1,7 +1,7 @@
 import React from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, FolderKanban, CheckSquare, Newspaper, Film, TrendingUp, Network, CalendarDays, ChevronLeft, ChevronRight, Users, Wand2, Library, X, Settings, Scissors } from 'lucide-react';
+import { LayoutDashboard, FolderKanban, CheckSquare, Newspaper, Film, TrendingUp, CalendarDays, ChevronLeft, ChevronRight, Users, Wand2, Library, X, Settings, Scissors } from 'lucide-react';
 import { createPageUrl } from '@/utils';
 import { cn } from '@/lib/utils';
 import { getLocalQueryCacheOptions } from '@/lib/local-query-cache';
@@ -14,7 +14,6 @@ const navItems = [
   { page: 'Habits', label: 'Habits', icon: CheckSquare },
   { page: 'Resources', label: 'Resources', icon: Library },
   { page: 'Snippets', label: 'Snippets', icon: Scissors },
-  { page: 'KnowledgeGraph', label: 'Knowledge', icon: Network },
   { page: 'Media', label: 'Media', icon: Film },
   { page: 'CreatorVault', label: 'Creator Vault', icon: Users },
   { page: 'Investments', label: 'Investments', icon: TrendingUp },
@@ -30,7 +29,6 @@ const routePreloaders = {
   Dashboard: () => import('@/pages/Dashboard'),
   Habits: () => import('@/pages/Habits'),
   Investments: () => import('@/pages/Investments'),
-  KnowledgeGraph: () => import('@/pages/KnowledgeGraph'),
   Media: () => import('@/pages/Media'),
   News: () => import('@/pages/News'),
   Projects: () => import('@/pages/Projects'),
@@ -53,7 +51,27 @@ function prefetchNavTarget(page, queryClient) {
     });
   }
 
-  if (page !== 'Resources' || !queryClient) return;
+  if (!queryClient) return;
+
+  if (page === 'Habits') {
+    import('@/lib/habits-api')
+      .then(({ listHabitCards, listRecentHabitLogs }) => {
+        queryClient.prefetchQuery({
+          queryKey: ['habits'],
+          queryFn: listHabitCards,
+          ...getLocalQueryCacheOptions(['habits']),
+        }).catch(() => null);
+
+        queryClient.prefetchQuery({
+          queryKey: ['habitLogs'],
+          queryFn: () => listRecentHabitLogs(500),
+          ...getLocalQueryCacheOptions(['habitLogs']),
+        }).catch(() => null);
+      })
+      .catch(() => null);
+  }
+
+  if (page !== 'Resources') return;
 
   import('@/lib/resources-api')
     .then(({ listLifeAreaFilters, listResourceCards }) => {

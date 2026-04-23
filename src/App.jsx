@@ -26,7 +26,6 @@ const News = lazy(() => import('./pages/News'));
 const Ideas = lazy(() => import('./pages/Ideas'));
 const Investments = lazy(() => import('./pages/Investments'));
 const Tools = lazy(() => import('./pages/Tools'));
-const KnowledgeGraph = lazy(() => import('./pages/KnowledgeGraph'));
 const Calendar = lazy(() => import('./pages/Calendar'));
 const Trends = lazy(() => import('./pages/Trends'));
 const CreatorVault = lazy(() => import('./pages/CreatorVault'));
@@ -130,7 +129,6 @@ const AuthenticatedApp = () => {
         <Route path="/Media" element={<RouteElement><Media /></RouteElement>} />
         <Route path="/Investments" element={<RouteElement><Investments /></RouteElement>} />
         <Route path="/Tools" element={<RouteElement><Tools /></RouteElement>} />
-        <Route path="/KnowledgeGraph" element={<RouteElement><KnowledgeGraph /></RouteElement>} />
         <Route path="/Calendar" element={<RouteElement><Calendar /></RouteElement>} />
         <Route path="/Trends" element={<RouteElement><Trends /></RouteElement>} />
         <Route path="/CreatorVault" element={<RouteElement><CreatorVault /></RouteElement>} />
