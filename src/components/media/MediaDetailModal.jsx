@@ -4,6 +4,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Star, ExternalLink, Trash2, Clock, Users, Globe, Award, Monitor, BookOpen as BookIcon, Loader2, Sparkles } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import AutoEnrichBadge from './AutoEnrichBadge';
 import { enrichMediaEntry } from './enrichMedia';
@@ -315,21 +316,6 @@ export default function MediaDetailModal({ open, onClose, entry, onSave, onDelet
                 <p className="mt-2 text-xs leading-relaxed text-amber-200/80">
                   This entry is currently manual, so provider enrichment is limited until it is rematched.
                 </p>
-              )}
-              {shouldShowRefresh && (
-                <div className="mt-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleRefreshProviderDetails}
-                    disabled={refreshing}
-                    className="border-border/60 bg-secondary/20 text-xs"
-                  >
-                    {refreshing ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Sparkles className="mr-2 h-3.5 w-3.5" />}
-                    Refresh Provider Details
-                  </Button>
-                </div>
               )}
               {refreshError && <p className="mt-2 text-xs leading-relaxed text-red-300/80">{refreshError}</p>}
               {!entry?.id && (
@@ -664,6 +650,29 @@ export default function MediaDetailModal({ open, onClose, entry, onSave, onDelet
             )}
 
             <MobileStickyActions className="flex gap-2 bg-[#161820]/95">
+              {shouldShowRefresh && (
+                <TooltipProvider delayDuration={150}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="inline-flex">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={handleRefreshProviderDetails}
+                          disabled={refreshing}
+                          aria-label="Refresh provider details"
+                          title="Refresh provider details"
+                          className="h-9 w-9 text-cyan-300 hover:bg-cyan-500/10 hover:text-cyan-200"
+                        >
+                          {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Refresh provider details</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
               {entry?.id && (
                 <Button
                   variant="ghost"
