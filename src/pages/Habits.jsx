@@ -1,12 +1,13 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus } from 'lucide-react';
+import { Activity, CheckSquare, Plus } from 'lucide-react';
 import { Habit, HABIT_CARDS_QUERY_KEY, HABIT_LOGS_RECENT_QUERY_KEY, listHabitCards, listRecentHabitLogs } from '@/lib/habits-api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ResponsiveModal, ResponsiveModalContent, ResponsiveModalHeader, ResponsiveModalTitle } from '@/components/ui/responsive-modal';
 import { PageHeader } from '@/components/layout/page-header';
 import { getLocalQueryCacheOptions } from '@/lib/local-query-cache';
+import { cn } from '@/lib/utils';
 import HabitCard from '../components/habits/HabitCard';
 
 const EMOJI_OPTIONS = ['📖', '🏋️', '🧘', '📚', '🎨', '💻', '🏃', '💊', '🧠', '✍️', '🎵', '🌱'];
@@ -45,6 +46,7 @@ function HabitCardSkeleton() {
 export default function Habits() {
   const [showForm, setShowForm] = useState(false);
   const [editingHabit, setEditingHabit] = useState(null);
+  const [viewMode, setViewMode] = useState('checklist');
   const [name, setName] = useState('');
   const [icon, setIcon] = useState('📖');
   const queryClient = useQueryClient();
@@ -120,6 +122,48 @@ export default function Habits() {
         className="mb-6"
       />
 
+      {!isInitialHabitsLoad && !hasHabitsError && habits.length > 0 && (
+        <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-border/40 bg-card/50 p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-medium text-foreground">
+              {viewMode === 'checklist' ? 'Today checklist' : 'Activity heatmap'}
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {viewMode === 'checklist'
+                ? 'Compact cards focused on the last 7 days.'
+                : 'Expanded cards showing the longer habit pattern.'}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 rounded-xl border border-border/50 bg-secondary/20 p-1 sm:w-auto">
+            {[
+              { value: 'checklist', label: 'Checklist', icon: CheckSquare },
+              { value: 'heatmap', label: 'Heatmap', icon: Activity },
+            ].map(({ value, label, icon: Icon }) => {
+              const selected = viewMode === value;
+
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setViewMode(value)}
+                  className={cn(
+                    'inline-flex min-h-9 items-center justify-center gap-2 rounded-lg px-3 text-xs font-medium transition-colors',
+                    selected
+                      ? 'bg-card text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  )}
+                  aria-pressed={selected}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {isInitialHabitsLoad ? (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {Array.from({ length: 4 }).map((_, index) => (
@@ -132,9 +176,20 @@ export default function Habits() {
           <p className="mt-1 text-sm text-muted-foreground">Refresh the page or try again in a moment.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className={cn(
+          'grid grid-cols-1 gap-4',
+          viewMode === 'checklist'
+            ? 'md:grid-cols-2 xl:grid-cols-3'
+            : 'md:grid-cols-2'
+        )}>
           {habits.map(habit => (
-            <HabitCard key={habit.id} habit={habit} habitLogs={habitLogsByHabitId.get(habit.id) || []} onEdit={openEdit} />
+            <HabitCard
+              key={habit.id}
+              habit={habit}
+              habitLogs={habitLogsByHabitId.get(habit.id) || []}
+              onEdit={openEdit}
+              viewMode={viewMode}
+            />
           ))}
         </div>
       )}

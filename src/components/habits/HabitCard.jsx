@@ -5,13 +5,14 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Habit, HabitLog, HABIT_LOGS_RECENT_QUERY_KEY } from '@/lib/habits-api';
 import HabitHeatmap from './HabitHeatmap';
 
-export default function HabitCard({ habit, habitLogs, onEdit }) {
+export default function HabitCard({ habit, habitLogs, onEdit, viewMode = 'checklist' }) {
   const queryClient = useQueryClient();
   const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
 
   const myLogs = useMemo(() => habitLogs || [], [habitLogs]);
   const todayLog = useMemo(() => myLogs.find(l => l.date === todayStr && l.completed), [myLogs, todayStr]);
   const isDone = !!todayLog;
+  const showHeatmap = viewMode === 'heatmap';
 
   const completedDates = useMemo(() => new Set(myLogs.filter(l => l.completed).map(l => l.date)), [myLogs]);
   const recentWindowDays = 30 * 7;
@@ -238,20 +239,22 @@ export default function HabitCard({ habit, habitLogs, onEdit }) {
           </div>
         </div>
 
-        <div className="min-w-0 border-t border-border/30 pt-3">
-          <div className="mb-3 flex items-end justify-between gap-3">
-            <div>
-              <p className="text-[10px] uppercase tracking-widest text-muted-foreground/50">Activity</p>
-              <p className="mt-1 text-xs text-muted-foreground/60">Last 30 weeks</p>
+        {showHeatmap && (
+          <div className="min-w-0 border-t border-border/30 pt-3">
+            <div className="mb-3 flex items-end justify-between gap-3">
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-muted-foreground/50">Activity</p>
+                <p className="mt-1 text-xs text-muted-foreground/60">Last 30 weeks</p>
+              </div>
+              <div className="text-right">
+                <p className="text-sm font-semibold leading-none text-foreground">{recentCompletion.completed} days</p>
+                <p className="mt-1 text-[10px] uppercase tracking-widest text-muted-foreground/50">logged</p>
+              </div>
             </div>
-            <div className="text-right">
-              <p className="text-sm font-semibold leading-none text-foreground">{recentCompletion.completed} days</p>
-              <p className="mt-1 text-[10px] uppercase tracking-widest text-muted-foreground/50">logged</p>
-            </div>
-          </div>
 
-          <HabitHeatmap habitId={habit.id} habitLogs={habitLogs} weeksCount={30} cellSize={11} />
-        </div>
+            <HabitHeatmap habitId={habit.id} habitLogs={habitLogs} weeksCount={30} cellSize={11} />
+          </div>
+        )}
       </div>
     </div>
   );
