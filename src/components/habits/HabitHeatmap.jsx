@@ -42,8 +42,8 @@ export default function HabitHeatmap({ habitId, habitLogs, weeksCount = 30, cell
   }, [habitId, habitLogs, weeksCount]);
 
   return (
-    <div className="overflow-x-auto pb-1">
-      <div className="inline-block min-w-max">
+    <div className="max-w-full overflow-x-auto pb-1">
+      <div className="mx-auto inline-block min-w-max">
         {/* Month labels */}
         <div className="flex ml-7 mb-1" style={{ gap: '3px' }}>
           {weeks.map((_, wi) => {

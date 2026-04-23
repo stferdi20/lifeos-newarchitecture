@@ -56,7 +56,6 @@ export default function HabitCard({ habit, habitLogs, onEdit }) {
 
     return {
       completed,
-      rate: Math.round((completed / recentWindowDays) * 100),
     };
   }, [completedDates, recentWindowDays]);
 
@@ -143,13 +142,13 @@ export default function HabitCard({ habit, habitLogs, onEdit }) {
 
   return (
     <div className={cn(
-      'group rounded-2xl bg-card border transition-all hover:border-primary/20',
+      'group overflow-hidden rounded-2xl bg-card border transition-all hover:border-primary/20',
       isDone ? 'border-emerald-500/30' : 'border-border/50'
     )}>
-      <div className="grid gap-4 p-4 2xl:grid-cols-[minmax(13rem,0.78fr)_minmax(24rem,1.22fr)] 2xl:items-start">
+      <div className="grid gap-4 p-4">
         <div className="min-w-0">
           <div className="flex items-start justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-3">
+            <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
               <button
                 onClick={() => toggleMutation.mutate()}
                 className={cn(
@@ -163,7 +162,7 @@ export default function HabitCard({ habit, habitLogs, onEdit }) {
                 {isDone && <Check className="w-4 h-4 text-white" />}
               </button>
               <div className="min-w-0">
-                <p className="truncate text-base font-semibold tracking-tight">{habit.icon} {habit.name}</p>
+                <p className="break-words text-base font-semibold leading-snug tracking-tight">{habit.icon} {habit.name}</p>
                 <p className={cn(
                   'mt-0.5 text-xs',
                   isDone ? 'text-emerald-400' : 'text-muted-foreground/60'
@@ -239,15 +238,15 @@ export default function HabitCard({ habit, habitLogs, onEdit }) {
           </div>
         </div>
 
-        <div className="min-w-0 border-t border-border/30 pt-3 2xl:border-l 2xl:border-t-0 2xl:pl-4 2xl:pt-0">
+        <div className="min-w-0 border-t border-border/30 pt-3">
           <div className="mb-3 flex items-end justify-between gap-3">
             <div>
               <p className="text-[10px] uppercase tracking-widest text-muted-foreground/50">Activity</p>
               <p className="mt-1 text-xs text-muted-foreground/60">Last 30 weeks</p>
             </div>
             <div className="text-right">
-              <p className="text-xl font-semibold leading-none text-foreground">{recentCompletion.rate}%</p>
-              <p className="mt-1 text-[10px] uppercase tracking-widest text-muted-foreground/50">completion</p>
+              <p className="text-sm font-semibold leading-none text-foreground">{recentCompletion.completed} days</p>
+              <p className="mt-1 text-[10px] uppercase tracking-widest text-muted-foreground/50">logged</p>
             </div>
           </div>
 
