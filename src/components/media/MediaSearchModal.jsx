@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Input } from '@/components/ui/input';
-import { Search, Loader2, Film, Tv, Sword, BookOpen, Gamepad2, BookMarked, Layers, AlertTriangle, Sparkles, BadgeCheck } from 'lucide-react';
+import { Search, X, Loader2, Film, Tv, Sword, BookOpen, Gamepad2, BookMarked, Layers, AlertTriangle, Sparkles, BadgeCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getMediaTypeHealthMessage, searchMediaByType } from './searchMedia';
 import { enrichMediaEntry } from './enrichMedia';
@@ -49,6 +49,7 @@ export default function MediaSearchModal({
   const [savingKey, setSavingKey] = useState('');
   const [actionError, setActionError] = useState('');
   const [pendingFallbackEntry, setPendingFallbackEntry] = useState(null);
+  const queryInputRef = useRef(null);
   const requestIdRef = useRef(0);
   const backendHealthMessage = getMediaTypeHealthMessage(activeType, mediaHealth);
   const normalizedExistingEntries = useMemo(() => normalizeMediaEntries(existingEntries), [existingEntries]);
@@ -57,6 +58,18 @@ export default function MediaSearchModal({
 
   const handleQueryChange = (val) => {
     setQuery(val);
+  };
+
+  const handleClearQuery = () => {
+    setQuery('');
+    setResults([]);
+    setErrorMessage('');
+    setActionError('');
+    setPendingFallbackEntry(null);
+    setManualMode(false);
+    setManualTitle('');
+    requestIdRef.current += 1;
+    queryInputRef.current?.focus();
   };
 
   const handleTypeChange = (type) => {
@@ -82,8 +95,6 @@ export default function MediaSearchModal({
   };
 
   const resetAfterCreate = () => {
-    setQuery('');
-    setResults([]);
     setErrorMessage('');
     setActionError('');
     setPendingFallbackEntry(null);
@@ -275,9 +286,23 @@ export default function MediaSearchModal({
         <div className="px-4 pt-3 sm:px-6">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input value={query} onChange={e => handleQueryChange(e.target.value)}
+            <Input
+              ref={queryInputRef}
+              value={query}
+              onChange={e => handleQueryChange(e.target.value)}
               placeholder={`Search ${MEDIA_TYPES.find(t => t.key === activeType)?.label}...`}
-              className="pl-9 bg-secondary/40 border-border/50" />
+              className="pl-9 pr-10 bg-secondary/40 border-border/50"
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={handleClearQuery}
+                aria-label="Clear media search"
+                className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
             Pick an API suggestion to enrich first and save directly. Manual add is still available when no reliable provider match exists.
